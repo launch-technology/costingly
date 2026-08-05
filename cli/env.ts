@@ -10,6 +10,7 @@
  *   2. --config <path>              explicit; fails loudly if missing
  *   3. ./.env                       cwd — preserves the old behaviour exactly
  *   4. <packageRoot>/.env           makes the binary work from anywhere
+ *   5. ~/.config/costingly/.env     what `costingly init` writes
  *
  * dotenv accepts an array of paths and keeps the FIRST value it sees for a key,
  * so 3 and 4 are one call with cwd winning.
@@ -21,10 +22,25 @@
  */
 
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 import { packageEnvPath, packageRoot } from "./paths.js";
 import { CliError } from "./errors.js";
+
+/**
+ * Where `costingly init` writes, and the last place loadEnv() looks.
+ *
+ * This is the only candidate that exists on a machine with no project
+ * directory — the `npx costingly` case, where neither ./.env nor a packaged
+ * .env is present. XDG_CONFIG_HOME is honoured, matching how dataDir() honours
+ * XDG_DATA_HOME.
+ */
+export function userConfigPath(): string {
+  const xdg = process.env["XDG_CONFIG_HOME"];
+  const base = xdg !== undefined && xdg.trim() !== "" ? xdg : join(homedir(), ".config");
+  return join(base, "costingly", ".env");
+}
 
 export interface LoadedEnv {
   /** Absolute path of the file that supplied values, or null if none existed. */
@@ -63,6 +79,9 @@ export function loadEnv(envFile?: string | undefined): void {
   // Skip the duplicate when the cwd IS the package root (the common case when
   // working in the project directory).
   if (process.cwd() !== packageRoot) candidates.push(packageEnvPath);
+  // Appended last on purpose: adding it cannot change how any existing setup
+  // resolves, only give an answer where there previously was none.
+  candidates.push(userConfigPath());
 
   const found = candidates.filter((candidate) => existsSync(candidate));
   if (found.length > 0) {

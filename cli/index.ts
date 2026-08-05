@@ -19,6 +19,7 @@ import { environmentBanner } from "./banner.js";
 import { CliError } from "./errors.js";
 import { packageVersion } from "./paths.js";
 
+import { registerInitCommand } from "./init.js";
 import { registerKeygenCommand } from "./keygen.js";
 import { registerMigrateCommand } from "./migrate.js";
 import { registerLinkCommand } from "./link.js";
@@ -52,6 +53,7 @@ Per-command flags:  costingly <command> --help
 
   // Registration order is help order. .helpGroup() on each command produces the
   // grouped catalog the old hand-rolled help.ts used to print.
+  registerInitCommand(program);
   registerKeygenCommand(program);
   registerMigrateCommand(program);
   registerLinkCommand(program);
@@ -83,11 +85,33 @@ async function main(): Promise<void> {
   await program.parseAsync(process.argv);
 }
 
+/**
+ * Postgres `undefined_table`. On a fresh install this is the very first thing a
+ * user hits — the database file exists but has no schema — and the raw
+ * `relation "items" does not exist` is a terrible first impression.
+ */
+function isMissingSchema(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "42P01"
+  );
+}
+
 main()
   .catch((error: unknown) => {
     if (error instanceof CliError) {
       console.error(error.message);
       process.exitCode = error.exitCode;
+      return;
+    }
+    if (isMissingSchema(error)) {
+      console.error(
+        "The database has not been set up yet.\n\n" +
+          "  costingly init      set up credentials and create it\n" +
+          "  costingly migrate   just create the tables",
+      );
+      process.exitCode = 1;
       return;
     }
     console.error(error instanceof Error ? error.message : error);

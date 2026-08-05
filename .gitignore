@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# `.env.*` above catches this too, and the .env.example exception does not
+# cover it — without this line the template would be silently uncommittable.
+!.env.sandbox.example
 
 # Dependencies
 node_modules/

@@ -18,7 +18,7 @@ function required(name: string): string {
   if (value === undefined || value.trim() === "") {
     throw new Error(
       `Missing required environment variable: ${name}. ` +
-        `Copy .env.example to .env and fill it in.`,
+        `Run \`costingly init\` to set it up.`,
     );
   }
   return value;

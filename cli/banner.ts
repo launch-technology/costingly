@@ -42,7 +42,7 @@ export function environmentBanner(): string {
   const envPath = loadedEnvPath();
   lines.push(
     envPath === null
-      ? "  Config file         (none found — copy .env.example to .env)"
+      ? "  Config file         (none found — run `costingly init`)"
       : `  Config file         ${envPath}`,
   );
 

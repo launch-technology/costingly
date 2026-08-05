@@ -123,23 +123,6 @@ Leave it unset and you get the embedded database. That single switch is what
 keeps the zero-install local story and the serverless deployment story from
 being two different codebases.
 
-### Test with sandbox first
-
-Recommended before pointing at real accounts. In `.env`:
-
-```bash
-PLAID_ENV=sandbox
-PLAID_SECRET=<your sandbox secret>   # different from the production one
-```
-
-Then `costingly link` and pick any institution — log in with username `user_good`
-and password `pass_good`. If prompted for MFA, use `1234`. You get a realistic
-set of fake accounts and transactions to verify the whole pipeline against.
-
-Sandbox and production access tokens are not interchangeable, so switching
-`PLAID_ENV` means wiping and re-linking. See
-[Switching environments](#switching-environments).
-
 ---
 
 ## Deleting data
@@ -202,16 +185,15 @@ labelled `(REMOTE)`.
 `-y` / `--yes` skips the prompt for scripts. Without it, a non-interactive shell
 refuses outright rather than guessing.
 
-### Switching environments
+### Starting over
 
-Sandbox and production tokens are not interchangeable, so moving between them is
-a wipe-and-relink:
+To wipe and re-link from scratch — after losing your `ENCRYPTION_KEY`, say, or
+just to clear everything out:
 
 ```bash
-costingly reset --revoke      # clean slate; sandbox tokens invalidated
-# edit .env:  PLAID_ENV=production  and the matching PLAID_SECRET
-costingly link                   # re-link each bank against production
-costingly sync                   # full history backfill
+costingly reset --revoke      # clean slate; tokens invalidated at Plaid
+costingly link                # re-link each bank
+costingly sync                # full history backfill
 ```
 
 Keep the same `ENCRYPTION_KEY` unless you have a reason to rotate it — changing
@@ -548,7 +530,7 @@ Global flags: `--config <path>` to read a different `.env`, `--version`, `--help
 
 `costingly` finds its settings in this order, first hit wins:
 
-1. Real environment variables — `PLAID_ENV=sandbox costingly status` works
+1. Real environment variables — `DATABASE_URL=… costingly status` works
 2. `--config <path>`
 3. `./.env` in the current directory
 4. `.env` in the project directory
@@ -557,6 +539,48 @@ Steps 3–4 are why the command works from anywhere under `npm link`. If you
 install with `npm install -g .` instead, the copied package has no `.env` — use
 real environment variables or `--config`. The banner on `costingly` tells you
 which file was actually loaded.
+
+---
+
+## Development
+
+### Sandbox
+
+Plaid's sandbox serves fake institutions and fake transactions. It is **not a
+product feature** — users always run against production, and there is no
+environment setting in `.env` at all. It exists so the end-to-end test, and
+anyone contributing, can exercise the real Plaid API without touching real
+accounts or paying for Items.
+
+It lives entirely in its own config file:
+
+```bash
+cp .env.sandbox.example .env.sandbox   # then fill in your sandbox secret
+```
+
+That file carries a complete configuration — including its own
+`COSTINGLY_DATA_DIR`, so sandbox gets a **separate database** and can never read
+or write your real transactions, and its own throwaway `ENCRYPTION_KEY`, so it
+cannot decrypt anything of yours.
+
+The end-to-end suite loads it by path. Any command can be pointed at it too:
+
+```bash
+costingly --config .env.sandbox status
+```
+
+In sandbox, Plaid Link accepts `user_good` / `pass_good`, and `1234` for MFA.
+
+Without `.env.sandbox`, the end-to-end test skips rather than fails — everything
+else still runs.
+
+### Commands
+
+| Command | Does |
+| --- | --- |
+| `npm run build` | Compile to `dist/` (also runs on `npm install`) |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run cli -- <command>` | Run from source via tsx, without rebuilding |
 
 ---
 
@@ -585,6 +609,6 @@ which file was actually loaded.
 | `ITEM_LOGIN_REQUIRED` | The bank needs re-authentication. The item's `status` is set to `login_required` and it is skipped until repaired — re-link it via `costingly link`. |
 | Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `costingly sync` again shortly. |
 | `Failed to decrypt access token` | `ENCRYPTION_KEY` does not match the key the tokens were stored with. |
-| `INVALID_API_KEYS` | `PLAID_SECRET` does not match `PLAID_ENV` — sandbox and production have different secrets. |
+| `INVALID_API_KEYS` | Wrong `PLAID_CLIENT_ID` / `PLAID_SECRET`. Re-run `costingly init`, which verifies them against Plaid before saving. |
 | `ECONNREFUSED ... 5432` | Only possible with `DATABASE_URL` set. Unset it to use the embedded database, or check the server it points at. |
 | `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` | Handled automatically — pagination restarts from the stored cursor, up to 5 times. |

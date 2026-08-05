@@ -6,9 +6,8 @@
  *   costingly reset --data-only   keep the bank links, drop synced data
  *   costingly reset --yes         skip the confirmation (scripts only)
  *
- * The main use is switching PLAID_ENV: sandbox and production access tokens are
- * not interchangeable, so moving between them means starting from a clean
- * database and re-linking.
+ * Use it to start over: clear everything and re-link, or drop synced data while
+ * keeping the bank connections.
  */
 
 import type { Command } from "commander";
@@ -39,9 +38,8 @@ export function registerResetCommand(program: Command): void {
 Deleting locally does NOT remove the Item at Plaid — it keeps existing and keeps
 counting against your plan. Use --revoke to invalidate it there as well.
 
-Switching PLAID_ENV (sandbox <-> production):
-  costingly reset --revoke     # clean slate, tokens invalidated
-  # edit .env: PLAID_ENV + the matching PLAID_SECRET
+Starting over:
+  costingly reset --revoke     # clean slate, tokens invalidated at Plaid
   costingly link               # re-link each bank`,
     )
     .action(async (options: ResetOptions) => {
