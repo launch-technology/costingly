@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: plaid-sync-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: plaid
+      POSTGRES_PASSWORD: plaid
+      POSTGRES_DB: plaid_sync
+    ports:
+      # Host 5432 -> container 5432. If you already run Postgres locally on
+      # 5432, change the host side to e.g. "5433:5432" and update DATABASE_URL.
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plaid -d plaid_sync"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

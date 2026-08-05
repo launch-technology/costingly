@@ -1,0 +1,24 @@
+# Secrets — never commit these
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.next/
+.vercel/
+
+# Local Postgres data (docker-compose volume, if bind-mounted)
+pgdata/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/
