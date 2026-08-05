@@ -8,7 +8,7 @@
  */
 
 import { loadedEnvPath } from "./env.js";
-import { dataDir } from "../src/db.js";
+import { clusterDir } from "../src/server.js";
 
 export function environmentBanner(): string {
   const lines: string[] = [];
@@ -22,8 +22,8 @@ export function environmentBanner(): string {
 
   const url = process.env["DATABASE_URL"];
   if (url === undefined || url.trim() === "") {
-    // The normal case: embedded PGlite, nothing to install or configure.
-    lines.push(`  Database            embedded  ·  ${dataDir()}`);
+    // The normal case: the local cluster costingly manages, nothing to install.
+    lines.push(`  Database            local  ·  ${clusterDir()}`);
   } else {
     try {
       const parsed = new URL(url);

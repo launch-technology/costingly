@@ -9,7 +9,8 @@
  */
 
 import type { Command } from "commander";
-import { query } from "../src/db.js";
+import { query, usingRemoteDatabase, describeDriver } from "../src/db.js";
+import { describeServer } from "../src/server.js";
 import { money, ago } from "./format.js";
 
 type Row = {
@@ -112,6 +113,17 @@ Never decrypts an access token — this only reads metadata.
     });
 }
 
+/**
+ * Where the data actually lives.
+ *
+ * Worth printing every time: with a managed local server there is now a process
+ * that can be up or down, and "is it running?" is the first question when
+ * something behaves oddly.
+ */
+async function databaseLine(): Promise<string> {
+  return usingRemoteDatabase() ? await describeDriver() : await describeServer();
+}
+
 export async function runStatus(options: StatusOptions): Promise<void> {
   const { rows } = await query<Row>(`
     SELECT i.item_id,
@@ -141,10 +153,17 @@ export async function runStatus(options: StatusOptions): Promise<void> {
 
   if (rows.length === 0) {
     if (options.json) {
-      console.log(JSON.stringify({ items: [], accounts: 0, transactions: 0 }, null, 2));
+      console.log(
+        JSON.stringify(
+          { items: [], accounts: 0, transactions: 0, needsAttention: false },
+          null,
+          2,
+        ),
+      );
       return;
     }
-    console.log("No banks linked yet. Run `costingly link` to connect one.");
+    console.log(`\n${await databaseLine()}`);
+    console.log("\nNo banks linked yet. Run `costingly link` to connect one.");
     return;
   }
 
@@ -200,4 +219,5 @@ export async function runStatus(options: StatusOptions): Promise<void> {
   console.log(
     `${byItem.size} bank(s), ${totalAccounts} account(s), ${totalTxns} transaction(s)`,
   );
+  console.log(await databaseLine());
 }

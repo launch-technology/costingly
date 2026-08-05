@@ -13,7 +13,9 @@
  *   5. ~/.config/costingly/.env     what `costingly init` writes
  *
  * dotenv accepts an array of paths and keeps the FIRST value it sees for a key,
- * so 3 and 4 are one call with cwd winning.
+ * so 3, 4 and 5 are one call with the earlier file winning. This is a per-key
+ * merge rather than "one file wins": a key absent from the first file is still
+ * picked up from a later one.
  *
  * Note the difference between install modes: `npm link` symlinks the working
  * tree, so (4) finds the project's real .env. `npm install -g .` copies a packed

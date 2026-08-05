@@ -25,7 +25,6 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
-    "@electric-sql/pglite": "^0.5.4",
     "commander": "^15.0.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
@@ -38,5 +37,15 @@
     "@types/pg": "^8.20.3",
     "tsx": "^4.23.5",
     "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "@embedded-postgres/darwin-arm64": "^18.4.0-beta.17",
+    "@embedded-postgres/darwin-x64": "^18.4.0-beta.17",
+    "@embedded-postgres/linux-arm": "^18.4.0-beta.17",
+    "@embedded-postgres/linux-arm64": "^18.4.0-beta.17",
+    "@embedded-postgres/linux-ia32": "^18.4.0-beta.17",
+    "@embedded-postgres/linux-ppc64": "^18.4.0-beta.17",
+    "@embedded-postgres/linux-x64": "^18.4.0-beta.17",
+    "@embedded-postgres/windows-x64": "^18.4.0-beta.17"
   }
 }

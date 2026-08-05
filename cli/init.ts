@@ -18,7 +18,7 @@ import { stdin } from "node:process";
 import { generateEncryptionKey } from "../src/crypto.js";
 import { describeError } from "../src/plaid.js";
 import { createLinkToken } from "../src/link.js";
-import { dataDir } from "../src/db.js";
+import { clusterDir } from "../src/server.js";
 import { randomBytes } from "node:crypto";
 import { packageRoot } from "./paths.js";
 import { join } from "node:path";
@@ -201,12 +201,17 @@ export async function runInit(options: InitOptions, io: PromptIO = {}): Promise<
   // --- database -----------------------------------------------------------
   const proceed = await confirm({
     ...io,
-    message: `Create the database at ${dataDir()}?`,
+    message: `Create the database at ${clusterDir()}?`,
     initialValue: true,
   });
   if (isCancel(proceed)) return cancelled(io);
 
   if (proceed) {
+    // First run does real work here — initdb, start the postmaster, CREATE
+    // DATABASE — all of which runMigrate() triggers lazily through the driver.
+    // Worth saying so, because initdb takes a few seconds and silence reads as
+    // a hang.
+    log.info("Setting up PostgreSQL (first run takes a few seconds)…", io);
     await runMigrate();
     log.success("Database ready", io);
   }

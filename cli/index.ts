@@ -28,6 +28,7 @@ import { registerStatusCommand } from "./status.js";
 import { registerTransactionsCommand } from "./transactions.js";
 import { registerUnlinkCommand } from "./unlink.js";
 import { registerResetCommand } from "./reset.js";
+import { registerStopCommand } from "./stop.js";
 
 /**
  * Build the command tree without parsing.
@@ -60,6 +61,7 @@ Per-command flags:  costingly <command> --help
   registerSyncCommand(program);
   registerStatusCommand(program);
   registerTransactionsCommand(program);
+  registerStopCommand(program);
   registerUnlinkCommand(program);
   registerResetCommand(program);
 

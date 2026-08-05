@@ -1,28 +1,20 @@
 /**
- * Database access, over one of two Postgres drivers.
+ * Database access.
  *
- *   default          PGlite — Postgres compiled to WASM, an ordinary npm
- *                    dependency. No Docker, no daemon, no port, nothing to
- *                    install. Data lives in a directory under the user's home.
- *   DATABASE_URL set node-postgres against a real server. This is the path a
- *                    Next.js deployment on Vercel takes, pointed at Neon /
- *                    Supabase / Vercel Postgres.
+ *   default          The local PostgreSQL cluster costingly manages itself —
+ *                    real Postgres binaries shipped as an npm dependency, no
+ *                    Docker, nothing to install. See src/server.ts.
+ *   DATABASE_URL set  Someone else's Postgres server. This is the path a Next.js
+ *                    deployment on Vercel takes, pointed at Neon / Supabase /
+ *                    Vercel Postgres, and the escape hatch for anyone who would
+ *                    rather run their own.
  *
- * Both are genuinely Postgres, so every query in this codebase is written once
- * and runs unchanged either way — which is the whole reason not to reach for
- * SQLite when "something lighter than Docker" is the goal.
- *
- * Callers see `DbResult` / `DbClient`, never a driver type. That is what keeps
- * the switch invisible above this module.
+ * Both are ordinary Postgres over `pg`, so the only real difference is who
+ * starts the server. Callers see `DbResult` / `DbClient` and never a driver
+ * type.
  */
 
-import { mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { acquireDataDirLock } from "./lock.js";
-
-/** Used for the data directory. One place to change if the product is renamed. */
-const APP_NAME = "costingly";
+import { connectionString, ensureDatabaseExists, ensureServerRunning } from "./server.js";
 
 // ---------------------------------------------------------------------------
 // Driver-agnostic surface
@@ -56,112 +48,28 @@ interface Driver extends DbClient {
 // ---------------------------------------------------------------------------
 // Type parsing
 // ---------------------------------------------------------------------------
-// Both drivers get the same treatment so a row looks identical either way:
-//
-//   DATE (OID 1082)    kept as the "YYYY-MM-DD" string Postgres sent. Parsing
-//                      it into a JS Date builds it in local time under pg and
-//                      UTC under PGlite — either way a calendar day like a
-//                      Plaid transaction date can shift by one.
-//   NUMERIC (OID 1700) left as a string by both drivers already. Parsing to a
-//                      JS float would reintroduce the rounding NUMERIC exists
-//                      to avoid.
+//   DATE (OID 1082)    kept as the "YYYY-MM-DD" string Postgres sent. Parsing it
+//                      into a JS Date builds it in local time, so a calendar day
+//                      like a Plaid transaction date can shift by one.
+//   NUMERIC (OID 1700) left as a string by pg already. Parsing to a JS float
+//                      would reintroduce the rounding NUMERIC exists to avoid.
 
 const DATE_OID = 1082;
 const keepAsSent = (value: string): string => value;
 
 // ---------------------------------------------------------------------------
-// Where local data lives
+// Where the data goes
 // ---------------------------------------------------------------------------
-
-/**
- * Directory for the embedded database.
- *
- * `COSTINGLY_DATA_DIR` overrides it; otherwise XDG (`~/.local/share/...`),
- * which is predictable, easy to back up, and easy to delete.
- */
-export function dataDir(): string {
-  const override = process.env["COSTINGLY_DATA_DIR"];
-  if (override !== undefined && override.trim() !== "") return override;
-
-  const xdg = process.env["XDG_DATA_HOME"];
-  const base = xdg !== undefined && xdg.trim() !== "" ? xdg : join(homedir(), ".local", "share");
-  return join(base, APP_NAME, "pgdata");
-}
 
 function databaseUrl(): string | undefined {
   const url = process.env["DATABASE_URL"];
   return url !== undefined && url.trim() !== "" ? url : undefined;
 }
 
-/** True when queries will go to a real Postgres server rather than PGlite. */
+/** True when queries go to a server costingly does not manage. */
 export function usingRemoteDatabase(): boolean {
   return databaseUrl() !== undefined;
 }
-
-// ---------------------------------------------------------------------------
-// PGlite driver (default)
-// ---------------------------------------------------------------------------
-
-async function createPgliteDriver(): Promise<Driver> {
-  // Imported dynamically so a serverless deployment that sets DATABASE_URL
-  // never pulls ~24MB of WASM into its bundle.
-  const { PGlite } = await import("@electric-sql/pglite");
-  const directory = dataDir();
-
-  // PGlite's mkdir is not recursive: it creates the leaf only, so a first run
-  // where ~/.local/share/<app>/ does not yet exist fails with ENOENT. Creating
-  // the tree ourselves is the difference between "just works" and a stack trace
-  // on somebody's very first command.
-  await mkdir(directory, { recursive: true });
-
-  // PGlite does no locking of its own, so two processes would open this
-  // directory simultaneously and corrupt each other. See src/lock.ts — this
-  // goes away when upstream PR #892 ships.
-  const release = await acquireDataDirLock(directory);
-
-  const db = await PGlite.create({
-    dataDir: directory,
-    parsers: { [DATE_OID]: keepAsSent },
-  }).catch(async (error: unknown) => {
-    // A failed boot must not orphan the lock, or the next run finds a live
-    // holder that never actually opened anything.
-    await release();
-    throw error;
-  });
-
-  const run = async <T extends DbRow>(
-    source: { query: (text: string, params?: unknown[]) => Promise<{ rows: T[]; affectedRows?: number }> },
-    text: string,
-    params?: readonly unknown[],
-  ): Promise<DbResult<T>> => {
-    const result = await source.query(text, params ? [...params] : undefined);
-    return { rows: result.rows, rowCount: result.affectedRows ?? 0 };
-  };
-
-  return {
-    query: (text, params) => run(db as never, text, params),
-    execScript: async (sql) => {
-      await db.exec(sql);
-    },
-    transaction: async (fn) =>
-      db.transaction(async (tx) => fn({ query: (text, params) => run(tx as never, text, params) })),
-    close: async () => {
-      try {
-        await db.close();
-      } finally {
-        // In `finally` on purpose: closeDb() swallows errors, so releasing only
-        // on a successful close would silently leak the lock and leave the next
-        // run reporting a busy database that is not.
-        await release();
-      }
-    },
-    describe: () => `PGlite (embedded) at ${directory}`,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// node-postgres driver (when DATABASE_URL is set)
-// ---------------------------------------------------------------------------
 
 /**
  * Enable TLS unless the host is local.
@@ -170,15 +78,16 @@ async function createPgliteDriver(): Promise<Driver> {
  * does not trust out of the box, hence `rejectUnauthorized: false` — the
  * standard configuration for these providers.
  */
-function sslFor(connectionString: string): { rejectUnauthorized: boolean } | undefined {
+function sslFor(connString: string): { rejectUnauthorized: boolean } | undefined {
   let hostname: string;
   try {
-    hostname = new URL(connectionString).hostname;
+    hostname = new URL(connString).hostname;
   } catch {
     return undefined;
   }
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const isLocal =
+    host === "" ||
     host === "localhost" ||
     host === "127.0.0.1" ||
     host === "::1" ||
@@ -188,18 +97,33 @@ function sslFor(connectionString: string): { rejectUnauthorized: boolean } | und
   return isLocal ? undefined : { rejectUnauthorized: false };
 }
 
-async function createPostgresDriver(connectionString: string): Promise<Driver> {
+async function createDriver(): Promise<Driver> {
+  const url = databaseUrl();
+  const managed = url === undefined;
+
+  // Starting the cluster is the one thing the managed path adds. Both calls are
+  // idempotent and return almost immediately once things exist, so every command
+  // auto-starts the database and nothing above this line has to care. Creating
+  // the database here rather than in `init` is what makes a half-finished setup
+  // heal itself instead of failing with `database "costingly" does not exist`.
+  if (managed) {
+    await ensureServerRunning();
+    await ensureDatabaseExists();
+  }
+
+  const connString = url ?? connectionString();
+
   const pgPkg = (await import("pg")).default;
   const { Pool, types } = pgPkg;
 
   types.setTypeParser(DATE_OID, keepAsSent);
 
   const pool = new Pool({
-    connectionString,
-    ssl: sslFor(connectionString),
-    // Serverless containers are short-lived and platforms cap connections.
-    // A daily sync is not throughput-bound.
-    max: 5,
+    connectionString: connString,
+    ssl: sslFor(connString),
+    // Serverless containers are short-lived and platforms cap connections. A
+    // daily sync is not throughput-bound.
+    max: managed ? 10 : 5,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
   });
@@ -211,13 +135,14 @@ async function createPostgresDriver(connectionString: string): Promise<Driver> {
     console.error("[db] idle client error (connection will be recycled):", error.message);
   });
 
-  const host = (() => {
+  const describe = (): string => {
+    if (managed) return "local PostgreSQL (managed by costingly)";
     try {
-      return new URL(connectionString).host;
+      return `Postgres at ${new URL(connString).host}`;
     } catch {
-      return "(unparseable DATABASE_URL)";
+      return "Postgres at (unparseable DATABASE_URL)";
     }
-  })();
+  };
 
   return {
     query: async (text, params) => {
@@ -255,7 +180,7 @@ async function createPostgresDriver(connectionString: string): Promise<Driver> {
       }
     },
     close: () => pool.end(),
-    describe: () => `Postgres at ${host}`,
+    describe,
   };
 }
 
@@ -263,8 +188,8 @@ async function createPostgresDriver(connectionString: string): Promise<Driver> {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-// Cached on globalThis for the same reason as before: Next.js hot reloads
-// re-evaluate modules, and warm serverless containers reuse the process.
+// Cached on globalThis because Next.js hot reloads re-evaluate modules and warm
+// serverless containers reuse the process.
 const globalForDb = globalThis as typeof globalThis & {
   __costinglyDriver?: Promise<Driver> | undefined;
 };
@@ -273,16 +198,13 @@ function getDriver(): Promise<Driver> {
   const existing = globalForDb.__costinglyDriver;
   if (existing) return existing;
 
-  const url = databaseUrl();
-  const created = (url === undefined ? createPgliteDriver() : createPostgresDriver(url)).catch(
-    (error: unknown) => {
-      // Do not cache a rejected promise: it would re-throw on every later call,
-      // including from closeDb() in the teardown path, where it surfaces as an
-      // unhandled rejection on top of the real error.
-      globalForDb.__costinglyDriver = undefined;
-      throw error;
-    },
-  );
+  const created = createDriver().catch((error: unknown) => {
+    // Do not cache a rejected promise: it would re-throw on every later call,
+    // including from closeDb() in the teardown path, where it surfaces as an
+    // unhandled rejection on top of the real error.
+    globalForDb.__costinglyDriver = undefined;
+    throw error;
+  });
   globalForDb.__costinglyDriver = created;
   return created;
 }
@@ -322,9 +244,12 @@ export async function describeDriver(): Promise<string> {
 }
 
 /**
- * Close the database. Call at the end of a CLI run so the process can exit.
+ * Close this process's connections. Call at the end of a CLI run so it can exit.
  *
- * Do NOT call from a serverless handler — the container is reused between
+ * This does NOT stop the database — the server is shared and long-lived, and
+ * stopping it is what `costingly stop` is for.
+ *
+ * Do NOT call from a serverless handler either: the container is reused between
  * invocations and the warm connections are worth keeping.
  */
 export async function closeDb(): Promise<void> {
@@ -335,7 +260,7 @@ export async function closeDb(): Promise<void> {
     const driver = await pending;
     await driver.close();
   } catch {
-    // The driver never started. Whatever went wrong was already reported by
-    // the command that triggered it; teardown must not report it twice.
+    // The driver never started. Whatever went wrong was already reported by the
+    // command that triggered it; teardown must not report it twice.
   }
 }

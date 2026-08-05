@@ -15,18 +15,18 @@
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
 import { config } from "../src/config.js";
-import { dataDir } from "../src/db.js";
+import { clusterDir } from "../src/server.js";
 
 /**
  * Which database is about to be modified, with credentials stripped.
  *
- * Says "on this machine" for the embedded database and names the host for a
- * remote one — the distinction that matters most when you are one keystroke
- * from deleting everything.
+ * Says "on this machine" for the local database and names the host for a remote
+ * one — the distinction that matters most when you are one keystroke from
+ * deleting everything.
  */
 export function describeDatabase(): string {
   const url = config.databaseUrl;
-  if (url === undefined) return `${dataDir()}  (embedded, on this machine)`;
+  if (url === undefined) return `${clusterDir()}  (local, on this machine)`;
 
   try {
     const parsed = new URL(url);

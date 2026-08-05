@@ -8,13 +8,24 @@
 
 export { config, type PlaidEnvName } from "./config.js";
 export { encrypt, decrypt, generateEncryptionKey, safeEqual } from "./crypto.js";
-export { acquireDataDirLock, DatabaseBusyError } from "./lock.js";
+export {
+  ensureServerRunning,
+  stopServer,
+  serverStatus,
+  ensureDatabaseExists,
+  describeServer,
+  clusterDir,
+  socketDir,
+  serverLogPath,
+  connectionString,
+  DATABASE_NAME,
+  type ServerState,
+} from "./server.js";
 export {
   query,
   execScript,
   withTransaction,
   closeDb,
-  dataDir,
   describeDriver,
   usingRemoteDatabase,
   type DbClient,

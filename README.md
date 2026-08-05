@@ -3,9 +3,11 @@
 Daily sync of bank and credit-card transactions from [Plaid](https://plaid.com)
 into a Postgres database on your own machine.
 
-**Nothing to install but Node.** The database is embedded — Postgres compiled to
-WebAssembly, shipped as an ordinary npm dependency. No Docker, no daemon, no
-port, no server. Your transactions never leave your computer.
+**Nothing to install but Node.** Costingly ships real PostgreSQL 18 as an
+ordinary npm dependency and runs it for you — no Docker, no Homebrew, nothing to
+configure. It listens on a unix socket in your home directory, never a network
+port, and there is no database password because your OS account *is* the
+credential. Your transactions never leave your computer.
 
 The core in `src/` is framework-agnostic, so the same code also runs against a
 hosted Postgres on Vercel Cron. See
@@ -101,15 +103,29 @@ after that only fetches changes and takes seconds.
 
 ### Where the data lives
 
-The default database is [PGlite](https://pglite.dev) — real Postgres, compiled to
-WebAssembly and run in-process. There is no server and no connection string:
+A real PostgreSQL 18 cluster that costingly creates and runs for you:
 
 ```
-~/.local/share/costingly/pgdata
+~/.local/share/costingly/pg18        the cluster
+~/.local/share/costingly/pg18-run    the unix socket (mode 0700)
+~/.local/share/costingly/pg18.log    the postmaster log
 ```
 
-Back it up by copying that directory; reset by deleting it. `XDG_DATA_HOME` is
-honoured, and `COSTINGLY_DATA_DIR` overrides the location outright.
+Back it up by copying the cluster directory; reset by deleting it.
+`XDG_DATA_HOME` is honoured, and `COSTINGLY_DATA_DIR` overrides the location
+outright. The `pg18` in the name is deliberate — a Postgres data directory
+belongs to one major version, so a future upgrade lands beside this one rather
+than failing against it.
+
+**The server starts itself.** The first command that needs the database starts
+the postmaster, and it stays running afterwards so that a sync, a `status` and
+anything else can use it at the same time. Nothing binds a TCP port, so it
+cannot collide with a Postgres you already run and is not reachable over the
+network. To shut it down:
+
+```bash
+costingly stop      # data untouched; the next command starts it again
+```
 
 Because it is genuinely Postgres, the schema and every query are identical to
 what a hosted deployment runs — which is why setting `DATABASE_URL` is all it
@@ -163,7 +179,7 @@ rows still go, so a dead credential can't wedge the database.
   ⚠  DELETE ALL LOCAL DATA
 
      Environment       PRODUCTION
-     Database          ~/.local/share/costingly/pgdata  (embedded, on this machine)
+     Database          ~/.local/share/costingly/pg18  (local, on this machine)
      Banks             3
      Accounts          7
      Transactions      4182
@@ -283,16 +299,19 @@ convention, where those same amounts are positive — see the top of `schema.sql
 
 ### Running your own SQL
 
-The embedded database is in-process, so there is no server for `psql` to connect
-to. Two options if you want raw SQL:
+It is a normal Postgres server, so any Postgres client works — point it at the
+socket directory:
 
-- Point `DATABASE_URL` at a real Postgres and use your usual tooling — the schema
-  is identical, so every query below works unchanged.
-- Or expose the embedded database over a socket temporarily with
-  [`@electric-sql/pglite-socket`](https://www.npmjs.com/package/@electric-sql/pglite-socket)
-  and `psql` into that.
+```bash
+psql "postgresql:///costingly?host=$HOME/.local/share/costingly/pg18-run"
+```
 
-The queries below are kept as reference for either path.
+There is no password: the socket lives in a directory only your account can
+read, and the server uses peer authentication, so the OS decides who you are.
+
+`psql` is not bundled — use one you already have, or set `DATABASE_URL` to point
+costingly at your own Postgres instead. The schema is identical either way, so
+every query below works unchanged.
 
 Recent transactions with their account and institution:
 

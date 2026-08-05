@@ -48,9 +48,10 @@ export const config = {
   /**
    * Connection string for a real Postgres server, or undefined.
    *
-   * Optional by design: with nothing set the app uses its embedded PGlite
-   * database, which is what makes a zero-install `npx` run work. Setting it
-   * switches to node-postgres — the path a Vercel deployment takes.
+   * Optional by design: with nothing set the app runs the local PostgreSQL
+   * cluster it manages itself (see src/server.ts), which is what makes a
+   * zero-install `npx` run work. Setting it points the same code at someone
+   * else's server — the path a Vercel deployment takes.
    */
   get databaseUrl(): string | undefined {
     const value = process.env["DATABASE_URL"];

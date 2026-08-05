@@ -9,7 +9,7 @@
  *   the user's own notes.
  *
  *   Writing is atomic and private. Temp file, chmod, rename — mirroring the
- *   idiom in src/lock.ts. A half-written config containing a live PLAID_SECRET
+ *   usual temp-file idiom. A half-written config containing a live PLAID_SECRET
  *   is not an acceptable intermediate state.
  */
 

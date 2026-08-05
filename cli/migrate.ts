@@ -34,8 +34,8 @@ export async function runMigrate(): Promise<void> {
   const sql = await readFile(schemaPath, "utf8");
 
   console.log(`Applying ${schemaPath} ...`);
-  // schema.sql is multi-statement; execScript is what handles that on
-  // both drivers (PGlite needs exec(), not query()).
+  // schema.sql is multi-statement. execScript sends it as one string, which pg
+  // wraps in an implicit transaction.
   await execScript(sql);
 
   const tables = await query<{ table_name: string }>(
