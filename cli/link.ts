@@ -42,7 +42,7 @@ Set PORT in .env to use a port other than 4000.`,
 /**
  * Start the server and resolve only once it has shut down.
  *
- * Not returning until shutdown is what lets the single `closePool()` in
+ * Not returning until shutdown is what lets the single `closeDb()` in
  * index.ts stay correct: a long-lived server must not have its pool closed the
  * moment its action "finishes".
  */

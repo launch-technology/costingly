@@ -228,9 +228,9 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
     if (!info || info.newest === null || Number(info.total) === 0) {
       console.log(
         multi
-          ? `  These accounts have no transactions at all — run \`npm run sync\`.\n`
+          ? `  These accounts have no transactions at all — run \`plaid-sync sync\`.\n`
           : `  This account has no transactions at all.\n` +
-              `  Run \`npm run sync\`, or note that some account types (investment,\n` +
+              `  Run \`plaid-sync sync\`, or note that some account types (investment,\n` +
               `  loan) return balances but no transactions under the transactions product.\n`,
       );
       return;
@@ -244,7 +244,7 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
       `  ${info.total} transaction(s) on record; the most recent is ${info.newest}` +
         ` (${stale} day(s) ago).`,
     );
-    console.log(`  To see it:  npm run txns -- ${scope}--days ${suggestion}\n`);
+    console.log(`  To see it:  plaid-sync txns ${scope}--days ${suggestion}\n`);
     return;
   }
 

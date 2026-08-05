@@ -1,11 +1,14 @@
 # plaid-sync
 
 Daily sync of bank and credit-card transactions from [Plaid](https://plaid.com)
-into a local Postgres database.
+into a Postgres database on your own machine.
 
-Runs locally today. The core in `src/` is framework-agnostic — it imports only
-`plaid`, `pg`, and Node built-ins — so the same code drops into a Next.js app on
-Vercel Cron later without a rewrite. See
+**Nothing to install but Node.** The database is embedded — Postgres compiled to
+WebAssembly, shipped as an ordinary npm dependency. No Docker, no daemon, no
+port, no server. Your transactions never leave your computer.
+
+The core in `src/` is framework-agnostic, so the same code also runs against a
+hosted Postgres on Vercel Cron. See
 [Moving to Next.js on Vercel](#moving-to-nextjs-on-vercel).
 
 ---
@@ -52,18 +55,16 @@ spend for a period (refunds cancel charges); flip the sign at read time with
 
 ## Local setup
 
-**Prerequisites:** Node 20+, Docker, and Plaid API keys from the
-[Plaid dashboard](https://dashboard.plaid.com/developers/keys).
+**Prerequisites:** Node 20+, and Plaid API keys from the
+[Plaid dashboard](https://dashboard.plaid.com/developers/keys). **No database to
+install** — see [Where the data lives](#where-the-data-lives).
 
 ```bash
 # 1. Dependencies + build + install the `plaid-sync` command
 npm install          # `prepare` compiles to dist/ automatically
 npm link             # puts `plaid-sync` on your PATH
 
-# 2. Postgres
-docker compose up -d
-
-# 3. Config
+# 2. Config
 cp .env.example .env
 plaid-sync keygen    # prints ENCRYPTION_KEY=... — paste it into .env
 ```
@@ -73,10 +74,10 @@ picks up `.env`, `schema.sql` and `public/` from the project. After editing
 source, run `npm run build` — the link points at `dist/`, which does not
 rebuild itself.
 
-Then fill in `PLAID_CLIENT_ID` and `PLAID_SECRET` in `.env`. `DATABASE_URL` is
-already pointed at the docker container. Set `CRON_SECRET` to any long random
-string (`openssl rand -base64 32`) — it is unused locally but keeps `.env`
-consistent with production.
+Then fill in `PLAID_CLIENT_ID` and `PLAID_SECRET` in `.env`. Leave
+`DATABASE_URL` unset — the embedded database needs no configuration. Set
+`CRON_SECRET` to any long random string (`openssl rand -base64 32`) — it is
+unused locally but keeps `.env` consistent with production.
 
 ```bash
 # 4. Create the tables
@@ -97,6 +98,30 @@ after that only fetches changes and takes seconds.
 > **First sync came back empty?** Plaid pulls history asynchronously. If the
 > summary says `Plaid still preparing history`, wait a minute and run
 > `plaid-sync sync` again.
+
+### Where the data lives
+
+The default database is [PGlite](https://pglite.dev) — real Postgres, compiled to
+WebAssembly and run in-process. There is no server and no connection string:
+
+```
+~/.local/share/plaid-sync/pgdata
+```
+
+Back it up by copying that directory; reset by deleting it. `XDG_DATA_HOME` is
+honoured, and `PLAID_SYNC_DATA_DIR` overrides the location outright.
+
+Because it is genuinely Postgres, the schema and every query are identical to
+what a hosted deployment runs — which is why setting `DATABASE_URL` is all it
+takes to point the same commands at Neon, Supabase or Vercel Postgres instead:
+
+```bash
+DATABASE_URL=postgresql://user:pass@host/db plaid-sync sync
+```
+
+Leave it unset and you get the embedded database. That single switch is what
+keeps the zero-install local story and the serverless deployment story from
+being two different codebases.
 
 ### Test with sandbox first
 
@@ -155,7 +180,7 @@ rows still go, so a dead credential can't wedge the database.
   ⚠  DELETE ALL LOCAL DATA
 
      Environment       PRODUCTION
-     Database          plaid_sync @ localhost:5432  (local docker)
+     Database          ~/.local/share/plaid-sync/pgdata  (embedded, on this machine)
      Banks             3
      Accounts          7
      Transactions      4182
@@ -171,7 +196,8 @@ Type "production" to confirm:
 You type the **environment name**, not `y`. A confirmation you can satisfy by
 reflex is not a confirmation, and this way a production wipe cannot be confirmed
 with the same keystrokes as a sandbox one. The database line is there to catch
-the "I thought I was pointed at the docker container" mistake.
+the "I thought I was pointed at my local copy" mistake — a remote database is
+labelled `(REMOTE)`.
 
 `-y` / `--yes` skips the prompt for scripts. Without it, a non-interactive shell
 refuses outright rather than guessing.
@@ -191,9 +217,9 @@ plaid-sync sync                   # full history backfill
 Keep the same `ENCRYPTION_KEY` unless you have a reason to rotate it — changing
 it makes any surviving stored token undecryptable.
 
-> Wiping the whole database instead (`docker compose down -v`) also works, but
-> it drops the schema, so you would need `plaid-sync migrate` again. `plaid-sync reset`
-> leaves the tables in place.
+> Deleting the data directory instead (`rm -rf ~/.local/share/plaid-sync`) also
+> works, but it drops the schema, so you would need `plaid-sync migrate` again.
+> `plaid-sync reset` leaves the tables in place.
 
 ---
 
@@ -346,9 +372,8 @@ No `cd` needed: the binary locates `.env` and `schema.sql` from the project
 itself. Note that cron will not wake a sleeping Mac; if the machine is often
 asleep, prefer `launchd` with `StartInterval`, or just move to Vercel Cron.
 
-Docker must be running for the local database to be reachable — add
-`restart: unless-stopped` (already set in `docker-compose.yml`) and enable
-"Start Docker Desktop on login".
+Nothing else needs to be running: the database is embedded in the command
+itself, so there is no daemon to keep alive and nothing to start at login.
 
 ---
 
@@ -476,7 +501,6 @@ plaid-sync/
 ├── public/index.html        # the Plaid Link page
 ├── nextjs-example/          # reference cron route (excluded from tsconfig)
 ├── schema.sql
-├── docker-compose.yml
 └── vercel.json
 ```
 
@@ -555,5 +579,5 @@ which file was actually loaded.
 | Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `plaid-sync sync` again shortly. |
 | `Failed to decrypt access token` | `ENCRYPTION_KEY` does not match the key the tokens were stored with. |
 | `INVALID_API_KEYS` | `PLAID_SECRET` does not match `PLAID_ENV` — sandbox and production have different secrets. |
-| `ECONNREFUSED ... 5432` | `docker compose up -d` not running, or another Postgres is already on port 5432 (change the host port in `docker-compose.yml` and `DATABASE_URL`). |
+| `ECONNREFUSED ... 5432` | Only possible with `DATABASE_URL` set. Unset it to use the embedded database, or check the server it points at. |
 | `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` | Handled automatically — pagination restarts from the stored cursor, up to 5 times. |

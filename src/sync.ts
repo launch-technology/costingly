@@ -23,7 +23,7 @@ import type {
   TransactionsSyncRequest,
   TransactionsUpdateStatus,
 } from "plaid";
-import type { PoolClient } from "./db.js";
+import type { DbClient } from "./db.js";
 import { withTransaction } from "./db.js";
 import {
   listSyncableItems,
@@ -254,7 +254,7 @@ function transactionValues(transaction: Transaction, itemId: string): unknown[] 
  * return the same id on more than one page.
  */
 async function upsertTransactions(
-  client: PoolClient,
+  client: DbClient,
   itemId: string,
   transactions: readonly Transaction[],
 ): Promise<void> {
@@ -301,7 +301,7 @@ async function upsertTransactions(
  * these deletes are what stop the table accumulating stale pending rows.
  */
 async function deleteTransactions(
-  client: PoolClient,
+  client: DbClient,
   removed: readonly RemovedTransaction[],
 ): Promise<void> {
   if (removed.length === 0) return;

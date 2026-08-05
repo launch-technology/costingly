@@ -15,16 +15,26 @@
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
 import { config } from "../src/config.js";
+import { dataDir } from "../src/db.js";
 
-/** Host and database name from DATABASE_URL, with credentials stripped. */
+/**
+ * Which database is about to be modified, with credentials stripped.
+ *
+ * Says "on this machine" for the embedded database and names the host for a
+ * remote one — the distinction that matters most when you are one keystroke
+ * from deleting everything.
+ */
 export function describeDatabase(): string {
+  const url = config.databaseUrl;
+  if (url === undefined) return `${dataDir()}  (embedded, on this machine)`;
+
   try {
-    const url = new URL(config.databaseUrl);
-    const database = url.pathname.replace(/^\//, "") || "(default)";
-    const port = url.port ? `:${url.port}` : "";
+    const parsed = new URL(url);
+    const database = parsed.pathname.replace(/^\//, "") || "(default)";
+    const port = parsed.port ? `:${parsed.port}` : "";
     const local =
-      url.hostname === "localhost" || url.hostname === "127.0.0.1" ? "  (local docker)" : "";
-    return `${database} @ ${url.hostname}${port}${local}`;
+      parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "  (local)" : "  (REMOTE)";
+    return `${database} @ ${parsed.hostname}${port}${local}`;
   } catch {
     return "(unparseable DATABASE_URL)";
   }

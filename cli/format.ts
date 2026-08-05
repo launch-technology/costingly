@@ -6,7 +6,7 @@
 /**
  * Exit quietly when a downstream pipe closes.
  *
- * `npm run txns | head` closes stdout while we are still writing, which Node
+ * `plaid-sync txns | head` closes stdout while we are still writing, which Node
  * surfaces as an unhandled EPIPE and a stack trace. Every well-behaved CLI
  * swallows it.
  */

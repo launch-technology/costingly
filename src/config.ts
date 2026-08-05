@@ -45,8 +45,16 @@ export const config = {
   get plaidEnv(): PlaidEnvName {
     return plaidEnvName();
   },
-  get databaseUrl(): string {
-    return required("DATABASE_URL");
+  /**
+   * Connection string for a real Postgres server, or undefined.
+   *
+   * Optional by design: with nothing set the app uses its embedded PGlite
+   * database, which is what makes a zero-install `npx` run work. Setting it
+   * switches to node-postgres — the path a Vercel deployment takes.
+   */
+  get databaseUrl(): string | undefined {
+    const value = process.env["DATABASE_URL"];
+    return value !== undefined && value.trim() !== "" ? value : undefined;
   },
   get encryptionKey(): string {
     return required("ENCRYPTION_KEY");

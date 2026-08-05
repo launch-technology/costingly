@@ -8,6 +8,7 @@
  */
 
 import { loadedEnvPath } from "./env.js";
+import { dataDir } from "../src/db.js";
 
 export function environmentBanner(): string {
   const lines: string[] = [];
@@ -21,7 +22,8 @@ export function environmentBanner(): string {
 
   const url = process.env["DATABASE_URL"];
   if (url === undefined || url.trim() === "") {
-    lines.push("  Database            (DATABASE_URL not set — copy .env.example to .env)");
+    // The normal case: embedded PGlite, nothing to install or configure.
+    lines.push(`  Database            embedded  ·  ${dataDir()}`);
   } else {
     try {
       const parsed = new URL(url);
@@ -29,7 +31,7 @@ export function environmentBanner(): string {
       const port = parsed.port ? `:${parsed.port}` : "";
       const local =
         parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
-          ? "   (local docker)"
+          ? "   (local)"
           : "";
       lines.push(`  Database            ${database} @ ${parsed.hostname}${port}${local}`);
     } catch {

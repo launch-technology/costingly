@@ -32,9 +32,9 @@ type Row = {
 
 /** Flag the states that need the user to do something. */
 function statusNote(status: string, neverSynced: boolean): string {
-  if (status === "login_required") return "  ⚠  NEEDS RE-LINK — run `npm run link`";
+  if (status === "login_required") return "  ⚠  NEEDS RE-LINK — run `plaid-sync link`";
   if (status !== "active") return `  ⚠  status: ${status}`;
-  if (neverSynced) return "  ·  never synced — run `npm run sync` for the backfill";
+  if (neverSynced) return "  ·  never synced — run `plaid-sync sync` for the backfill";
   return "";
 }
 
@@ -144,7 +144,7 @@ export async function runStatus(options: StatusOptions): Promise<void> {
       console.log(JSON.stringify({ items: [], accounts: 0, transactions: 0 }, null, 2));
       return;
     }
-    console.log("No banks linked yet. Run `npm run link` to connect one.");
+    console.log("No banks linked yet. Run `plaid-sync link` to connect one.");
     return;
   }
 
@@ -174,7 +174,7 @@ export async function runStatus(options: StatusOptions): Promise<void> {
 
     for (const row of itemRows) {
       if (row.account_id === null) {
-        console.log("    (no accounts stored — run `npm run sync`)");
+        console.log("    (no accounts stored — run `plaid-sync sync`)");
         continue;
       }
       totalAccounts += 1;

@@ -7,8 +7,8 @@
  */
 
 import type { AccountBase } from "plaid";
-import type { PoolClient } from "./db.js";
-import { query, getPool } from "./db.js";
+import type { DbClient } from "./db.js";
+import { query } from "./db.js";
 import { encrypt, decrypt } from "./crypto.js";
 
 /** An Item as the rest of the app sees it: access token already decrypted. */
@@ -131,7 +131,7 @@ export async function getItem(itemId: string): Promise<StoredItem | null> {
  * silently trigger a full history re-backfill on the next run.
  */
 export async function setItemCursor(
-  client: PoolClient,
+  client: DbClient,
   itemId: string,
   cursor: string | null,
 ): Promise<void> {
@@ -166,7 +166,7 @@ export async function setItemStatus(itemId: string, status: string): Promise<voi
  * would otherwise fail the constraint.
  */
 export async function upsertAccounts(
-  client: PoolClient,
+  client: DbClient,
   itemId: string,
   accounts: readonly AccountBase[],
 ): Promise<number> {
@@ -218,5 +218,5 @@ export async function upsertAccounts(
  * and revoke the token, call `/item/remove` as well.
  */
 export async function deleteItem(itemId: string): Promise<void> {
-  await getPool().query(`DELETE FROM items WHERE item_id = $1`, [itemId]);
+  await query(`DELETE FROM items WHERE item_id = $1`, [itemId]);
 }

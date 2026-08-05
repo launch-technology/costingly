@@ -8,7 +8,7 @@
 
 import type { Command } from "commander";
 import { readFile } from "node:fs/promises";
-import { query } from "../src/db.js";
+import { execScript, query } from "../src/db.js";
 import { schemaPath } from "./paths.js";
 import { CliError } from "./errors.js";
 
@@ -34,7 +34,9 @@ export async function runMigrate(): Promise<void> {
   const sql = await readFile(schemaPath, "utf8");
 
   console.log(`Applying ${schemaPath} ...`);
-  await query(sql);
+  // schema.sql is multi-statement; execScript is what handles that on
+  // both drivers (PGlite needs exec(), not query()).
+  await execScript(sql);
 
   const tables = await query<{ table_name: string }>(
     `SELECT table_name

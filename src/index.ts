@@ -8,14 +8,18 @@
 
 export { config, type PlaidEnvName } from "./config.js";
 export { encrypt, decrypt, generateEncryptionKey, safeEqual } from "./crypto.js";
+export { acquireDataDirLock, DatabaseBusyError } from "./lock.js";
 export {
-  getPool,
   query,
+  execScript,
   withTransaction,
-  closePool,
-  type PoolClient,
-  type QueryResult,
-  type QueryResultRow,
+  closeDb,
+  dataDir,
+  describeDriver,
+  usingRemoteDatabase,
+  type DbClient,
+  type DbResult,
+  type DbRow,
 } from "./db.js";
 export {
   getPlaidClient,

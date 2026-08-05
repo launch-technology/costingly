@@ -12,7 +12,7 @@
  */
 
 import { Command } from "commander";
-import { closePool } from "../src/db.js";
+import { closeDb } from "../src/db.js";
 import { ignoreEpipe } from "./format.js";
 import { loadEnv, configFromArgv } from "./env.js";
 import { environmentBanner } from "./banner.js";
@@ -94,7 +94,7 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    // Safe unconditionally: closePool() returns early when no pool was opened,
+    // Safe unconditionally: closeDb() returns early when nothing was opened,
     // so commands like keygen cost nothing.
-    await closePool();
+    await closeDb();
   });
