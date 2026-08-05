@@ -1,5 +1,5 @@
 {
-  "name": "plaid-sync",
+  "name": "costingly",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "bin": {
-    "plaid-sync": "./dist/cli/index.js"
+    "costingly": "./dist/cli/index.js"
   },
   "files": [
     "dist",

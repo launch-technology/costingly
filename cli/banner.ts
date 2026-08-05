@@ -1,5 +1,5 @@
 /**
- * The environment banner shown above `plaid-sync --help`.
+ * The environment banner shown above `costingly --help`.
  *
  * Lifted from the old hand-rolled help.ts. Reads `process.env` directly rather
  * than src/config.ts, because config throws on invalid values and help must

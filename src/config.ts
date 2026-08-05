@@ -2,13 +2,13 @@
  * Environment configuration.
  *
  * Deliberately framework-agnostic: this module reads `process.env` and nothing
- * else. It does NOT load a .env file — the local CLI entrypoints in `scripts/`
+ * else. It does NOT load a .env file — the local CLI entrypoints in `cli/`
  * do that via `dotenv/config`, and on Vercel the env vars are already present.
  * That keeps `src/` importable unchanged from a Next.js route handler.
  *
  * Every value is exposed as a lazy getter so that merely importing this module
  * never throws. A missing variable only fails when something actually needs it,
- * which means `plaid-sync keygen` works before .env is filled in.
+ * which means `costingly keygen` works before .env is filled in.
  */
 
 export type PlaidEnvName = "sandbox" | "production";

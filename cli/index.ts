@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * plaid-sync — single entry point for every command.
+ * costingly — single entry point for every command.
  *
  * Everything process-wide happens here exactly once: .env loading, the EPIPE
  * guard, argv parsing, and closing the pg pool. Command modules only declare
@@ -36,17 +36,17 @@ import { registerResetCommand } from "./reset.js";
  */
 export function buildProgram(): Command {
   const program = new Command()
-    .name("plaid-sync")
+    .name("costingly")
     .description("Daily sync of bank and credit-card transactions from Plaid into Postgres.")
     .version(packageVersion(), "-V, --version")
     // Not --env-file: that is a Node CLI flag and node would eat it first.
     .option("--config <path>", "read configuration from this file instead of ./.env")
-    .showHelpAfterError("(run `plaid-sync --help` for the command list)")
+    .showHelpAfterError("(run `costingly --help` for the command list)")
     .addHelpText("before", environmentBanner())
     .addHelpText(
       "after",
       `
-Per-command flags:  plaid-sync <command> --help
+Per-command flags:  costingly <command> --help
 `,
     );
 
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
 
   const program = buildProgram();
 
-  // Bare `plaid-sync` prints the catalog and exits 0.
+  // Bare `costingly` prints the catalog and exits 0.
   //
   // Deliberately not a root .action(): commander only reports "unknown command
   // 'foo'" (with a did-you-mean) while the root program has no action handler.

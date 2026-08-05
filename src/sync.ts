@@ -371,7 +371,7 @@ export async function syncItem(item: StoredItem): Promise<ItemSyncResult> {
     };
   } catch (error) {
     // The Item needs the user to re-authenticate. Flag it so the nightly run
-    // stops retrying and `plaid-sync link` can repair it.
+    // stops retrying and `costingly link` can repair it.
     if (isItemLoginRequired(error)) {
       try {
         await setItemStatus(item.itemId, "login_required");
@@ -400,7 +400,7 @@ export async function syncItem(item: StoredItem): Promise<ItemSyncResult> {
 /**
  * Sync every active Item and return a summary.
  *
- * This is the single entry point shared by the local CLI (`plaid-sync sync`) and
+ * This is the single entry point shared by the local CLI (`costingly sync`) and
  * the Vercel cron route — neither one adds logic on top of it.
  *
  * Items are processed one at a time and independently: a bank that is down,

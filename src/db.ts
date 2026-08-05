@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { acquireDataDirLock } from "./lock.js";
 
 /** Used for the data directory. One place to change if the product is renamed. */
-const APP_NAME = "plaid-sync";
+const APP_NAME = "costingly";
 
 // ---------------------------------------------------------------------------
 // Driver-agnostic surface
@@ -76,11 +76,11 @@ const keepAsSent = (value: string): string => value;
 /**
  * Directory for the embedded database.
  *
- * `PLAID_SYNC_DATA_DIR` overrides it; otherwise XDG (`~/.local/share/...`),
+ * `COSTINGLY_DATA_DIR` overrides it; otherwise XDG (`~/.local/share/...`),
  * which is predictable, easy to back up, and easy to delete.
  */
 export function dataDir(): string {
-  const override = process.env["PLAID_SYNC_DATA_DIR"];
+  const override = process.env["COSTINGLY_DATA_DIR"];
   if (override !== undefined && override.trim() !== "") return override;
 
   const xdg = process.env["XDG_DATA_HOME"];
@@ -266,11 +266,11 @@ async function createPostgresDriver(connectionString: string): Promise<Driver> {
 // Cached on globalThis for the same reason as before: Next.js hot reloads
 // re-evaluate modules, and warm serverless containers reuse the process.
 const globalForDb = globalThis as typeof globalThis & {
-  __plaidSyncDriver?: Promise<Driver> | undefined;
+  __costinglyDriver?: Promise<Driver> | undefined;
 };
 
 function getDriver(): Promise<Driver> {
-  const existing = globalForDb.__plaidSyncDriver;
+  const existing = globalForDb.__costinglyDriver;
   if (existing) return existing;
 
   const url = databaseUrl();
@@ -279,11 +279,11 @@ function getDriver(): Promise<Driver> {
       // Do not cache a rejected promise: it would re-throw on every later call,
       // including from closeDb() in the teardown path, where it surfaces as an
       // unhandled rejection on top of the real error.
-      globalForDb.__plaidSyncDriver = undefined;
+      globalForDb.__costinglyDriver = undefined;
       throw error;
     },
   );
-  globalForDb.__plaidSyncDriver = created;
+  globalForDb.__costinglyDriver = created;
   return created;
 }
 
@@ -328,9 +328,9 @@ export async function describeDriver(): Promise<string> {
  * invocations and the warm connections are worth keeping.
  */
 export async function closeDb(): Promise<void> {
-  const pending = globalForDb.__plaidSyncDriver;
+  const pending = globalForDb.__costinglyDriver;
   if (!pending) return;
-  globalForDb.__plaidSyncDriver = undefined;
+  globalForDb.__costinglyDriver = undefined;
   try {
     const driver = await pending;
     await driver.close();

@@ -1,4 +1,4 @@
-# plaid-sync
+# costingly
 
 Daily sync of bank and credit-card transactions from [Plaid](https://plaid.com)
 into a Postgres database on your own machine.
@@ -60,16 +60,16 @@ spend for a period (refunds cancel charges); flip the sign at read time with
 install** — see [Where the data lives](#where-the-data-lives).
 
 ```bash
-# 1. Dependencies + build + install the `plaid-sync` command
+# 1. Dependencies + build + install the `costingly` command
 npm install          # `prepare` compiles to dist/ automatically
-npm link             # puts `plaid-sync` on your PATH
+npm link             # puts `costingly` on your PATH
 
 # 2. Config
 cp .env.example .env
-plaid-sync keygen    # prints ENCRYPTION_KEY=... — paste it into .env
+costingly keygen    # prints ENCRYPTION_KEY=... — paste it into .env
 ```
 
-`npm link` symlinks this directory, so `plaid-sync` works from anywhere and
+`npm link` symlinks this directory, so `costingly` works from anywhere and
 picks up `.env`, `schema.sql` and `public/` from the project. After editing
 source, run `npm run build` — the link points at `dist/`, which does not
 rebuild itself.
@@ -81,23 +81,23 @@ unused locally but keeps `.env` consistent with production.
 
 ```bash
 # 4. Create the tables
-plaid-sync migrate
+costingly migrate
 
 # 5. Connect a bank — opens on http://127.0.0.1:4000
-plaid-sync link
+costingly link
 
 # 6. Pull transactions
-plaid-sync sync
+costingly sync
 ```
 
-`plaid-sync link` stays running so you can link several banks; stop it with
-`Ctrl-C` when you are done. The first `plaid-sync sync` backfills up to 24 months
+`costingly link` stays running so you can link several banks; stop it with
+`Ctrl-C` when you are done. The first `costingly sync` backfills up to 24 months
 of history (however much the bank actually holds) and takes a while; every run
 after that only fetches changes and takes seconds.
 
 > **First sync came back empty?** Plaid pulls history asynchronously. If the
 > summary says `Plaid still preparing history`, wait a minute and run
-> `plaid-sync sync` again.
+> `costingly sync` again.
 
 ### Where the data lives
 
@@ -105,18 +105,18 @@ The default database is [PGlite](https://pglite.dev) — real Postgres, compiled
 WebAssembly and run in-process. There is no server and no connection string:
 
 ```
-~/.local/share/plaid-sync/pgdata
+~/.local/share/costingly/pgdata
 ```
 
 Back it up by copying that directory; reset by deleting it. `XDG_DATA_HOME` is
-honoured, and `PLAID_SYNC_DATA_DIR` overrides the location outright.
+honoured, and `COSTINGLY_DATA_DIR` overrides the location outright.
 
 Because it is genuinely Postgres, the schema and every query are identical to
 what a hosted deployment runs — which is why setting `DATABASE_URL` is all it
 takes to point the same commands at Neon, Supabase or Vercel Postgres instead:
 
 ```bash
-DATABASE_URL=postgresql://user:pass@host/db plaid-sync sync
+DATABASE_URL=postgresql://user:pass@host/db costingly sync
 ```
 
 Leave it unset and you get the embedded database. That single switch is what
@@ -132,7 +132,7 @@ PLAID_ENV=sandbox
 PLAID_SECRET=<your sandbox secret>   # different from the production one
 ```
 
-Then `plaid-sync link` and pick any institution — log in with username `user_good`
+Then `costingly link` and pick any institution — log in with username `user_good`
 and password `pass_good`. If prompted for MFA, use `1234`. You get a realistic
 set of fake accounts and transactions to verify the whole pipeline against.
 
@@ -148,11 +148,11 @@ Two destructive commands. Both refuse to run unattended and both spell out which
 environment and database they are about to touch.
 
 ```bash
-plaid-sync reset               # delete everything: banks, accounts, transactions
-plaid-sync reset --revoke   # ...and invalidate each access token at Plaid
-plaid-sync reset --data-only # keep the bank links, drop synced data + cursors
-plaid-sync unlink              # pick one bank to remove
-plaid-sync unlink chase --revoke
+costingly reset               # delete everything: banks, accounts, transactions
+costingly reset --revoke   # ...and invalidate each access token at Plaid
+costingly reset --data-only # keep the bank links, drop synced data + cursors
+costingly unlink              # pick one bank to remove
+costingly unlink chase --revoke
 ```
 
 ### Local delete vs. revoke
@@ -165,7 +165,7 @@ thought were gone:
 | Rows in this database | deleted | deleted |
 | Access token stored here | destroyed | destroyed |
 | Item at Plaid | **still exists, still billed** | invalidated, permanently |
-| To restore | `plaid-sync link` | `plaid-sync link` |
+| To restore | `costingly link` | `costingly link` |
 
 Without `--revoke` the Item keeps counting against your Plaid plan even though
 your database is empty. Use `--revoke` when you are truly finished with a bank —
@@ -180,14 +180,14 @@ rows still go, so a dead credential can't wedge the database.
   ⚠  DELETE ALL LOCAL DATA
 
      Environment       PRODUCTION
-     Database          ~/.local/share/plaid-sync/pgdata  (embedded, on this machine)
+     Database          ~/.local/share/costingly/pgdata  (embedded, on this machine)
      Banks             3
      Accounts          7
      Transactions      4182
      Revoke at Plaid   YES — tokens invalidated
 
      • All 3 bank link(s), 7 account(s) and 4182 transaction(s) are deleted.
-     • Stored access tokens are destroyed — `plaid-sync link` is required for every bank.
+     • Stored access tokens are destroyed — `costingly link` is required for every bank.
      • Each token is also invalidated at Plaid (/item/remove). Irreversible.
 
 Type "production" to confirm:
@@ -208,18 +208,18 @@ Sandbox and production tokens are not interchangeable, so moving between them is
 a wipe-and-relink:
 
 ```bash
-plaid-sync reset --revoke      # clean slate; sandbox tokens invalidated
+costingly reset --revoke      # clean slate; sandbox tokens invalidated
 # edit .env:  PLAID_ENV=production  and the matching PLAID_SECRET
-plaid-sync link                   # re-link each bank against production
-plaid-sync sync                   # full history backfill
+costingly link                   # re-link each bank against production
+costingly sync                   # full history backfill
 ```
 
 Keep the same `ENCRYPTION_KEY` unless you have a reason to rotate it — changing
 it makes any surviving stored token undecryptable.
 
-> Deleting the data directory instead (`rm -rf ~/.local/share/plaid-sync`) also
-> works, but it drops the schema, so you would need `plaid-sync migrate` again.
-> `plaid-sync reset` leaves the tables in place.
+> Deleting the data directory instead (`rm -rf ~/.local/share/costingly`) also
+> works, but it drops the schema, so you would need `costingly migrate` again.
+> `costingly reset` leaves the tables in place.
 
 ---
 
@@ -228,7 +228,7 @@ it makes any surviving stored token undecryptable.
 Quickest check — what is connected and how fresh it is:
 
 ```bash
-plaid-sync status
+costingly status
 ```
 
 ```
@@ -246,9 +246,9 @@ login expired and needs re-linking. It never decrypts an access token.
 ### Recent transactions for one account
 
 ```bash
-plaid-sync txns                       # fully interactive — no flags needed
-plaid-sync txns --all -d 90        # every account, 90 days, no prompts
-plaid-sync txns checking           # match by name/mask/id, then prompt for window
+costingly txns                       # fully interactive — no flags needed
+costingly txns --all -d 90        # every account, 90 days, no prompts
+costingly txns checking           # match by name/mask/id, then prompt for window
 ```
 
 Run it bare and it asks two questions, both arrow-key driven:
@@ -277,7 +277,7 @@ identifying which one each transaction belongs to, and totals grouped by
 currency. The bank name is hidden while only one institution is linked, and
 reappears automatically once there are two.
 
-Run `plaid-sync txns --help` (or `plaid-sync status --help`) for full usage.
+Run `costingly txns --help` (or `costingly status --help`) for full usage.
 
 To skip the menu, pass an account: a loose match against name, mask, account id,
 or institution name. One match runs straight away; several re-open the picker.
@@ -299,11 +299,18 @@ Note the sign: this view flips Plaid's convention so it reads like a bank
 statement (**negative = money out**). The database itself stores Plaid's
 convention, where those same amounts are positive — see the top of `schema.sql`.
 
-For anything beyond that, query the database directly:
+### Running your own SQL
 
-```bash
-psql postgresql://plaid:plaid@localhost:5432/plaid_sync
-```
+The embedded database is in-process, so there is no server for `psql` to connect
+to. Two options if you want raw SQL:
+
+- Point `DATABASE_URL` at a real Postgres and use your usual tooling — the schema
+  is identical, so every query below works unchanged.
+- Or expose the embedded database over a socket temporarily with
+  [`@electric-sql/pglite-socket`](https://www.npmjs.com/package/@electric-sql/pglite-socket)
+  and `psql` into that.
+
+The queries below are kept as reference for either path.
 
 Recent transactions with their account and institution:
 
@@ -345,7 +352,7 @@ SELECT i.institution_name, a.name, a.mask, a.type, a.subtype,
  ORDER BY i.institution_name, a.name;
 ```
 
-**Confirming idempotency:** run `plaid-sync sync` twice. The second run should
+**Confirming idempotency:** run `costingly sync` twice. The second run should
 report `+0 added, ~0 modified, -0 removed`, and this should be unchanged:
 
 ```sql
@@ -356,7 +363,7 @@ SELECT COUNT(*) FROM transactions;
 
 ## Scheduling locally
 
-`plaid-sync sync` exits non-zero if any item failed, so cron can alert on it.
+`costingly sync` exits non-zero if any item failed, so cron can alert on it.
 
 ```bash
 crontab -e
@@ -364,8 +371,8 @@ crontab -e
 
 ```cron
 # 08:00 daily. Absolute path — cron gets almost no environment and will not
-# find `plaid-sync` on PATH. Get yours with: command -v plaid-sync
-0 8 * * * /Users/jonathankomorek/.nvm/versions/node/v24.19.0/bin/plaid-sync sync >> /tmp/plaid-sync.log 2>&1
+# find `costingly` on PATH. Get yours with: command -v costingly
+0 8 * * * /Users/jonathankomorek/.nvm/versions/node/v24.19.0/bin/costingly sync >> /tmp/costingly.log 2>&1
 ```
 
 No `cd` needed: the binary locates `.env` and `schema.sql` from the project
@@ -382,7 +389,7 @@ itself, so there is no daemon to keep alive and nothing to start at login.
 The split is already done: everything in `src/` is portable, everything in
 `cli/` is the local binary and stays behind.
 
-**1. Copy the core.** Move `src/` into your Next.js repo, e.g. `lib/plaid-sync/`.
+**1. Copy the core.** Move `src/` into your Next.js repo, e.g. `lib/costingly/`.
 No edits needed — it has no Express, no dotenv, no filesystem access. Add `plaid`
 and `pg` to that project's dependencies.
 
@@ -427,7 +434,7 @@ caches the pool on `globalThis` so warm containers reuse connections.
 > access tokens cannot be decrypted and every bank has to be re-linked.
 
 **6. Migrate the schema** against the hosted database — point `DATABASE_URL` at
-it and run `plaid-sync migrate` once, or paste `schema.sql` into the provider's SQL
+it and run `costingly migrate` once, or paste `schema.sql` into the provider's SQL
 console.
 
 **Test it:**
@@ -438,7 +445,7 @@ curl -i -H "Authorization: Bearer $CRON_SECRET" https://your-app.vercel.app/api/
 
 ### What about linking new banks after the move?
 
-The Link flow does not have to move with it. Run `plaid-sync link` locally against
+The Link flow does not have to move with it. Run `costingly link` locally against
 the production `DATABASE_URL` whenever you add a bank — it is a rare, interactive
 operation. Porting it later is straightforward: `src/link.ts` already contains
 all the logic, so you would only need two thin route handlers plus a page, and
@@ -479,7 +486,7 @@ worth protecting.
 ## Project layout
 
 ```
-plaid-sync/
+costingly/
 ├── src/                     # framework-agnostic core — portable to Next.js
 │   ├── config.ts            # env vars, lazily validated
 │   ├── crypto.ts            # AES-256-GCM for access tokens
@@ -490,7 +497,7 @@ plaid-sync/
 │   ├── sync.ts              # syncAllItems() — the heart
 │   ├── remove.ts            # unlink / reset primitives
 │   └── index.ts             # barrel export
-├── cli/                     # the plaid-sync binary (not portable, not needed)
+├── cli/                     # the costingly binary (not portable, not needed)
 │   ├── index.ts             # entry: env, argv parsing, pool teardown
 │   ├── <command>.ts         # one file per subcommand
 │   ├── paths.ts             # locates schema.sql / public/ in any layout
@@ -509,20 +516,20 @@ into a Next.js app without dragging commander, dotenv, express or clack along.
 
 ### Commands
 
-`plaid-sync` with no arguments prints the catalog, along with the environment
-and database currently configured. `plaid-sync <command> --help` for per-command
+`costingly` with no arguments prints the catalog, along with the environment
+and database currently configured. `costingly <command> --help` for per-command
 flags.
 
 | Command | Does |
 | --- | --- |
-| `plaid-sync keygen` | Print a fresh base64 32-byte `ENCRYPTION_KEY` |
-| `plaid-sync migrate` | Apply `schema.sql` (idempotent) |
-| `plaid-sync link` | Start the local Plaid Link server |
-| `plaid-sync sync` | Sync all banks; exits 1 if any failed |
-| `plaid-sync status` | Linked banks, balances, freshness (`--json` for monitoring) |
-| `plaid-sync txns` | Recent transactions — interactive pickers (default 7 days) |
-| `plaid-sync unlink` | Remove one bank and its data (**destructive**) |
-| `plaid-sync reset` | Delete all local data (**destructive**) |
+| `costingly keygen` | Print a fresh base64 32-byte `ENCRYPTION_KEY` |
+| `costingly migrate` | Apply `schema.sql` (idempotent) |
+| `costingly link` | Start the local Plaid Link server |
+| `costingly sync` | Sync all banks; exits 1 if any failed |
+| `costingly status` | Linked banks, balances, freshness (`--json` for monitoring) |
+| `costingly txns` | Recent transactions — interactive pickers (default 7 days) |
+| `costingly unlink` | Remove one bank and its data (**destructive**) |
+| `costingly reset` | Delete all local data (**destructive**) |
 
 Global flags: `--config <path>` to read a different `.env`, `--version`, `--help`.
 
@@ -539,16 +546,16 @@ Global flags: `--config <path>` to read a different `.env`, `--version`, `--help
 
 ### Configuration lookup
 
-`plaid-sync` finds its settings in this order, first hit wins:
+`costingly` finds its settings in this order, first hit wins:
 
-1. Real environment variables — `PLAID_ENV=sandbox plaid-sync status` works
+1. Real environment variables — `PLAID_ENV=sandbox costingly status` works
 2. `--config <path>`
 3. `./.env` in the current directory
 4. `.env` in the project directory
 
 Steps 3–4 are why the command works from anywhere under `npm link`. If you
 install with `npm install -g .` instead, the copied package has no `.env` — use
-real environment variables or `--config`. The banner on `plaid-sync` tells you
+real environment variables or `--config`. The banner on `costingly` tells you
 which file was actually loaded.
 
 ---
@@ -575,8 +582,8 @@ which file was actually loaded.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `ITEM_LOGIN_REQUIRED` | The bank needs re-authentication. The item's `status` is set to `login_required` and it is skipped until repaired — re-link it via `plaid-sync link`. |
-| Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `plaid-sync sync` again shortly. |
+| `ITEM_LOGIN_REQUIRED` | The bank needs re-authentication. The item's `status` is set to `login_required` and it is skipped until repaired — re-link it via `costingly link`. |
+| Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `costingly sync` again shortly. |
 | `Failed to decrypt access token` | `ENCRYPTION_KEY` does not match the key the tokens were stored with. |
 | `INVALID_API_KEYS` | `PLAID_SECRET` does not match `PLAID_ENV` — sandbox and production have different secrets. |
 | `ECONNREFUSED ... 5432` | Only possible with `DATABASE_URL` set. Unset it to use the embedded database, or check the server it points at. |

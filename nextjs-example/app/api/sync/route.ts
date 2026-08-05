@@ -3,19 +3,19 @@
  *
  * It is deliberately thin: authenticate, call `syncAllItems()`, return the
  * summary. All the real logic stays in `src/` — the same code the local
- * `plaid-sync sync` CLI runs, with no serverless-specific branches in it.
+ * `costingly sync` CLI runs, with no serverless-specific branches in it.
  *
  * This file is NOT part of the local app and is excluded from its tsconfig
  * (it imports `next/server`, which is not a dependency here). It typechecks
  * once it is inside a real Next.js project.
  *
  * Adjust the import below to wherever you put `src/` — e.g. if you copy it to
- * `lib/plaid-sync/`, import from "@/lib/plaid-sync/sync".
+ * `lib/costingly/`, import from "@/lib/costingly/sync".
  */
 
 import { NextResponse } from "next/server";
-import { syncAllItems } from "@/lib/plaid-sync/sync";
-import { safeEqual } from "@/lib/plaid-sync/crypto";
+import { syncAllItems } from "@/lib/costingly/sync";
+import { safeEqual } from "@/lib/costingly/crypto";
 
 /**
  * The sync makes live Plaid calls and must never be prerendered or cached —

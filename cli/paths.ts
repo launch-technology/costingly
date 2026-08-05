@@ -7,7 +7,7 @@
  *
  *   dev      <repo>/cli/paths.ts                                  -> <repo>
  *   built    <repo>/dist/cli/paths.js                             -> <repo>
- *   linked   <prefix>/lib/node_modules/plaid-sync/dist/cli/...     -> the package
+ *   linked   <prefix>/lib/node_modules/costingly/dist/cli/...     -> the package
  *
  * `dirname(import.meta.url) + ".."` — what migrate/link/help used to do — is
  * right in dev and off by one everywhere else. It failed silently in help.ts,
@@ -29,7 +29,7 @@ function findPackageRoot(): string {
     if (existsSync(join(dir, "package.json"))) return dir;
     if (dir === root) {
       throw new Error(
-        "plaid-sync could not locate its own package root (no package.json above " +
+        "costingly could not locate its own package root (no package.json above " +
           `${fileURLToPath(import.meta.url)}).`,
       );
     }

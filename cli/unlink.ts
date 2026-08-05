@@ -1,11 +1,11 @@
 /**
- * `plaid-sync unlink` — remove a single bank.  DESTRUCTIVE.
+ * `costingly unlink` — remove a single bank.  DESTRUCTIVE.
  *
- *   plaid-sync unlink                 pick a bank from a list
- *   plaid-sync unlink chase           match by name, skip the picker
- *   plaid-sync unlink chase --revoke  ...and invalidate its token at Plaid
+ *   costingly unlink                 pick a bank from a list
+ *   costingly unlink chase           match by name, skip the picker
+ *   costingly unlink chase --revoke  ...and invalidate its token at Plaid
  *
- * For wiping everything at once, use `plaid-sync reset`.
+ * For wiping everything at once, use `costingly reset`.
  */
 
 import type { Command } from "commander";
@@ -80,7 +80,7 @@ export function registerUnlinkCommand(program: Command): void {
 Deleting locally does NOT remove the Item at Plaid — it keeps existing and keeps
 counting against your plan. Use --revoke to invalidate it there as well.
 
-To remove every bank at once:  plaid-sync reset`,
+To remove every bank at once:  costingly reset`,
     )
     .action(async (bank: string[], options: UnlinkOptions) => {
       await runUnlink(bank, options);
@@ -109,7 +109,7 @@ export async function runUnlink(
         );
 
   if (matches.length === 0) {
-    console.log(`No bank matches "${nameQuery}". Run \`plaid-sync unlink\` to pick from a list.`);
+    console.log(`No bank matches "${nameQuery}". Run \`costingly unlink\` to pick from a list.`);
     process.exitCode = 1;
     return;
   }
@@ -131,7 +131,7 @@ export async function runUnlink(
   const stats = await statsFor(target.itemId);
   const consequences = [
     `${stats.accounts} account(s) and ${stats.transactions} transaction(s) for this bank are deleted.`,
-    "Its stored access token is destroyed — re-link with `plaid-sync link` to restore it.",
+    "Its stored access token is destroyed — re-link with `costingly link` to restore it.",
     options.revoke
       ? "The token is also invalidated at Plaid (/item/remove). Irreversible."
       : "The Item is NOT removed at Plaid — it keeps counting against your plan. Use --revoke.",

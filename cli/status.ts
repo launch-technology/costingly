@@ -1,8 +1,8 @@
 /**
- * `plaid-sync status` — what is linked and how fresh it is.
+ * `costingly status` — what is linked and how fresh it is.
  *
- *   plaid-sync status          human-readable summary
- *   plaid-sync status --json   machine-readable, for monitoring
+ *   costingly status          human-readable summary
+ *   costingly status --json   machine-readable, for monitoring
  *
  * Read-only, and deliberately never decrypts an access token — answering
  * "what do I have connected?" should not require touching the credentials.
@@ -32,9 +32,9 @@ type Row = {
 
 /** Flag the states that need the user to do something. */
 function statusNote(status: string, neverSynced: boolean): string {
-  if (status === "login_required") return "  ⚠  NEEDS RE-LINK — run `plaid-sync link`";
+  if (status === "login_required") return "  ⚠  NEEDS RE-LINK — run `costingly link`";
   if (status !== "active") return `  ⚠  status: ${status}`;
-  if (neverSynced) return "  ·  never synced — run `plaid-sync sync` for the backfill";
+  if (neverSynced) return "  ·  never synced — run `costingly sync` for the backfill";
   return "";
 }
 
@@ -105,7 +105,7 @@ export function registerStatusCommand(program: Command): void {
       `
 Never decrypts an access token — this only reads metadata.
 
-  plaid-sync status --json | jq '.needsAttention'`,
+  costingly status --json | jq '.needsAttention'`,
     )
     .action(async (options: StatusOptions) => {
       await runStatus(options);
@@ -144,7 +144,7 @@ export async function runStatus(options: StatusOptions): Promise<void> {
       console.log(JSON.stringify({ items: [], accounts: 0, transactions: 0 }, null, 2));
       return;
     }
-    console.log("No banks linked yet. Run `plaid-sync link` to connect one.");
+    console.log("No banks linked yet. Run `costingly link` to connect one.");
     return;
   }
 
@@ -174,7 +174,7 @@ export async function runStatus(options: StatusOptions): Promise<void> {
 
     for (const row of itemRows) {
       if (row.account_id === null) {
-        console.log("    (no accounts stored — run `plaid-sync sync`)");
+        console.log("    (no accounts stored — run `costingly sync`)");
         continue;
       }
       totalAccounts += 1;

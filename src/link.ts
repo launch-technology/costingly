@@ -2,7 +2,7 @@
  * The one-time Link flow: connect a bank login and store its Item.
  *
  * Kept free of Express (or any HTTP framework) so the same two functions back
- * the local `plaid-sync link` server today and a Next.js route handler later.
+ * the local `costingly link` server today and a Next.js route handler later.
  *
  * The flow, end to end:
  *   1. server: createLinkToken()            -> link_token
@@ -51,7 +51,7 @@ export async function createLinkToken(options: CreateLinkTokenOptions = {}): Pro
   const { clientUserId = "local-user", accessToken } = options;
 
   const request: LinkTokenCreateRequest = {
-    client_name: "plaid-sync",
+    client_name: "Costingly",
     language: "en",
     country_codes: COUNTRY_CODES,
     user: { client_user_id: clientUserId },
@@ -84,7 +84,7 @@ export interface LinkedItem {
  * institution, and store the Item together with its accounts.
  *
  * `cursor` is deliberately left NULL, which is what makes the first
- * `plaid-sync sync` pull the full transaction history.
+ * `costingly sync` pull the full transaction history.
  */
 export async function exchangePublicToken(publicToken: string): Promise<LinkedItem> {
   const plaid = getPlaidClient();

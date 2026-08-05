@@ -30,7 +30,7 @@ export class DatabaseBusyError extends Error {
 
   constructor(pid: number, lockPath: string) {
     super(
-      `Another plaid-sync command is using the database (pid ${pid}).\n\n` +
+      `Another costingly command is using the database (pid ${pid}).\n\n` +
         `Wait for it to finish, or stop it. If you are certain nothing is running:\n` +
         `  rm ${lockPath}`,
     );

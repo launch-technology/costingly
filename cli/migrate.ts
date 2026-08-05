@@ -1,5 +1,5 @@
 /**
- * `plaid-sync migrate` — apply schema.sql.
+ * `costingly migrate` — apply schema.sql.
  *
  * schema.sql is entirely IF NOT EXISTS, so this is safe to re-run. It is
  * executed as one multi-statement query, which pg wraps in an implicit

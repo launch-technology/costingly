@@ -6,7 +6,7 @@
  * layered (highest precedence first):
  *
  *   1. real environment variables   dotenv never overwrites an existing key,
- *                                   so `PLAID_ENV=sandbox plaid-sync ...` works
+ *                                   so `PLAID_ENV=sandbox costingly ...` works
  *   2. --config <path>              explicit; fails loudly if missing
  *   3. ./.env                       cwd — preserves the old behaviour exactly
  *   4. <packageRoot>/.env           makes the binary work from anywhere
@@ -47,7 +47,7 @@ export function loadedEnvPath(): string | null {
 export function loadEnv(envFile?: string | undefined): void {
   // `quiet` suppresses dotenv's optional startup banner. It does not fire in
   // this setup, but it writes to stdout when it does — which would corrupt
-  // `plaid-sync status --json | jq`.
+  // `costingly status --json | jq`.
   if (envFile !== undefined && envFile.trim() !== "") {
     const path = resolve(envFile);
     if (!existsSync(path)) {

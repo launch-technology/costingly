@@ -127,7 +127,7 @@ export async function removeAllItems(options: {
  * Keep the bank links, throw away the synced data.
  *
  * Deletes every transaction and clears each Item's cursor, so the next
- * `plaid-sync sync` performs a fresh full-history backfill. Useful for rebuilding
+ * `costingly sync` performs a fresh full-history backfill. Useful for rebuilding
  * after a schema change without making the user re-authenticate anywhere.
  *
  * Done in one transaction: leaving cursors intact after dropping the rows they

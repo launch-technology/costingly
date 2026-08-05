@@ -1,7 +1,7 @@
 -- ===========================================================================
--- plaid-sync schema
+-- costingly schema
 --
--- Applied by `npm run migrate`. Every statement is IF NOT EXISTS / idempotent,
+-- Applied by `costingly migrate`. Every statement is IF NOT EXISTS / idempotent,
 -- so re-running the migration is safe.
 --
 -- ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>plaid-sync — connect a bank</title>
+    <title>costingly — connect a bank</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -98,7 +98,7 @@
 
       <footer>
         Link as many banks as you like, then stop this server with
-        <code>Ctrl-C</code> and run <code>plaid-sync sync</code>.
+        <code>Ctrl-C</code> and run <code>costingly sync</code>.
       </footer>
     </main>
 
@@ -171,7 +171,7 @@
                 message(
                   "Linked " +
                     (item.institutionName || "bank") +
-                    ". Link another, or run `plaid-sync sync`.",
+                    ". Link another, or run `costingly sync`.",
                   "ok"
                 );
               } catch (error) {

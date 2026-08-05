@@ -1,10 +1,10 @@
 /**
- * `plaid-sync txns` — view recent transactions.
+ * `costingly txns` — view recent transactions.
  *
- *   plaid-sync txns                   arrow-key account picker, then a window
- *   plaid-sync txns --days 30         picker, 30-day window
- *   plaid-sync txns --all -d 90       every account, 90-day window
- *   plaid-sync txns checking          skip the picker, match by name/mask/id
+ *   costingly txns                   arrow-key account picker, then a window
+ *   costingly txns --days 30         picker, 30-day window
+ *   costingly txns --all -d 90       every account, 90-day window
+ *   costingly txns checking          skip the picker, match by name/mask/id
  *
  * Argument parsing is commander; the picker is @clack/prompts. Both are CLI-only
  * dependencies — `src/` stays free of them, so nothing here ships to Vercel.
@@ -228,9 +228,9 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
     if (!info || info.newest === null || Number(info.total) === 0) {
       console.log(
         multi
-          ? `  These accounts have no transactions at all — run \`plaid-sync sync\`.\n`
+          ? `  These accounts have no transactions at all — run \`costingly sync\`.\n`
           : `  This account has no transactions at all.\n` +
-              `  Run \`plaid-sync sync\`, or note that some account types (investment,\n` +
+              `  Run \`costingly sync\`, or note that some account types (investment,\n` +
               `  loan) return balances but no transactions under the transactions product.\n`,
       );
       return;
@@ -244,7 +244,7 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
       `  ${info.total} transaction(s) on record; the most recent is ${info.newest}` +
         ` (${stale} day(s) ago).`,
     );
-    console.log(`  To see it:  plaid-sync txns ${scope}--days ${suggestion}\n`);
+    console.log(`  To see it:  costingly txns ${scope}--days ${suggestion}\n`);
     return;
   }
 
@@ -306,11 +306,11 @@ export function registerTransactionsCommand(program: Command): void {
       "after",
       `
 Examples:
-  plaid-sync txns                  pick an account, then a window
-  plaid-sync txns --days 30        picker, 30-day window
-  plaid-sync txns --all -d 90      every account, 90 days
-  plaid-sync txns checking         match by name, skip the picker
-  plaid-sync txns 0000             match by mask
+  costingly txns                  pick an account, then a window
+  costingly txns --days 30        picker, 30-day window
+  costingly txns --all -d 90      every account, 90 days
+  costingly txns checking         match by name, skip the picker
+  costingly txns 0000             match by mask
 
 With no --days, you get a second prompt for the time window.`,
     )
@@ -335,10 +335,10 @@ export async function runTransactions(
 
   if (matches.length === 0) {
     if (accountQuery === null) {
-      console.log("No accounts yet. Run `plaid-sync link`, then `plaid-sync sync`.");
+      console.log("No accounts yet. Run `costingly link`, then `costingly sync`.");
     } else {
       console.log(
-        `No account matches "${accountQuery}". Run \`plaid-sync txns\` to pick from a list.`,
+        `No account matches "${accountQuery}". Run \`costingly txns\` to pick from a list.`,
       );
       process.exitCode = 1;
     }
@@ -365,8 +365,8 @@ export async function runTransactions(
     for (const account of matches) {
       console.log(`  ${account.institution_name ?? "?"} · ${shortLabel(account)}`);
     }
-    console.log(`\n  plaid-sync txns <name or mask> [--days ${DEFAULT_DAYS}]`);
-    console.log(`  plaid-sync txns --all\n`);
+    console.log(`\n  costingly txns <name or mask> [--days ${DEFAULT_DAYS}]`);
+    console.log(`  costingly txns --all\n`);
     process.exitCode = accountQuery === null ? 0 : 1;
     return;
   }

@@ -1,5 +1,5 @@
 /**
- * `plaid-sync sync` — the recurring sync.
+ * `costingly sync` — the recurring sync.
  *
  * This is what a cron job runs. All it does is call `syncAllItems()` — the same
  * function the Vercel cron route calls — and render the summary. Keeping the
@@ -71,11 +71,11 @@ export async function runSync(): Promise<void> {
   const summary = await syncAllItems();
 
   if (summary.itemsTotal === 0) {
-    console.log("No linked items to sync. Run `plaid-sync link` to connect a bank.");
+    console.log("No linked items to sync. Run `costingly link` to connect a bank.");
     return;
   }
 
-  console.log(`Plaid sync — ${summary.startedAt}`);
+  console.log(`Costingly sync — ${summary.startedAt}`);
   for (const result of summary.results) {
     console.log(describeItem(result));
   }

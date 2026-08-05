@@ -11,11 +11,11 @@ import { config } from "./config.js";
 // Cached on globalThis for the same reason as the pg pool: warm serverless
 // containers and Next.js hot reloads should not rebuild the client each time.
 const globalForPlaid = globalThis as typeof globalThis & {
-  __plaidSyncClient?: PlaidApi | undefined;
+  __costinglyClient?: PlaidApi | undefined;
 };
 
 export function getPlaidClient(): PlaidApi {
-  const existing = globalForPlaid.__plaidSyncClient;
+  const existing = globalForPlaid.__costinglyClient;
   if (existing) return existing;
 
   const client = new PlaidApi(
@@ -31,7 +31,7 @@ export function getPlaidClient(): PlaidApi {
     }),
   );
 
-  globalForPlaid.__plaidSyncClient = client;
+  globalForPlaid.__costinglyClient = client;
   return client;
 }
 

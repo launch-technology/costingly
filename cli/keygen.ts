@@ -1,8 +1,8 @@
 /**
- * `plaid-sync keygen` — print a fresh ENCRYPTION_KEY.
+ * `costingly keygen` — print a fresh ENCRYPTION_KEY.
  *
  * The key goes to stdout and the guidance to stderr, so it can be piped:
- *   plaid-sync keygen >> .env
+ *   costingly keygen >> .env
  */
 
 import type { Command } from "commander";
@@ -17,7 +17,7 @@ export function registerKeygenCommand(program: Command): void {
       "after",
       `
 The key goes to stdout and the explanation to stderr, so this works:
-  plaid-sync keygen >> .env`,
+  costingly keygen >> .env`,
     )
     .action(() => {
       runKeygen();

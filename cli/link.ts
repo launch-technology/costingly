@@ -1,5 +1,5 @@
 /**
- * `plaid-sync link` — local-only Plaid Link server.
+ * `costingly link` — local-only Plaid Link server.
  *
  * Serves one static page that opens Plaid Link, plus the two endpoints that
  * page needs. All the actual Plaid work lives in `src/link.ts`; this file is
@@ -31,7 +31,7 @@ export function registerLinkCommand(program: Command): void {
 Opens a page on 127.0.0.1 only. Your bank credentials are entered inside Plaid's
 own window and never reach this app.
 
-Link as many banks as you like, then press Ctrl-C and run \`plaid-sync sync\`.
+Link as many banks as you like, then press Ctrl-C and run \`costingly sync\`.
 Set PORT in .env to use a port other than 4000.`,
     )
     .action(async () => {
@@ -89,7 +89,7 @@ export async function runLinkServer(): Promise<void> {
         `[link] linked ${item.institutionName ?? "(unknown institution)"} ` +
           `— item ${item.itemId}, ${item.accountCount} account(s)`,
       );
-      console.log("[link] run `plaid-sync sync` to pull transaction history.");
+      console.log("[link] run `costingly sync` to pull transaction history.");
 
       res.json(item);
     } catch (error) {

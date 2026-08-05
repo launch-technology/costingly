@@ -1,10 +1,10 @@
 /**
- * `plaid-sync reset` — wipe local data.  DESTRUCTIVE.
+ * `costingly reset` — wipe local data.  DESTRUCTIVE.
  *
- *   plaid-sync reset               delete everything (banks, accounts, transactions)
- *   plaid-sync reset --revoke      ...and invalidate the tokens at Plaid too
- *   plaid-sync reset --data-only   keep the bank links, drop synced data
- *   plaid-sync reset --yes         skip the confirmation (scripts only)
+ *   costingly reset               delete everything (banks, accounts, transactions)
+ *   costingly reset --revoke      ...and invalidate the tokens at Plaid too
+ *   costingly reset --data-only   keep the bank links, drop synced data
+ *   costingly reset --yes         skip the confirmation (scripts only)
  *
  * The main use is switching PLAID_ENV: sandbox and production access tokens are
  * not interchangeable, so moving between them means starting from a clean
@@ -40,9 +40,9 @@ Deleting locally does NOT remove the Item at Plaid — it keeps existing and kee
 counting against your plan. Use --revoke to invalidate it there as well.
 
 Switching PLAID_ENV (sandbox <-> production):
-  plaid-sync reset --revoke     # clean slate, tokens invalidated
+  costingly reset --revoke     # clean slate, tokens invalidated
   # edit .env: PLAID_ENV + the matching PLAID_SECRET
-  plaid-sync link               # re-link each bank`,
+  costingly link               # re-link each bank`,
     )
     .action(async (options: ResetOptions) => {
       await runReset(options);
@@ -85,14 +85,14 @@ export async function runReset(options: ResetOptions): Promise<void> {
 
     const { transactions } = await resetSyncedData();
     console.log(`\nDeleted ${transactions} transaction(s) and cleared all cursors.`);
-    console.log("Run `plaid-sync sync` to re-backfill.\n");
+    console.log("Run `costingly sync` to re-backfill.\n");
     return;
   }
 
   // ---- full wipe ---------------------------------------------------------
   const consequences = [
     `All ${counts.items} bank link(s), ${counts.accounts} account(s) and ${counts.transactions} transaction(s) are deleted.`,
-    "Stored access tokens are destroyed — `plaid-sync link` is required for every bank.",
+    "Stored access tokens are destroyed — `costingly link` is required for every bank.",
   ];
   consequences.push(
     options.revoke
