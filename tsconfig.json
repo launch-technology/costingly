@@ -12,7 +12,11 @@
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": false,
 
-    "noEmit": true,
+    // Emit is on: `npm run build` is a bare `tsc`. `npm run typecheck` passes
+    // --noEmit explicitly, so editors and CI still get a check-only run.
+    "rootDir": ".",
+    "outDir": "dist",
+
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -21,9 +25,12 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "include": ["src/**/*.ts", "cli/**/*.ts"],
   // nextjs-example/ is a reference copy for a future Next.js repo. It imports
   // `next/server`, which is not a dependency here, so it is excluded from this
   // typecheck on purpose. It typechecks inside a real Next.js project.
-  "exclude": ["node_modules", "nextjs-example"]
+  //
+  // "dist" is required, not cosmetic: tsc only auto-excludes outDir when
+  // `exclude` is absent entirely, and this config specifies it.
+  "exclude": ["node_modules", "nextjs-example", "dist"]
 }

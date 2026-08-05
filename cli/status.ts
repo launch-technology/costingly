@@ -1,17 +1,16 @@
 /**
- * Show what is linked and how fresh it is.
+ * `plaid-sync status` — what is linked and how fresh it is.
  *
- *   npm run status            human-readable summary
- *   npm run status -- --json  machine-readable, for monitoring
+ *   plaid-sync status          human-readable summary
+ *   plaid-sync status --json   machine-readable, for monitoring
  *
  * Read-only, and deliberately never decrypts an access token — answering
  * "what do I have connected?" should not require touching the credentials.
  */
 
-import "dotenv/config";
-import { Command } from "commander";
-import { query, closePool } from "../src/db.js";
-import { money, ago, ignoreEpipe } from "./format.js";
+import type { Command } from "commander";
+import { query } from "../src/db.js";
+import { money, ago } from "./format.js";
 
 type Row = {
   item_id: string;
@@ -91,24 +90,29 @@ function emitJson(byItem: Map<string, Row[]>): void {
   );
 }
 
-async function main(): Promise<void> {
-  ignoreEpipe();
-  const program = new Command()
-    .name("status")
-    .description("Show linked banks, their accounts, balances and sync freshness.")
+interface StatusOptions {
+  json?: boolean;
+}
+
+export function registerStatusCommand(program: Command): void {
+  program
+    .command("status")
+    .description("What's linked, balances, how fresh it is")
+    .helpGroup("Looking at your data:")
     .option("--json", "emit JSON instead of a human-readable summary")
     .addHelpText(
       "after",
       `
 Never decrypts an access token — this only reads metadata.
 
-Note: the bare \`--\` is required so npm forwards flags to the script:
-  npm run status -- --json`,
+  plaid-sync status --json | jq '.needsAttention'`,
     )
-    .parse();
+    .action(async (options: StatusOptions) => {
+      await runStatus(options);
+    });
+}
 
-  const options = program.opts<{ json?: boolean }>();
-
+export async function runStatus(options: StatusOptions): Promise<void> {
   const { rows } = await query<Row>(`
     SELECT i.item_id,
            i.institution_name,
@@ -197,12 +201,3 @@ Note: the bare \`--\` is required so npm forwards flags to the script:
     `${byItem.size} bank(s), ${totalAccounts} account(s), ${totalTxns} transaction(s)`,
   );
 }
-
-main()
-  .catch((error: unknown) => {
-    console.error("Status failed:", error instanceof Error ? error.message : error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closePool();
-  });

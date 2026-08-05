@@ -56,16 +56,22 @@ spend for a period (refunds cancel charges); flip the sign at read time with
 [Plaid dashboard](https://dashboard.plaid.com/developers/keys).
 
 ```bash
-# 1. Dependencies
-npm install
+# 1. Dependencies + build + install the `plaid-sync` command
+npm install          # `prepare` compiles to dist/ automatically
+npm link             # puts `plaid-sync` on your PATH
 
 # 2. Postgres
 docker compose up -d
 
 # 3. Config
 cp .env.example .env
-npm run keygen          # prints ENCRYPTION_KEY=... — paste it into .env
+plaid-sync keygen    # prints ENCRYPTION_KEY=... — paste it into .env
 ```
+
+`npm link` symlinks this directory, so `plaid-sync` works from anywhere and
+picks up `.env`, `schema.sql` and `public/` from the project. After editing
+source, run `npm run build` — the link points at `dist/`, which does not
+rebuild itself.
 
 Then fill in `PLAID_CLIENT_ID` and `PLAID_SECRET` in `.env`. `DATABASE_URL` is
 already pointed at the docker container. Set `CRON_SECRET` to any long random
@@ -74,23 +80,23 @@ consistent with production.
 
 ```bash
 # 4. Create the tables
-npm run migrate
+plaid-sync migrate
 
 # 5. Connect a bank — opens on http://127.0.0.1:4000
-npm run link
+plaid-sync link
 
 # 6. Pull transactions
-npm run sync
+plaid-sync sync
 ```
 
-`npm run link` stays running so you can link several banks; stop it with
-`Ctrl-C` when you are done. The first `npm run sync` backfills up to 24 months
+`plaid-sync link` stays running so you can link several banks; stop it with
+`Ctrl-C` when you are done. The first `plaid-sync sync` backfills up to 24 months
 of history (however much the bank actually holds) and takes a while; every run
 after that only fetches changes and takes seconds.
 
 > **First sync came back empty?** Plaid pulls history asynchronously. If the
 > summary says `Plaid still preparing history`, wait a minute and run
-> `npm run sync` again.
+> `plaid-sync sync` again.
 
 ### Test with sandbox first
 
@@ -101,14 +107,93 @@ PLAID_ENV=sandbox
 PLAID_SECRET=<your sandbox secret>   # different from the production one
 ```
 
-Then `npm run link` and pick any institution — log in with username `user_good`
+Then `plaid-sync link` and pick any institution — log in with username `user_good`
 and password `pass_good`. If prompted for MFA, use `1234`. You get a realistic
 set of fake accounts and transactions to verify the whole pipeline against.
 
-Sandbox and production access tokens are not interchangeable. When you switch
-`PLAID_ENV`, re-run `npm run link`, and consider starting from a clean database
-(`docker compose down -v && docker compose up -d && npm run migrate`) so the two
-environments' data does not mix.
+Sandbox and production access tokens are not interchangeable, so switching
+`PLAID_ENV` means wiping and re-linking. See
+[Switching environments](#switching-environments).
+
+---
+
+## Deleting data
+
+Two destructive commands. Both refuse to run unattended and both spell out which
+environment and database they are about to touch.
+
+```bash
+plaid-sync reset               # delete everything: banks, accounts, transactions
+plaid-sync reset --revoke   # ...and invalidate each access token at Plaid
+plaid-sync reset --data-only # keep the bank links, drop synced data + cursors
+plaid-sync unlink              # pick one bank to remove
+plaid-sync unlink chase --revoke
+```
+
+### Local delete vs. revoke
+
+These are different, and conflating them is how you end up paying for Items you
+thought were gone:
+
+| | Local delete (default) | `--revoke` |
+| --- | --- | --- |
+| Rows in this database | deleted | deleted |
+| Access token stored here | destroyed | destroyed |
+| Item at Plaid | **still exists, still billed** | invalidated, permanently |
+| To restore | `plaid-sync link` | `plaid-sync link` |
+
+Without `--revoke` the Item keeps counting against your Plaid plan even though
+your database is empty. Use `--revoke` when you are truly finished with a bank —
+or remove it from the [Plaid dashboard](https://dashboard.plaid.com/) later.
+
+A failed revoke never blocks the local delete: you get a loud warning and the
+rows still go, so a dead credential can't wedge the database.
+
+### The confirmation
+
+```
+  ⚠  DELETE ALL LOCAL DATA
+
+     Environment       PRODUCTION
+     Database          plaid_sync @ localhost:5432  (local docker)
+     Banks             3
+     Accounts          7
+     Transactions      4182
+     Revoke at Plaid   YES — tokens invalidated
+
+     • All 3 bank link(s), 7 account(s) and 4182 transaction(s) are deleted.
+     • Stored access tokens are destroyed — `plaid-sync link` is required for every bank.
+     • Each token is also invalidated at Plaid (/item/remove). Irreversible.
+
+Type "production" to confirm:
+```
+
+You type the **environment name**, not `y`. A confirmation you can satisfy by
+reflex is not a confirmation, and this way a production wipe cannot be confirmed
+with the same keystrokes as a sandbox one. The database line is there to catch
+the "I thought I was pointed at the docker container" mistake.
+
+`-y` / `--yes` skips the prompt for scripts. Without it, a non-interactive shell
+refuses outright rather than guessing.
+
+### Switching environments
+
+Sandbox and production tokens are not interchangeable, so moving between them is
+a wipe-and-relink:
+
+```bash
+plaid-sync reset --revoke      # clean slate; sandbox tokens invalidated
+# edit .env:  PLAID_ENV=production  and the matching PLAID_SECRET
+plaid-sync link                   # re-link each bank against production
+plaid-sync sync                   # full history backfill
+```
+
+Keep the same `ENCRYPTION_KEY` unless you have a reason to rotate it — changing
+it makes any surviving stored token undecryptable.
+
+> Wiping the whole database instead (`docker compose down -v`) also works, but
+> it drops the schema, so you would need `plaid-sync migrate` again. `plaid-sync reset`
+> leaves the tables in place.
 
 ---
 
@@ -117,7 +202,7 @@ environments' data does not mix.
 Quickest check — what is connected and how fresh it is:
 
 ```bash
-npm run status
+plaid-sync status
 ```
 
 ```
@@ -135,9 +220,9 @@ login expired and needs re-linking. It never decrypts an access token.
 ### Recent transactions for one account
 
 ```bash
-npm run txns                       # fully interactive — no flags needed
-npm run txns -- --all -d 90        # every account, 90 days, no prompts
-npm run txns -- checking           # match by name/mask/id, then prompt for window
+plaid-sync txns                       # fully interactive — no flags needed
+plaid-sync txns --all -d 90        # every account, 90 days, no prompts
+plaid-sync txns checking           # match by name/mask/id, then prompt for window
 ```
 
 Run it bare and it asks two questions, both arrow-key driven:
@@ -161,17 +246,12 @@ Run it bare and it asks two questions, both arrow-key driven:
 Passing `--days` skips the second prompt, so scripts keep full control while
 interactive use needs no flags at all.
 
-> **On `npm run txns -- --days 14`:** the bare `--` is npm's requirement, not
-> this tool's — it is the only way `npm run` forwards arguments to a script.
-> The interactive prompts above exist so you rarely need it. If you want a
-> flagless global command, see [Installing as a command](#installing-as-a-command).
-
 Choosing **All accounts** lists every account together with an extra column
 identifying which one each transaction belongs to, and totals grouped by
 currency. The bank name is hidden while only one institution is linked, and
 reappears automatically once there are two.
 
-Run `npm run txns -- --help` (or `npm run status -- --help`) for full usage.
+Run `plaid-sync txns --help` (or `plaid-sync status --help`) for full usage.
 
 To skip the menu, pass an account: a loose match against name, mask, account id,
 or institution name. One match runs straight away; several re-open the picker.
@@ -192,29 +272,6 @@ Last 30 day(s) · balance $110.00
 Note the sign: this view flips Plaid's convention so it reads like a bank
 statement (**negative = money out**). The database itself stores Plaid's
 convention, where those same amounts are positive — see the top of `schema.sql`.
-
-### Installing as a command
-
-To drop the `npm run` / `--` ceremony entirely, add aliases to your shell
-profile (`~/.bash_profile`, or `~/.zshrc` if you switch shells):
-
-```bash
-PLAID_SYNC_DIR="$HOME/Workspaces/Personal-Finances/plaid-sync"
-alias txns='(cd "$PLAID_SYNC_DIR" && npm run txns --silent --)'
-alias plaid-status='(cd "$PLAID_SYNC_DIR" && npm run status --silent --)'
-alias plaid-sync='(cd "$PLAID_SYNC_DIR" && npm run sync --silent)'
-```
-
-Then from anywhere:
-
-```bash
-txns                  # interactive
-txns --days 14        # no `--` needed
-txns checking -d 30
-```
-
-The subshell `cd` matters: `.env` and `schema.sql` are resolved relative to the
-project directory, so the command has to run from there.
 
 For anything beyond that, query the database directly:
 
@@ -262,7 +319,7 @@ SELECT i.institution_name, a.name, a.mask, a.type, a.subtype,
  ORDER BY i.institution_name, a.name;
 ```
 
-**Confirming idempotency:** run `npm run sync` twice. The second run should
+**Confirming idempotency:** run `plaid-sync sync` twice. The second run should
 report `+0 added, ~0 modified, -0 removed`, and this should be unchanged:
 
 ```sql
@@ -273,20 +330,21 @@ SELECT COUNT(*) FROM transactions;
 
 ## Scheduling locally
 
-`npm run sync` exits non-zero if any item failed, so cron can alert on it.
+`plaid-sync sync` exits non-zero if any item failed, so cron can alert on it.
 
 ```bash
 crontab -e
 ```
 
 ```cron
-# 08:00 daily. Absolute paths — cron gets almost no environment.
-0 8 * * * cd /path/to/plaid-sync && /usr/local/bin/npm run --silent sync >> /tmp/plaid-sync.log 2>&1
+# 08:00 daily. Absolute path — cron gets almost no environment and will not
+# find `plaid-sync` on PATH. Get yours with: command -v plaid-sync
+0 8 * * * /Users/jonathankomorek/.nvm/versions/node/v24.19.0/bin/plaid-sync sync >> /tmp/plaid-sync.log 2>&1
 ```
 
-Find your npm path with `which npm`. Note that cron will not wake a sleeping
-Mac; if the machine is often asleep, prefer `launchd` with `StartInterval`, or
-just move to Vercel Cron.
+No `cd` needed: the binary locates `.env` and `schema.sql` from the project
+itself. Note that cron will not wake a sleeping Mac; if the machine is often
+asleep, prefer `launchd` with `StartInterval`, or just move to Vercel Cron.
 
 Docker must be running for the local database to be reachable — add
 `restart: unless-stopped` (already set in `docker-compose.yml`) and enable
@@ -297,7 +355,7 @@ Docker must be running for the local database to be reachable — add
 ## Moving to Next.js on Vercel
 
 The split is already done: everything in `src/` is portable, everything in
-`scripts/` is the local CLI shell.
+`cli/` is the local binary and stays behind.
 
 **1. Copy the core.** Move `src/` into your Next.js repo, e.g. `lib/plaid-sync/`.
 No edits needed — it has no Express, no dotenv, no filesystem access. Add `plaid`
@@ -344,7 +402,7 @@ caches the pool on `globalThis` so warm containers reuse connections.
 > access tokens cannot be decrypted and every bank has to be re-linked.
 
 **6. Migrate the schema** against the hosted database — point `DATABASE_URL` at
-it and run `npm run migrate` once, or paste `schema.sql` into the provider's SQL
+it and run `plaid-sync migrate` once, or paste `schema.sql` into the provider's SQL
 console.
 
 **Test it:**
@@ -355,7 +413,7 @@ curl -i -H "Authorization: Bearer $CRON_SECRET" https://your-app.vercel.app/api/
 
 ### What about linking new banks after the move?
 
-The Link flow does not have to move with it. Run `npm run link` locally against
+The Link flow does not have to move with it. Run `plaid-sync link` locally against
 the production `DATABASE_URL` whenever you add a bank — it is a rare, interactive
 operation. Porting it later is straightforward: `src/link.ts` already contains
 all the logic, so you would only need two thin route handlers plus a page, and
@@ -405,12 +463,16 @@ plaid-sync/
 │   ├── items.ts             # item/account persistence
 │   ├── link.ts              # link token + public token exchange
 │   ├── sync.ts              # syncAllItems() — the heart
+│   ├── remove.ts            # unlink / reset primitives
 │   └── index.ts             # barrel export
-├── scripts/                 # local CLI shells (not portable, not needed)
-│   ├── migrate.ts           # npm run migrate
-│   ├── link-server.ts       # npm run link
-│   ├── sync.ts              # npm run sync
-│   └── keygen.ts            # npm run keygen
+├── cli/                     # the plaid-sync binary (not portable, not needed)
+│   ├── index.ts             # entry: env, argv parsing, pool teardown
+│   ├── <command>.ts         # one file per subcommand
+│   ├── paths.ts             # locates schema.sql / public/ in any layout
+│   ├── env.ts               # .env discovery
+│   ├── confirm.ts           # destructive-command gate
+│   └── format.ts            # money / dates / truncation
+├── dist/                    # build output — what `bin` points at (gitignored)
 ├── public/index.html        # the Plaid Link page
 ├── nextjs-example/          # reference cron route (excluded from tsconfig)
 ├── schema.sql
@@ -418,17 +480,52 @@ plaid-sync/
 └── vercel.json
 ```
 
-### Scripts
+`src/` never imports from `cli/`. That boundary is what lets `src/` be copied
+into a Next.js app without dragging commander, dotenv, express or clack along.
+
+### Commands
+
+`plaid-sync` with no arguments prints the catalog, along with the environment
+and database currently configured. `plaid-sync <command> --help` for per-command
+flags.
 
 | Command | Does |
 | --- | --- |
-| `npm run migrate` | Apply `schema.sql` (idempotent) |
-| `npm run link` | Start the local Plaid Link server |
-| `npm run sync` | Sync all items; exits 1 if any failed |
-| `npm run status` | Show linked banks, accounts, balances and freshness (`-- --json` for monitoring) |
-| `npm run txns` | Recent transactions — interactive account picker (default 7 days) |
-| `npm run keygen` | Print a fresh base64 32-byte `ENCRYPTION_KEY` |
+| `plaid-sync keygen` | Print a fresh base64 32-byte `ENCRYPTION_KEY` |
+| `plaid-sync migrate` | Apply `schema.sql` (idempotent) |
+| `plaid-sync link` | Start the local Plaid Link server |
+| `plaid-sync sync` | Sync all banks; exits 1 if any failed |
+| `plaid-sync status` | Linked banks, balances, freshness (`--json` for monitoring) |
+| `plaid-sync txns` | Recent transactions — interactive pickers (default 7 days) |
+| `plaid-sync unlink` | Remove one bank and its data (**destructive**) |
+| `plaid-sync reset` | Delete all local data (**destructive**) |
+
+Global flags: `--config <path>` to read a different `.env`, `--version`, `--help`.
+
+> `--config`, not `--env-file`: `--env-file` is a **Node** CLI flag, and node
+> consumes it out of the argument list before this program ever runs.
+
+### Development
+
+| Command | Does |
+| --- | --- |
+| `npm run build` | Compile to `dist/` (also runs automatically on `npm install`) |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run cli -- <command>` | Run from source via tsx, without rebuilding |
+
+### Configuration lookup
+
+`plaid-sync` finds its settings in this order, first hit wins:
+
+1. Real environment variables — `PLAID_ENV=sandbox plaid-sync status` works
+2. `--config <path>`
+3. `./.env` in the current directory
+4. `.env` in the project directory
+
+Steps 3–4 are why the command works from anywhere under `npm link`. If you
+install with `npm install -g .` instead, the copied package has no `.env` — use
+real environment variables or `--config`. The banner on `plaid-sync` tells you
+which file was actually loaded.
 
 ---
 
@@ -454,8 +551,8 @@ plaid-sync/
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `ITEM_LOGIN_REQUIRED` | The bank needs re-authentication. The item's `status` is set to `login_required` and it is skipped until repaired — re-link it via `npm run link`. |
-| Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `npm run sync` again shortly. |
+| `ITEM_LOGIN_REQUIRED` | The bank needs re-authentication. The item's `status` is set to `login_required` and it is skipped until repaired — re-link it via `plaid-sync link`. |
+| Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `plaid-sync sync` again shortly. |
 | `Failed to decrypt access token` | `ENCRYPTION_KEY` does not match the key the tokens were stored with. |
 | `INVALID_API_KEYS` | `PLAID_SECRET` does not match `PLAID_ENV` — sandbox and production have different secrets. |
 | `ECONNREFUSED ... 5432` | `docker compose up -d` not running, or another Postgres is already on port 5432 (change the host port in `docker-compose.yml` and `DATABASE_URL`). |

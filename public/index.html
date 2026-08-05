@@ -98,7 +98,7 @@
 
       <footer>
         Link as many banks as you like, then stop this server with
-        <code>Ctrl-C</code> and run <code>npm run sync</code>.
+        <code>Ctrl-C</code> and run <code>plaid-sync sync</code>.
       </footer>
     </main>
 
@@ -171,7 +171,7 @@
                 message(
                   "Linked " +
                     (item.institutionName || "bank") +
-                    ". Link another, or run `npm run sync`.",
+                    ". Link another, or run `plaid-sync sync`.",
                   "ok"
                 );
               } catch (error) {

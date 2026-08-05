@@ -12,7 +12,7 @@
  * is unambiguous.
  *
  * The key comes from ENCRYPTION_KEY: 32 raw bytes, base64-encoded.
- * Generate one with `npm run keygen`.
+ * Generate one with `plaid-sync keygen`.
  */
 
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
@@ -28,13 +28,13 @@ function getKey(): Buffer {
   if (key.length !== KEY_BYTES) {
     throw new Error(
       `ENCRYPTION_KEY must decode to exactly ${KEY_BYTES} bytes, got ${key.length}. ` +
-        `Generate a valid key with: npm run keygen`,
+        `Generate a valid key with: plaid-sync keygen`,
     );
   }
   return key;
 }
 
-/** Generate a fresh base64-encoded 32-byte key. Used by `npm run keygen`. */
+/** Generate a fresh base64-encoded 32-byte key. Used by `plaid-sync keygen`. */
 export function generateEncryptionKey(): string {
   return randomBytes(KEY_BYTES).toString("base64");
 }

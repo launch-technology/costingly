@@ -8,7 +8,7 @@
  *
  * Every value is exposed as a lazy getter so that merely importing this module
  * never throws. A missing variable only fails when something actually needs it,
- * which means `npm run keygen` works before .env is filled in.
+ * which means `plaid-sync keygen` works before .env is filled in.
  */
 
 export type PlaidEnvName = "sandbox" | "production";

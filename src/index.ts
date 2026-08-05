@@ -29,6 +29,7 @@ export {
   saveItem,
   getItem,
   listSyncableItems,
+  listAllItems,
   setItemCursor,
   setItemStatus,
   upsertAccounts,
@@ -48,3 +49,12 @@ export {
   type ItemSyncResult,
   type SyncSummary,
 } from "./sync.js";
+export {
+  countData,
+  revokeAtPlaid,
+  removeItem,
+  removeAllItems,
+  resetSyncedData,
+  type DataCounts,
+  type RemovalOutcome,
+} from "./remove.js";

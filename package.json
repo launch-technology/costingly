@@ -7,14 +7,21 @@
   "engines": {
     "node": ">=20"
   },
+  "bin": {
+    "plaid-sync": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "schema.sql",
+    "public",
+    ".env.example"
+  ],
   "scripts": {
-    "migrate": "tsx scripts/migrate.ts",
-    "link": "tsx scripts/link-server.ts",
-    "sync": "tsx scripts/sync.ts",
-    "status": "tsx scripts/status.ts",
-    "txns": "tsx scripts/transactions.ts",
-    "keygen": "tsx scripts/keygen.ts",
-    "typecheck": "tsc --noEmit"
+    "build": "npm run clean && tsc && chmod +x dist/cli/index.js",
+    "clean": "rm -rf dist",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "cli": "tsx cli/index.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",

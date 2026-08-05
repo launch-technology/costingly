@@ -98,6 +98,19 @@ export async function listSyncableItems(): Promise<StoredItem[]> {
   return result.rows.map(toStoredItem);
 }
 
+/**
+ * Every Item regardless of status, for maintenance commands.
+ *
+ * Unlike `listSyncableItems` this includes items in 'login_required' and any
+ * other non-active state — you still need to be able to see and remove those.
+ */
+export async function listAllItems(): Promise<StoredItem[]> {
+  const result = await query<ItemRow>(
+    `SELECT ${ITEM_COLUMNS} FROM items ORDER BY institution_name NULLS LAST, created_at ASC`,
+  );
+  return result.rows.map(toStoredItem);
+}
+
 export async function getItem(itemId: string): Promise<StoredItem | null> {
   const result = await query<ItemRow>(
     `SELECT ${ITEM_COLUMNS} FROM items WHERE item_id = $1`,

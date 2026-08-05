@@ -3,7 +3,7 @@
  *
  * It is deliberately thin: authenticate, call `syncAllItems()`, return the
  * summary. All the real logic stays in `src/` — the same code the local
- * `npm run sync` CLI runs, with no serverless-specific branches in it.
+ * `plaid-sync sync` CLI runs, with no serverless-specific branches in it.
  *
  * This file is NOT part of the local app and is excluded from its tsconfig
  * (it imports `next/server`, which is not a dependency here). It typechecks

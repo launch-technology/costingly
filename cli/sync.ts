@@ -1,5 +1,5 @@
 /**
- * CLI entrypoint for the recurring sync.  Usage:  npm run sync
+ * `plaid-sync sync` — the recurring sync.
  *
  * This is what a cron job runs. All it does is call `syncAllItems()` — the same
  * function the Vercel cron route calls — and render the summary. Keeping the
@@ -8,11 +8,11 @@
  * Exit code is 1 if any item failed, so cron/monitoring can alert on it.
  */
 
-import "dotenv/config";
+import type { Command } from "commander";
 import { TransactionsUpdateStatus } from "plaid";
 import { syncAllItems } from "../src/sync.js";
-import { closePool } from "../src/db.js";
 import type { ItemSyncResult } from "../src/sync.js";
+import { CliError } from "./errors.js";
 
 function label(result: ItemSyncResult): string {
   return result.institutionName ?? result.itemId;
@@ -43,11 +43,35 @@ function describeItem(result: ItemSyncResult): string {
   return `  ok    ${label(result)}: ${parts.join(", ")}${suffix}`;
 }
 
-async function main(): Promise<void> {
+export function registerSyncCommand(program: Command): void {
+  program
+    .command("sync")
+    .description("Fetch new transactions from every linked bank (idempotent)")
+    .helpGroup("Every day:")
+    .addHelpText(
+      "after",
+      `
+Exits non-zero if any bank failed, so cron and monitoring can alert on it.
+Re-running is safe: a run with nothing to do writes nothing.`,
+    )
+    .action(async () => {
+      try {
+        await runSync();
+      } catch (error) {
+        // syncAllItems() absorbs per-item failures, so reaching here means
+        // something global broke — bad DATABASE_URL, missing env, and so on.
+        throw new CliError(
+          `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    });
+}
+
+export async function runSync(): Promise<void> {
   const summary = await syncAllItems();
 
   if (summary.itemsTotal === 0) {
-    console.log("No linked items to sync. Run `npm run link` to connect a bank.");
+    console.log("No linked items to sync. Run `plaid-sync link` to connect a bank.");
     return;
   }
 
@@ -67,14 +91,3 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   }
 }
-
-main()
-  .catch((error: unknown) => {
-    // syncAllItems() absorbs per-item failures, so reaching here means
-    // something global broke — bad DATABASE_URL, missing env, and so on.
-    console.error("Sync failed:", error instanceof Error ? error.message : error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closePool();
-  });
