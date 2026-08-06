@@ -1,49 +1,26 @@
 /**
  * The environment banner shown above `costingly --help`.
  *
- * Lifted from the old hand-rolled help.ts. Reads `process.env` directly rather
- * than src/config.ts, because config throws on invalid values and help must
- * still render when the configuration is broken — that is precisely when you
- * are reaching for it.
+ * Reads the profile and config directly rather than going through validation,
+ * because help must still render when the configuration is broken — that is
+ * precisely when you are reaching for it. Nothing here throws, and nothing here
+ * touches the database.
  */
 
-import { loadedEnvPath } from "./env.js";
+import { existsSync } from "node:fs";
+import { configPath, displayPath, profileDir, profileSource } from "../src/profile.js";
 import { clusterDir } from "../src/server.js";
 
 export function environmentBanner(): string {
   const lines: string[] = [];
 
-  const rawEnv = (process.env["PLAID_ENV"] ?? "production").trim().toLowerCase();
-  const known = rawEnv === "sandbox" || rawEnv === "production";
+  const source = profileSource() === "COSTINGLY_HOME" ? "COSTINGLY_HOME" : "default";
+  lines.push(`  Profile             ${displayPath(profileDir())}  (${source})`);
+  lines.push(`  Database            ${displayPath(clusterDir())}`);
   lines.push(
-    `  Plaid environment   ${rawEnv.toUpperCase()}` +
-      (known ? "" : "   (invalid — expected sandbox or production)"),
-  );
-
-  const url = process.env["DATABASE_URL"];
-  if (url === undefined || url.trim() === "") {
-    // The normal case: the local cluster costingly manages, nothing to install.
-    lines.push(`  Database            local  ·  ${clusterDir()}`);
-  } else {
-    try {
-      const parsed = new URL(url);
-      const database = parsed.pathname.replace(/^\//, "") || "(default)";
-      const port = parsed.port ? `:${parsed.port}` : "";
-      const local =
-        parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
-          ? "   (local)"
-          : "";
-      lines.push(`  Database            ${database} @ ${parsed.hostname}${port}${local}`);
-    } catch {
-      lines.push("  Database            (unparseable DATABASE_URL)");
-    }
-  }
-
-  const envPath = loadedEnvPath();
-  lines.push(
-    envPath === null
-      ? "  Config file         (none found — run `costingly init`)"
-      : `  Config file         ${envPath}`,
+    existsSync(configPath())
+      ? `  Config              ${displayPath(configPath())}`
+      : "  Config              (not set up — run `costingly init`)",
   );
 
   return `\n${lines.join("\n")}\n`;

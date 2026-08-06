@@ -11,8 +11,8 @@
  */
 
 import type { Command } from "commander";
-import { stopServer, usingRemoteDatabase, clusterDir } from "../src/index.js";
-import { CliError } from "./errors.js";
+import { stopServer, clusterDir } from "../src/index.js";
+import { displayPath } from "../src/profile.js";
 
 export function registerStopCommand(program: Command): void {
   program
@@ -31,17 +31,10 @@ is not affected — this only stops the process.`,
 }
 
 export async function runStop(): Promise<void> {
-  if (usingRemoteDatabase()) {
-    throw new CliError(
-      "DATABASE_URL is set, so costingly is not managing a database server.\n" +
-        "There is nothing here to stop.",
-    );
-  }
-
   const wasRunning = await stopServer();
   console.log(
     wasRunning
-      ? `Database stopped.  ${clusterDir()}`
+      ? `Database stopped.  ${displayPath(clusterDir())}`
       : "Database was not running.",
   );
 }

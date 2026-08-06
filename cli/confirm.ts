@@ -14,30 +14,19 @@
 
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { config } from "../src/config.js";
+import { get } from "../src/config.js";
 import { clusterDir } from "../src/server.js";
+import { displayPath } from "../src/profile.js";
 
 /**
- * Which database is about to be modified, with credentials stripped.
+ * Which database is about to be modified.
  *
- * Says "on this machine" for the local database and names the host for a remote
- * one — the distinction that matters most when you are one keystroke from
- * deleting everything.
+ * Naming the profile is the point: with more than one on a machine — a sandbox,
+ * a checkout, the real one — "which database am I about to empty?" is the
+ * question this gate exists to answer.
  */
 export function describeDatabase(): string {
-  const url = config.databaseUrl;
-  if (url === undefined) return `${clusterDir()}  (local, on this machine)`;
-
-  try {
-    const parsed = new URL(url);
-    const database = parsed.pathname.replace(/^\//, "") || "(default)";
-    const port = parsed.port ? `:${parsed.port}` : "";
-    const local =
-      parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "  (local)" : "  (REMOTE)";
-    return `${database} @ ${parsed.hostname}${port}${local}`;
-  } catch {
-    return "(unparseable DATABASE_URL)";
-  }
+  return `${displayPath(clusterDir())}  (on this machine)`;
 }
 
 export interface ConfirmOptions {
@@ -58,7 +47,7 @@ export interface ConfirmOptions {
  * refuses unless --yes was passed explicitly.
  */
 export async function confirmDestructive(options: ConfirmOptions): Promise<boolean> {
-  const environment = config.plaidEnv.toUpperCase();
+  const environment = get("plaidEnv").toUpperCase();
   const width = Math.max(...options.facts.map(([label]) => label.length), "Environment".length);
 
   console.log("");
@@ -91,7 +80,7 @@ export async function confirmDestructive(options: ConfirmOptions): Promise<boole
 
   // Typing the environment name means a production wipe cannot be confirmed
   // with the same keystrokes as a sandbox one.
-  const phrase = config.plaidEnv;
+  const phrase = get("plaidEnv");
   const answer = await text({
     message: `Type "${phrase}" to confirm:`,
     placeholder: phrase,

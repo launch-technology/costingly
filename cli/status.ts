@@ -9,7 +9,7 @@
  */
 
 import type { Command } from "commander";
-import { query, usingRemoteDatabase, describeDriver } from "../src/db.js";
+import { query } from "../src/db.js";
 import { describeServer } from "../src/server.js";
 import { money, ago } from "./format.js";
 
@@ -40,7 +40,7 @@ function statusNote(status: string, neverSynced: boolean): string {
 }
 
 /**
- * Machine-readable form, for cron wrappers and uptime checks.
+ * Machine-readable form, for scripts and monitoring.
  *
  * `needsAttention` is the field worth alerting on: true when a bank has fallen
  * out of 'active' or has never completed a sync.
@@ -116,12 +116,11 @@ Never decrypts an access token — this only reads metadata.
 /**
  * Where the data actually lives.
  *
- * Worth printing every time: with a managed local server there is now a process
- * that can be up or down, and "is it running?" is the first question when
- * something behaves oddly.
+ * Worth printing every time: the server is a process that can be up or down,
+ * and "is it running?" is the first question when something behaves oddly.
  */
 async function databaseLine(): Promise<string> {
-  return usingRemoteDatabase() ? await describeDriver() : await describeServer();
+  return describeServer();
 }
 
 export async function runStatus(options: StatusOptions): Promise<void> {

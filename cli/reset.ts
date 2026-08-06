@@ -11,7 +11,7 @@
  */
 
 import type { Command } from "commander";
-import { config } from "../src/config.js";
+import { get } from "../src/config.js";
 import { countData, removeAllItems, resetSyncedData } from "../src/remove.js";
 import { confirmDestructive } from "./confirm.js";
 
@@ -138,7 +138,7 @@ export async function runReset(options: ResetOptions): Promise<void> {
 
   if (!options.revoke) {
     console.log(
-      `\nNote: the Item(s) still exist at Plaid (${config.plaidEnv}). Re-run with --revoke,\n` +
+      `\nNote: the Item(s) still exist at Plaid (${get("plaidEnv")}). Re-run with --revoke,\n` +
         `or remove them in the Plaid dashboard, if you want them gone there too.`,
     );
   }

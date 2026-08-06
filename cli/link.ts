@@ -14,7 +14,7 @@ import type { Command } from "commander";
 import express from "express";
 import type { Request, Response } from "express";
 
-import { config } from "../src/config.js";
+import { get } from "../src/config.js";
 import { createLinkToken, exchangePublicToken } from "../src/link.js";
 import { describeError } from "../src/plaid.js";
 import { publicDir } from "./paths.js";
@@ -55,7 +55,7 @@ export async function runLinkServer(): Promise<void> {
 
   /** Which Plaid environment the page should tell the user it is talking to. */
   app.get("/api/env", (_req: Request, res: Response) => {
-    res.json({ env: config.plaidEnv });
+    res.json({ env: get("plaidEnv") });
   });
 
   app.post("/api/create_link_token", async (req: Request, res: Response) => {
@@ -99,11 +99,11 @@ export async function runLinkServer(): Promise<void> {
     }
   });
 
-  const port = config.port;
+  const port = get("port");
 
   await new Promise<void>((resolve, reject) => {
     const server = app.listen(port, "127.0.0.1", () => {
-      console.log(`\nPlaid Link server running against the ${config.plaidEnv} environment.`);
+      console.log(`\nPlaid Link server running against the ${get("plaidEnv")} environment.`);
       console.log(`Open http://127.0.0.1:${port} to connect a bank.`);
       console.log("Press Ctrl-C when you are done.\n");
     });

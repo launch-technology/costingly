@@ -25,12 +25,11 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
+  // tests/ and scripts/ are typechecked separately by tsconfig.test.json, which
+  // sets noEmit. They must not be emitted here, because dist/ is what `files`
+  // publishes.
   "include": ["src/**/*.ts", "cli/**/*.ts"],
-  // nextjs-example/ is a reference copy for a future Next.js repo. It imports
-  // `next/server`, which is not a dependency here, so it is excluded from this
-  // typecheck on purpose. It typechecks inside a real Next.js project.
-  //
   // "dist" is required, not cosmetic: tsc only auto-excludes outDir when
   // `exclude` is absent entirely, and this config specifies it.
-  "exclude": ["node_modules", "nextjs-example", "dist"]
+  "exclude": ["node_modules", "dist"]
 }

@@ -1,0 +1,12 @@
+{
+  // Typecheck the test suites and dev scripts without emitting them.
+  //
+  // They are deliberately outside the main tsconfig's `include`: that config
+  // emits to dist/, and dist/ is what `files` publishes. Tests have no business
+  // in the tarball, but they should still typecheck.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["tests/**/*.mts", "scripts/**/*.mts", "src/**/*.ts", "cli/**/*.ts"]
+}

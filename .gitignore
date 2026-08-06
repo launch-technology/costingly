@@ -1,10 +1,12 @@
-# Secrets — never commit these
+# costingly profiles — config.json, the Postgres cluster, socket and log.
+# Everything costingly owns lives in one folder per environment, and none of it
+# is committable.
+.dev/
+.dev-sandbox/
+
+# An optional convenience for setting environment variables in development.
+# costingly never writes this and never stores credentials in it.
 .env
-.env.*
-!.env.example
-# `.env.*` above catches this too, and the .env.example exception does not
-# cover it — without this line the template would be silently uncommittable.
-!.env.sandbox.example
 
 # Dependencies
 node_modules/
@@ -13,9 +15,6 @@ node_modules/
 dist/
 .next/
 .vercel/
-
-# Local Postgres data (docker-compose volume, if bind-mounted)
-pgdata/
 
 # Logs
 *.log

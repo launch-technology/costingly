@@ -42,7 +42,6 @@ export const packageRoot = findPackageRoot();
 
 export const schemaPath = join(packageRoot, "schema.sql");
 export const publicDir = join(packageRoot, "public");
-export const packageEnvPath = join(packageRoot, ".env");
 
 /** Version from package.json, for `--version`. Never throws. */
 export function packageVersion(): string {

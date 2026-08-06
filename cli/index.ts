@@ -14,13 +14,11 @@
 import { Command } from "commander";
 import { closeDb } from "../src/db.js";
 import { ignoreEpipe } from "./format.js";
-import { loadEnv, configFromArgv } from "./env.js";
 import { environmentBanner } from "./banner.js";
 import { CliError } from "./errors.js";
 import { packageVersion } from "./paths.js";
 
 import { registerInitCommand } from "./init.js";
-import { registerKeygenCommand } from "./keygen.js";
 import { registerMigrateCommand } from "./migrate.js";
 import { registerLinkCommand } from "./link.js";
 import { registerSyncCommand } from "./sync.js";
@@ -29,6 +27,7 @@ import { registerTransactionsCommand } from "./transactions.js";
 import { registerUnlinkCommand } from "./unlink.js";
 import { registerResetCommand } from "./reset.js";
 import { registerStopCommand } from "./stop.js";
+import { registerDoctorCommand } from "./doctor.js";
 
 /**
  * Build the command tree without parsing.
@@ -41,8 +40,6 @@ export function buildProgram(): Command {
     .name("costingly")
     .description("Daily sync of bank and credit-card transactions from Plaid into Postgres.")
     .version(packageVersion(), "-V, --version")
-    // Not --env-file: that is a Node CLI flag and node would eat it first.
-    .option("--config <path>", "read configuration from this file instead of ./.env")
     .showHelpAfterError("(run `costingly --help` for the command list)")
     .addHelpText("before", environmentBanner())
     .addHelpText(
@@ -55,13 +52,13 @@ Per-command flags:  costingly <command> --help
   // Registration order is help order. .helpGroup() on each command produces the
   // grouped catalog the old hand-rolled help.ts used to print.
   registerInitCommand(program);
-  registerKeygenCommand(program);
   registerMigrateCommand(program);
   registerLinkCommand(program);
   registerSyncCommand(program);
   registerStatusCommand(program);
   registerTransactionsCommand(program);
   registerStopCommand(program);
+  registerDoctorCommand(program);
   registerUnlinkCommand(program);
   registerResetCommand(program);
 
@@ -70,7 +67,17 @@ Per-command flags:  costingly <command> --help
 
 async function main(): Promise<void> {
   ignoreEpipe();
-  loadEnv(configFromArgv(process.argv));
+
+  // A .env in the current directory is an optional convenience for CI and for
+  // development — a way to set environment variables, nothing more. It is never
+  // written by costingly and never holds application state; real configuration
+  // lives in config.json inside the profile. Absent is the normal case, and
+  // loadEnvFile throws when the file is missing, so the throw is swallowed.
+  try {
+    process.loadEnvFile();
+  } catch {
+    // No .env here. Expected.
+  }
 
   const program = buildProgram();
 
@@ -89,7 +96,7 @@ async function main(): Promise<void> {
 
 /**
  * Postgres `undefined_table`. On a fresh install this is the very first thing a
- * user hits — the database file exists but has no schema — and the raw
+ * user hits — the cluster exists but has no schema — and the raw
  * `relation "items" does not exist` is a terrible first impression.
  */
 function isMissingSchema(error: unknown): boolean {
@@ -121,6 +128,6 @@ main()
   })
   .finally(async () => {
     // Safe unconditionally: closeDb() returns early when nothing was opened,
-    // so commands like keygen cost nothing.
+    // so commands that never query cost nothing.
     await closeDb();
   });

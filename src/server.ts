@@ -26,11 +26,9 @@
 
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir, userInfo } from "node:os";
+import { userInfo } from "node:os";
 import { join } from "node:path";
-
-/** Used for paths. One place to change if the product is renamed. */
-const APP_NAME = "costingly";
+import { APP_NAME, displayPath, profileDir } from "./profile.js";
 
 /**
  * Postgres major version, and part of the cluster directory name.
@@ -60,16 +58,14 @@ export type ServerState =
 /**
  * The cluster directory (PGDATA).
  *
- * `COSTINGLY_DATA_DIR` overrides it wholesale; otherwise XDG, matching where
- * the PGlite directory used to live so the location stays predictable.
+ * Always inside the profile, never configurable separately. A second lever for
+ * "put the database somewhere else" would let the config and the cluster drift
+ * into different places — which is exactly how a sandbox config once ended up
+ * sharing a database with a production one, under a different encryption key.
+ * To move the database, move the whole profile with `COSTINGLY_HOME`.
  */
 export function clusterDir(): string {
-  const override = process.env["COSTINGLY_DATA_DIR"];
-  if (override !== undefined && override.trim() !== "") return override.trim();
-
-  const xdg = process.env["XDG_DATA_HOME"];
-  const base = xdg !== undefined && xdg.trim() !== "" ? xdg : join(homedir(), ".local", "share");
-  return join(base, APP_NAME, `pg${PG_MAJOR}`);
+  return join(profileDir(), `pg${PG_MAJOR}`);
 }
 
 /**
@@ -112,8 +108,8 @@ function assertSocketPathFits(directory: string): void {
   if (Buffer.byteLength(full) > limit) {
     throw new Error(
       `The database socket path is too long for this platform:\n  ${full}\n\n` +
-        `Unix sockets are limited to about ${limit} characters. Set COSTINGLY_DATA_DIR to ` +
-        `something shorter, for example:\n  export COSTINGLY_DATA_DIR=~/.costingly/pg${PG_MAJOR}`,
+        `Unix sockets are limited to about ${limit} characters. Move the profile somewhere ` +
+        `shorter:\n  export COSTINGLY_HOME=~/.costingly`,
     );
   }
 }
@@ -158,8 +154,7 @@ async function binaries(): Promise<Binaries> {
     if (specifier === undefined) {
       throw new Error(
         `costingly has no PostgreSQL build for ${key}.\n\n` +
-          `Supported: ${Object.keys(BINARY_PACKAGES).join(", ")}.\n` +
-          `You can still use costingly by pointing DATABASE_URL at your own Postgres server.`,
+          `Supported: ${Object.keys(BINARY_PACKAGES).join(", ")}.`,
       );
     }
 
@@ -391,7 +386,7 @@ export async function ensureDatabaseExists(): Promise<boolean> {
 /** Human-readable summary for `costingly status`. */
 export async function describeServer(): Promise<string> {
   const state = await serverStatus();
-  const where = clusterDir();
+  const where = displayPath(clusterDir());
   if (state === "running") return `PostgreSQL ${PG_MAJOR} running at ${where}`;
   if (state === "stopped") return `PostgreSQL ${PG_MAJOR} stopped at ${where}`;
   return `No database yet — run \`costingly init\``;

@@ -46,11 +46,13 @@ export function ago(when: Date | null): string {
 /**
  * Today's date in the *machine's local* timezone, as "YYYY-MM-DD".
  *
- * Deliberately not Postgres' CURRENT_DATE: the database runs in UTC (the docker
- * container certainly does), so after ~20:00 US-Eastern it has already rolled
- * over to tomorrow and a "last 7 days" window would quietly shift a day ahead
- * of the user's calendar. Plaid transaction dates are local calendar days at
- * the bank, so the user's local date is the right reference point.
+ * Deliberately not Postgres' CURRENT_DATE. The local cluster happens to inherit
+ * the system timezone today, so the two usually agree — but that is a database
+ * setting, not a guarantee, and `SET TimeZone` or a differently-configured
+ * server would silently shift a "last 7 days" window by a day. Plaid
+ * transaction dates are local calendar days at the bank, so the user's own
+ * calendar is the right reference point and should not depend on how the
+ * database is configured.
  */
 export function todayLocal(): string {
   const now = new Date();

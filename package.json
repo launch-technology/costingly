@@ -13,20 +13,21 @@
   "files": [
     "dist",
     "schema.sql",
-    "public",
-    ".env.example"
+    "public"
   ],
   "scripts": {
     "build": "npm run clean && tsc && chmod +x dist/cli/index.js",
     "clean": "rm -rf dist",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit",
-    "cli": "tsx cli/index.ts"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "cli": "tsx cli/index.ts",
+    "setup:sandbox": "tsx scripts/setup-sandbox.mts",
+    "test": "tsx tests/run.mts"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
     "commander": "^15.0.0",
-    "dotenv": "^17.4.2",
+    "env-paths": "^4.0.0",
     "express": "^5.2.1",
     "pg": "^8.22.0",
     "plaid": "^45.0.0"

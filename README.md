@@ -1,17 +1,26 @@
 # costingly
 
-Daily sync of bank and credit-card transactions from [Plaid](https://plaid.com)
-into a Postgres database on your own machine.
+Syncs bank and credit-card transactions from [Plaid](https://plaid.com) into a
+Postgres database on your own machine.
 
-**Nothing to install but Node.** Costingly ships real PostgreSQL 18 as an
-ordinary npm dependency and runs it for you — no Docker, no Homebrew, nothing to
-configure. It listens on a unix socket in your home directory, never a network
-port, and there is no database password because your OS account *is* the
-credential. Your transactions never leave your computer.
+Not published yet — this document is for working on it.
 
-The core in `src/` is framework-agnostic, so the same code also runs against a
-hosted Postgres on Vercel Cron. See
-[Moving to Next.js on Vercel](#moving-to-nextjs-on-vercel).
+**There is no database to install.** costingly ships real PostgreSQL 18 binaries
+as an npm dependency and manages the cluster itself: `initdb` on first use,
+`pg_ctl` to start it, and it stays running afterwards. It listens on a unix
+socket, never a TCP port, and uses peer authentication, so there is no password
+anywhere and nothing is reachable over the network.
+
+**Everything it owns lives in one profile directory** — config, cluster, socket,
+log. `COSTINGLY_HOME` names it; with that unset it falls back to the platform's
+data directory (`~/Library/Application Support/costingly` on macOS,
+`~/.local/share/costingly` on Linux). That single variable is how development, a
+sandbox, and a per-test throwaway all get their own fully isolated environment.
+
+**`src/` is framework-agnostic** — it depends only on `plaid`, `pg` and Node
+built-ins. `cli/` may import from `src/`, never the reverse. That boundary is
+what would let the sync logic move to another host without dragging commander,
+express and clack along.
 
 ---
 
@@ -66,36 +75,34 @@ install** — see [Where the data lives](#where-the-data-lives).
 npm install          # `prepare` compiles to dist/ automatically
 npm link             # puts `costingly` on your PATH
 
-# 2. Config
-cp .env.example .env
-costingly keygen    # prints ENCRYPTION_KEY=... — paste it into .env
-```
+# 2. Set up credentials and create the database
+costingly init
 
-`npm link` symlinks this directory, so `costingly` works from anywhere and
-picks up `.env`, `schema.sql` and `public/` from the project. After editing
-source, run `npm run build` — the link points at `dist/`, which does not
-rebuild itself.
-
-Then fill in `PLAID_CLIENT_ID` and `PLAID_SECRET` in `.env`. Leave
-`DATABASE_URL` unset — the embedded database needs no configuration. Set
-`CRON_SECRET` to any long random string (`openssl rand -base64 32`) — it is
-unused locally but keeps `.env` consistent with production.
-
-```bash
-# 4. Create the tables
-costingly migrate
-
-# 5. Connect a bank — opens on http://127.0.0.1:4000
+# 3. Connect a bank — opens on http://127.0.0.1:4000
 costingly link
 
-# 6. Pull transactions
+# 4. Pull transactions
 costingly sync
 ```
 
+`costingly init` prompts for your Plaid keys, verifies them against Plaid before
+writing anything, generates an encryption key, and creates the database. It is
+safe to re-run: an existing encryption key is never replaced, because that
+would make every stored access token permanently undecryptable.
+
+`npm link` symlinks this directory, so `costingly` works from anywhere and picks
+up `schema.sql` and `public/` from the project. After editing source, run
+`npm run build` — the link points at `dist/`, which does not rebuild itself.
+
+To give this checkout its own database rather than sharing your everyday one,
+see [Where the data lives](#where-the-data-lives).
+
 `costingly link` stays running so you can link several banks; stop it with
-`Ctrl-C` when you are done. The first `costingly sync` backfills up to 24 months
-of history (however much the bank actually holds) and takes a while; every run
-after that only fetches changes and takes seconds.
+`Ctrl-C` when you are done.
+
+The first `costingly sync` backfills up to 24 months of history (however much
+the bank actually holds) and takes a while; every run after that only fetches
+changes and takes seconds.
 
 > **First sync came back empty?** Plaid pulls history asynchronously. If the
 > summary says `Plaid still preparing history`, wait a minute and run
@@ -103,19 +110,38 @@ after that only fetches changes and takes seconds.
 
 ### Where the data lives
 
-A real PostgreSQL 18 cluster that costingly creates and runs for you:
+Everything costingly owns lives in **one folder** — its profile:
 
 ```
-~/.local/share/costingly/pg18        the cluster
-~/.local/share/costingly/pg18-run    the unix socket (mode 0700)
-~/.local/share/costingly/pg18.log    the postmaster log
+~/Library/Application Support/costingly/     macOS
+~/.local/share/costingly/                    Linux
+%LOCALAPPDATA%\costingly\Data\               Windows
 ```
 
-Back it up by copying the cluster directory; reset by deleting it.
-`XDG_DATA_HOME` is honoured, and `COSTINGLY_DATA_DIR` overrides the location
-outright. The `pg18` in the name is deliberate — a Postgres data directory
-belongs to one major version, so a future upgrade lands beside this one rather
-than failing against it.
+```
+<profile>/config.json    credentials and encryption key, mode 0600
+<profile>/pg18/          the cluster
+<profile>/pg18-run/      the unix socket
+<profile>/pg18.log       the postmaster log
+```
+
+Back it up, move it, or delete it as a unit. Nothing costingly owns lives
+anywhere else — in particular nothing is written into the package directory, so
+rebuilding or reinstalling never touches data.
+
+`costingly doctor` prints the resolved profile, what chose it, and whether each
+piece is healthy. It never connects to the database, so it still works when the
+server won't start.
+
+**`COSTINGLY_HOME` moves the whole profile.** That single variable is how you
+get a second environment — a checkout, a sandbox, a fresh directory per test:
+
+```bash
+COSTINGLY_HOME=./.dev costingly init
+```
+
+Profiles are fully isolated: separate config, separate cluster, separate
+encryption key. Nothing in one can read the other.
 
 **The server starts itself.** The first command that needs the database starts
 the postmaster, and it stays running afterwards so that a sync, a `status` and
@@ -127,17 +153,10 @@ network. To shut it down:
 costingly stop      # data untouched; the next command starts it again
 ```
 
-Because it is genuinely Postgres, the schema and every query are identical to
-what a hosted deployment runs — which is why setting `DATABASE_URL` is all it
-takes to point the same commands at Neon, Supabase or Vercel Postgres instead:
-
-```bash
-DATABASE_URL=postgresql://user:pass@host/db costingly sync
-```
-
-Leave it unset and you get the embedded database. That single switch is what
-keeps the zero-install local story and the serverless deployment story from
-being two different codebases.
+The database needs no configuration at all. The connection is derived from the
+profile — a unix socket inside it, peer authentication, no host, no port and no
+password — so there is nothing to set and nothing that can disagree with where
+the cluster actually is.
 
 ---
 
@@ -179,7 +198,7 @@ rows still go, so a dead credential can't wedge the database.
   ⚠  DELETE ALL LOCAL DATA
 
      Environment       PRODUCTION
-     Database          ~/.local/share/costingly/pg18  (local, on this machine)
+     Database          ~/Library/Application Support/costingly/pg18  (on this machine)
      Banks             3
      Accounts          7
      Transactions      4182
@@ -194,16 +213,16 @@ Type "production" to confirm:
 
 You type the **environment name**, not `y`. A confirmation you can satisfy by
 reflex is not a confirmation, and this way a production wipe cannot be confirmed
-with the same keystrokes as a sandbox one. The database line is there to catch
-the "I thought I was pointed at my local copy" mistake — a remote database is
-labelled `(REMOTE)`.
+with the same keystrokes as a sandbox one. The database line names the cluster
+about to be emptied, which is what catches the "I thought I was pointed at the
+sandbox profile" mistake.
 
 `-y` / `--yes` skips the prompt for scripts. Without it, a non-interactive shell
 refuses outright rather than guessing.
 
 ### Starting over
 
-To wipe and re-link from scratch — after losing your `ENCRYPTION_KEY`, say, or
+To wipe and re-link from scratch — after losing your encryption key, say, or
 just to clear everything out:
 
 ```bash
@@ -212,12 +231,14 @@ costingly link                # re-link each bank
 costingly sync                # full history backfill
 ```
 
-Keep the same `ENCRYPTION_KEY` unless you have a reason to rotate it — changing
-it makes any surviving stored token undecryptable.
+Keep the same encryption key unless you have a reason to rotate it — changing it
+makes any surviving stored token undecryptable.
 
-> Deleting the data directory instead (`rm -rf ~/.local/share/costingly`) also
-> works, but it drops the schema, so you would need `costingly migrate` again.
-> `costingly reset` leaves the tables in place.
+> Deleting the whole profile is the bluntest option: `costingly stop`, then
+> remove the directory `costingly doctor` reports. That takes the config and the
+> encryption key with it, so the next run starts at `costingly init`. Quote the
+> path — on macOS it contains a space. `costingly reset` keeps both and only
+> empties the tables.
 
 ---
 
@@ -236,10 +257,15 @@ Bank of America
     Sapphire Card ••8899           credit/credit card          $2,104.11    612 txns  2024-08-04 → 2026-08-02
 
 1 bank(s), 2 account(s), 1459 transaction(s)
+PostgreSQL 18 running at ~/Library/Application Support/costingly/pg18
 ```
 
 It flags anything needing attention — an item that has never synced, or one whose
 login expired and needs re-linking. It never decrypts an access token.
+
+`costingly doctor` answers the other question: where everything lives and whether
+it is healthy. It never connects to the database, so unlike `status` it still
+works when the server refuses to start.
 
 ### Recent transactions for one account
 
@@ -279,7 +305,7 @@ Run `costingly txns --help` (or `costingly status --help`) for full usage.
 
 To skip the menu, pass an account: a loose match against name, mask, account id,
 or institution name. One match runs straight away; several re-open the picker.
-In a non-interactive shell (cron, a pipe) there is nobody to answer the prompt,
+In a non-interactive shell (a pipe, a CI job) there is nobody to answer the prompt,
 so it prints the candidates and exits instead of hanging.
 
 ```
@@ -303,15 +329,17 @@ It is a normal Postgres server, so any Postgres client works — point it at the
 socket directory:
 
 ```bash
-psql "postgresql:///costingly?host=$HOME/.local/share/costingly/pg18-run"
+psql "postgresql:///costingly?host=$HOME/Library/Application Support/costingly/pg18-run"
+
+# or, from any profile:
+psql "postgresql:///costingly?host=$COSTINGLY_HOME/pg18-run"
 ```
 
 There is no password: the socket lives in a directory only your account can
 read, and the server uses peer authentication, so the OS decides who you are.
 
-`psql` is not bundled — use one you already have, or set `DATABASE_URL` to point
-costingly at your own Postgres instead. The schema is identical either way, so
-every query below works unchanged.
+`psql` is not bundled — use one you already have. `costingly doctor` prints the
+socket path if you need it.
 
 Recent transactions with their account and institution:
 
@@ -362,158 +390,43 @@ SELECT COUNT(*) FROM transactions;
 
 ---
 
-## Scheduling locally
-
-`costingly sync` exits non-zero if any item failed, so cron can alert on it.
-
-```bash
-crontab -e
-```
-
-```cron
-# 08:00 daily. Absolute path — cron gets almost no environment and will not
-# find `costingly` on PATH. Get yours with: command -v costingly
-0 8 * * * /Users/jonathankomorek/.nvm/versions/node/v24.19.0/bin/costingly sync >> /tmp/costingly.log 2>&1
-```
-
-No `cd` needed: the binary locates `.env` and `schema.sql` from the project
-itself. Note that cron will not wake a sleeping Mac; if the machine is often
-asleep, prefer `launchd` with `StartInterval`, or just move to Vercel Cron.
-
-Nothing else needs to be running: the database is embedded in the command
-itself, so there is no daemon to keep alive and nothing to start at login.
-
----
-
-## Moving to Next.js on Vercel
-
-The split is already done: everything in `src/` is portable, everything in
-`cli/` is the local binary and stays behind.
-
-**1. Copy the core.** Move `src/` into your Next.js repo, e.g. `lib/costingly/`.
-No edits needed — it has no Express, no dotenv, no filesystem access. Add `plaid`
-and `pg` to that project's dependencies.
-
-**2. Add the route.** Copy [`nextjs-example/app/api/sync/route.ts`](nextjs-example/app/api/sync/route.ts)
-to `app/api/sync/route.ts` and fix the import paths to wherever you put `src/`.
-It sets `maxDuration = 300` and `dynamic = "force-dynamic"`, and verifies
-`Authorization: Bearer $CRON_SECRET`.
-
-**3. Add the cron.** Copy [`vercel.json`](vercel.json):
-
-```json
-{ "crons": [{ "path": "/api/sync", "schedule": "0 8 * * *" }] }
-```
-
-Vercel Cron **already** sends `Authorization: Bearer $CRON_SECRET` on every
-scheduled request, so the route's auth check needs no changes to work in
-production — set the env var and it matches.
-
-Schedules run in **UTC**. Hobby allows **up to 2 cron jobs, triggered once per
-day**, and Hobby crons may fire at an arbitrary time within the hour you specify.
-Pro lifts both limits.
-
-**4. Use a pooled Postgres connection.** This is the step people get wrong.
-Serverless functions scale to many concurrent instances, and a direct Postgres
-connection string will exhaust the connection limit. Use the **pooled** string
-your provider gives you:
-
-| Provider | Use |
-| --- | --- |
-| Neon | the `-pooler` host (PgBouncer), not the direct one |
-| Supabase | the connection pooler on port `6543`, not `5432` |
-| Vercel Postgres | `POSTGRES_URL` (pooled), not `POSTGRES_URL_NON_POOLING` |
-
-`src/db.ts` already enables TLS automatically for any non-localhost host and
-caches the pool on `globalThis` so warm containers reuse connections.
-
-**5. Set the env vars** in Vercel → Settings → Environment Variables:
-`PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `DATABASE_URL`, `ENCRYPTION_KEY`,
-`CRON_SECRET`.
-
-> `ENCRYPTION_KEY` must be **the same key** you used locally, or the stored
-> access tokens cannot be decrypted and every bank has to be re-linked.
-
-**6. Migrate the schema** against the hosted database — point `DATABASE_URL` at
-it and run `costingly migrate` once, or paste `schema.sql` into the provider's SQL
-console.
-
-**Test it:**
-
-```bash
-curl -i -H "Authorization: Bearer $CRON_SECRET" https://your-app.vercel.app/api/sync
-```
-
-### What about linking new banks after the move?
-
-The Link flow does not have to move with it. Run `costingly link` locally against
-the production `DATABASE_URL` whenever you add a bank — it is a rare, interactive
-operation. Porting it later is straightforward: `src/link.ts` already contains
-all the logic, so you would only need two thin route handlers plus a page, and
-Plaid would need your production domain registered as an allowed redirect URI.
-
----
-
-## Optional upgrade: webhooks
-
-Cron on a fixed schedule means new transactions can sit unseen for up to a day.
-Plaid can push instead.
-
-Pass a `webhook` URL when creating the link token in `src/link.ts`:
-
-```ts
-request.webhook = "https://your-app.vercel.app/api/plaid/webhook";
-```
-
-Then add a handler that watches for `SYNC_UPDATES_AVAILABLE` (webhook type
-`TRANSACTIONS`) and calls the very same `syncAllItems()`:
-
-```ts
-if (body.webhook_type === "TRANSACTIONS" && body.webhook_code === "SYNC_UPDATES_AVAILABLE") {
-  await syncAllItems();   // idempotent — safe to call from both cron and webhook
-}
-```
-
-Because the sync is cursor-driven and idempotent, cron and webhooks can run
-side by side: whichever fires first picks up the changes, the other finds
-nothing to do. Keep the daily cron as a safety net for missed webhooks.
-
-Verify webhooks in production with `/webhook_verification_key/get` before
-trusting their contents — an unauthenticated endpoint that triggers work is
-worth protecting.
-
----
-
 ## Project layout
 
 ```
 costingly/
-├── src/                     # framework-agnostic core — portable to Next.js
-│   ├── config.ts            # env vars, lazily validated
-│   ├── crypto.ts            # AES-256-GCM for access tokens
+├── src/                     # framework-agnostic core
+│   ├── profile.ts           # where the profile is (COSTINGLY_HOME / env-paths)
+│   ├── config.ts            # the config.json store
+│   ├── server.ts            # the Postgres cluster: initdb, pg_ctl, socket
 │   ├── db.ts                # pooled pg.Pool, withTransaction()
+│   ├── crypto.ts            # AES-256-GCM for access tokens
 │   ├── plaid.ts             # Plaid client + error helpers
 │   ├── items.ts             # item/account persistence
 │   ├── link.ts              # link token + public token exchange
 │   ├── sync.ts              # syncAllItems() — the heart
 │   ├── remove.ts            # unlink / reset primitives
 │   └── index.ts             # barrel export
-├── cli/                     # the costingly binary (not portable, not needed)
-│   ├── index.ts             # entry: env, argv parsing, pool teardown
+├── cli/                     # the costingly binary
+│   ├── index.ts             # entry: argv parsing, pool teardown
 │   ├── <command>.ts         # one file per subcommand
+│   ├── doctor.ts            # where everything is, without touching the database
 │   ├── paths.ts             # locates schema.sql / public/ in any layout
-│   ├── env.ts               # .env discovery
 │   ├── confirm.ts           # destructive-command gate
 │   └── format.ts            # money / dates / truncation
-├── dist/                    # build output — what `bin` points at (gitignored)
+├── tests/                   # standalone suites + runner (never published)
+├── scripts/                 # dev-only, e.g. setup-sandbox (never published)
 ├── public/index.html        # the Plaid Link page
-├── nextjs-example/          # reference cron route (excluded from tsconfig)
+├── dist/                    # build output — what `bin` points at (gitignored)
 ├── schema.sql
-└── vercel.json
+└── package.json
 ```
 
-`src/` never imports from `cli/`. That boundary is what lets `src/` be copied
-into a Next.js app without dragging commander, dotenv, express or clack along.
+`src/` never imports from `cli/`. That boundary is what lets `src/` move to
+another host without dragging commander, express or clack along.
+
+`package.json` `files` publishes `dist`, `schema.sql` and `public` only — so
+`tests/` and `scripts/` exist for contributors and never reach a tarball.
+`schema.sql` and `public/` are read at runtime, which is why they must ship.
 
 ### Commands
 
@@ -523,7 +436,6 @@ flags.
 
 | Command | Does |
 | --- | --- |
-| `costingly keygen` | Print a fresh base64 32-byte `ENCRYPTION_KEY` |
 | `costingly migrate` | Apply `schema.sql` (idempotent) |
 | `costingly link` | Start the local Plaid Link server |
 | `costingly sync` | Sync all banks; exits 1 if any failed |
@@ -531,33 +443,30 @@ flags.
 | `costingly txns` | Recent transactions — interactive pickers (default 7 days) |
 | `costingly unlink` | Remove one bank and its data (**destructive**) |
 | `costingly reset` | Delete all local data (**destructive**) |
+| `costingly stop` | Shut down the database server (data untouched) |
+| `costingly doctor` | Where everything lives and whether it's healthy |
 
-Global flags: `--config <path>` to read a different `.env`, `--version`, `--help`.
-
-> `--config`, not `--env-file`: `--env-file` is a **Node** CLI flag, and node
-> consumes it out of the argument list before this program ever runs.
-
-### Development
-
-| Command | Does |
-| --- | --- |
-| `npm run build` | Compile to `dist/` (also runs automatically on `npm install`) |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run cli -- <command>` | Run from source via tsx, without rebuilding |
+Global flags: `--version`, `--help`. To use a different profile, set
+`COSTINGLY_HOME`.
 
 ### Configuration lookup
 
-`costingly` finds its settings in this order, first hit wins:
+Settings resolve in this order, first hit wins:
 
-1. Real environment variables — `DATABASE_URL=… costingly status` works
-2. `--config <path>`
-3. `./.env` in the current directory
-4. `.env` in the project directory
+1. **CLI flags**
+2. **Real environment variables** — `PLAID_SECRET=… costingly sync` works, and is
+   how CI configures it with no file at all
+3. **`config.json`** in the profile — what `costingly init` writes
+4. **Defaults in source**
 
-Steps 3–4 are why the command works from anywhere under `npm link`. If you
-install with `npm install -g .` instead, the copied package has no `.env` — use
-real environment variables or `--config`. The banner on `costingly` tells you
-which file was actually loaded.
+There is no file discovery and nothing relative to the current directory: the
+profile is named by `COSTINGLY_HOME` or the platform default, and the config
+lives inside it. `costingly doctor` shows every value and which layer supplied
+it.
+
+A `.env` in the current directory is loaded if present, purely as a way to set
+environment variables in development or CI. costingly never writes one and never
+stores credentials in one.
 
 ---
 
@@ -565,41 +474,80 @@ which file was actually loaded.
 
 ### Sandbox
 
-Plaid's sandbox serves fake institutions and fake transactions. It is **not a
-product feature** — users always run against production, and there is no
-environment setting in `.env` at all. It exists so the end-to-end test, and
-anyone contributing, can exercise the real Plaid API without touching real
-accounts or paying for Items.
+Plaid's sandbox serves fake institutions and fake transactions. It is a
+**contributor-only concern** — nothing about it reaches someone who installs
+costingly, and there is no CLI command, flag or config prompt that mentions it.
+It exists because `sandboxPublicTokenCreate` is the only way to link a bank
+without a human in a browser, which makes it the only way to test the
+link → sync → verify pipeline automatically.
 
-It lives entirely in its own config file:
-
-```bash
-cp .env.sandbox.example .env.sandbox   # then fill in your sandbox secret
-```
-
-That file carries a complete configuration — including its own
-`COSTINGLY_DATA_DIR`, so sandbox gets a **separate database** and can never read
-or write your real transactions, and its own throwaway `ENCRYPTION_KEY`, so it
-cannot decrypt anything of yours.
-
-The end-to-end suite loads it by path. Any command can be pointed at it too:
+One command sets it up:
 
 ```bash
-costingly --config .env.sandbox status
+npm run setup:sandbox
 ```
+
+It asks for your Plaid **sandbox** keys (the Sandbox row at
+[dashboard.plaid.com/developers/keys](https://dashboard.plaid.com/developers/keys)),
+verifies them against the real API, and writes `.dev-sandbox/config.json` —
+git-ignored, mode 0600. `PLAID_CLIENT_ID` / `PLAID_SECRET` in the environment
+skip the prompts, so CI can run it unattended.
+
+That profile has its own cluster and its own throwaway encryption key, so it
+cannot read or write your real transactions. Isolation is by directory, not by a
+rule anyone has to remember.
+
+The end-to-end suites skip with instructions until it exists, so a fresh clone
+runs everything else green.
+
+`costingly init` cannot create this profile — it always writes
+`plaidEnv: "production"`, which is what keeps sandbox out of the product.
 
 In sandbox, Plaid Link accepts `user_good` / `pass_good`, and `1234` for MFA.
 
-Without `.env.sandbox`, the end-to-end test skips rather than fails — everything
-else still runs.
-
-### Commands
+### Scripts
 
 | Command | Does |
 | --- | --- |
 | `npm run build` | Compile to `dist/` (also runs on `npm install`) |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm run typecheck` | `tsc --noEmit`, including `tests/` and `scripts/` |
 | `npm run cli -- <command>` | Run from source via tsx, without rebuilding |
+| `npm test` | Run every suite |
+| `npm test -- <name>` | Run only suites matching `<name>` |
+| `npm run setup:sandbox` | Create the `.dev-sandbox` profile the e2e tests need |
+
+`npm link` points the global `costingly` at `dist/`, which does not rebuild
+itself — so after editing source, run `npm run build` before the command
+reflects it. `npm run cli` skips that by running from source.
+
+### Tests
+
+```
+tests/run.mts             the runner
+tests/<name>.test.mts     one standalone suite per file
+```
+
+No framework. Each suite is a script that asserts, prints its own results and
+exits 0 or 1. The runner spawns them in **separate processes**, which is not
+incidental: several set `COSTINGLY_HOME` and start real Postgres clusters, so a
+shared process would leak one suite's state into the next.
+
+| Suite | Covers |
+| --- | --- |
+| `profile` | where the profile resolves, and that resolving one touches no disk |
+| `config` | the `config.json` store: precedence, file mode, corrupt-file handling, secrets never rendered |
+| `smoke` | every module loads under Node ESM; crypto round-trips and rejects tampering |
+| `picker` | the interactive account/date pickers, driven through injected streams |
+| `confirm` | the destructive-command gate |
+| `init-flow` | `costingly init` end to end against the real Plaid API |
+| `concurrency` | several OS processes using one database at once |
+| `e2e` | link a bank, sync it, prove the sync is idempotent — the whole pipeline |
+
+`init-flow` and `e2e` need Plaid sandbox credentials and **skip with
+instructions** when the sandbox profile is missing, so a fresh clone runs
+everything else green.
+
+Only failures print output — a green run stays quiet.
 
 ---
 
@@ -608,8 +556,9 @@ else still runs.
 - **Access tokens are encrypted at rest** with AES-256-GCM (`iv.tag.ciphertext`,
   base64). GCM is authenticated, so a tampered or wrongly-keyed value fails
   loudly instead of decrypting to garbage.
-- **Secrets live only in env.** `.env` is gitignored; `.env.example` carries no
-  values.
+- **Secrets live only in the profile.** `config.json` is written mode 0600 inside a
+  0700 directory — outside the repo and outside the published package, so there is
+  nothing to commit or publish by accident.
 - **Read-only.** Only the `transactions` product is requested — no `auth`
   (account/routing numbers), no `identity`, no `transfer`.
 - **Errors are never logged raw.** The Plaid SDK is axios-based and its error
@@ -618,8 +567,10 @@ else still runs.
   logging caught errors directly.
 - **The Link server binds to `127.0.0.1`.** Its endpoints are unauthenticated —
   do not expose them on a network.
-- **Back up `ENCRYPTION_KEY`** somewhere durable (a password manager). Losing it
-  means re-linking every bank.
+- **Back up the encryption key** somewhere durable (a password manager). It lives
+  in `config.json` as `encryptionKey`; losing it means re-linking every bank.
+- **`costingly doctor` never prints secrets** — it reports them as set or unset.
+  It is safe to paste into an issue.
 
 ## Troubleshooting
 
@@ -627,7 +578,10 @@ else still runs.
 | --- | --- |
 | `ITEM_LOGIN_REQUIRED` | The bank needs re-authentication. The item's `status` is set to `login_required` and it is skipped until repaired — re-link it via `costingly link`. |
 | Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `costingly sync` again shortly. |
-| `Failed to decrypt access token` | `ENCRYPTION_KEY` does not match the key the tokens were stored with. |
-| `INVALID_API_KEYS` | Wrong `PLAID_CLIENT_ID` / `PLAID_SECRET`. Re-run `costingly init`, which verifies them against Plaid before saving. |
-| `ECONNREFUSED ... 5432` | Only possible with `DATABASE_URL` set. Unset it to use the embedded database, or check the server it points at. |
+| `Failed to decrypt access token` | The encryption key does not match the one the tokens were stored with. Check `costingly doctor`. |
+| `INVALID_API_KEYS` | Wrong Plaid credentials. Re-run `costingly init`, which verifies them against Plaid before saving anything. |
 | `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` | Handled automatically — pagination restarts from the stored cursor, up to 5 times. |
+| `The database has not been set up yet` | The cluster exists but has no schema. Run `costingly migrate` (or `costingly init`). |
+| Commands hang or the server won't start | `costingly doctor` first — it works without the database. Then read the postmaster log it points at. |
+| `socket path is too long` | The profile is nested too deeply; unix sockets cap near 104 bytes. Set `COSTINGLY_HOME` somewhere shorter. |
+| `costingly: command not found` after `nvm use` | `npm link` installs into one Node version's `bin`. Re-run `npm link` under the version you switched to. |

@@ -6,7 +6,7 @@
 
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 import type { PlaidError } from "plaid";
-import { config } from "./config.js";
+import { get, getSecret } from "./config.js";
 
 // Cached on globalThis for the same reason as the pg pool: warm serverless
 // containers and Next.js hot reloads should not rebuild the client each time.
@@ -20,11 +20,11 @@ export function getPlaidClient(): PlaidApi {
 
   const client = new PlaidApi(
     new Configuration({
-      basePath: PlaidEnvironments[config.plaidEnv],
+      basePath: PlaidEnvironments[get("plaidEnv")],
       baseOptions: {
         headers: {
-          "PLAID-CLIENT-ID": config.plaidClientId,
-          "PLAID-SECRET": config.plaidSecret,
+          "PLAID-CLIENT-ID": get("plaidClientId"),
+          "PLAID-SECRET": getSecret("plaidSecret"),
           "Plaid-Version": "2020-09-14",
         },
       },

@@ -2,12 +2,29 @@
  * Public surface of the framework-agnostic core.
  *
  * Everything below `src/` depends only on `plaid`, `pg` and Node built-ins —
- * no Express, no dotenv, no Next.js. Copy this directory into a Next.js repo
- * and the imports keep working unchanged.
+ * no Express, no commander, no clack. That boundary is what keeps the sync
+ * logic liftable into another host later.
  */
 
-export { config, type PlaidEnvName } from "./config.js";
-export { encrypt, decrypt, generateEncryptionKey, safeEqual } from "./crypto.js";
+export {
+  get,
+  getSecret,
+  describeConfig,
+  writeConfig,
+  readConfigFile,
+  type PlaidEnvName,
+  type StoredConfig,
+  type ResolvedValue,
+} from "./config.js";
+export {
+  profileDir,
+  profileSource,
+  configPath,
+  displayPath,
+  APP_NAME,
+  type ProfileSource,
+} from "./profile.js";
+export { encrypt, decrypt, generateEncryptionKey } from "./crypto.js";
 export {
   ensureServerRunning,
   stopServer,
@@ -27,7 +44,6 @@ export {
   withTransaction,
   closeDb,
   describeDriver,
-  usingRemoteDatabase,
   type DbClient,
   type DbResult,
   type DbRow,

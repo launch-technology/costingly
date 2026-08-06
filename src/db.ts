@@ -1,17 +1,16 @@
 /**
  * Database access.
  *
- *   default          The local PostgreSQL cluster costingly manages itself —
- *                    real Postgres binaries shipped as an npm dependency, no
- *                    Docker, nothing to install. See src/server.ts.
- *   DATABASE_URL set  Someone else's Postgres server. This is the path a Next.js
- *                    deployment on Vercel takes, pointed at Neon / Supabase /
- *                    Vercel Postgres, and the escape hatch for anyone who would
- *                    rather run their own.
+ * One mode: the local PostgreSQL cluster costingly manages itself, inside the
+ * profile (see src/profile.ts and src/server.ts). The connection is derived,
+ * never configured — a unix socket under the profile, peer authentication, no
+ * host, no port, no password. There is nothing to set and nothing that can
+ * disagree with where the cluster actually is.
  *
- * Both are ordinary Postgres over `pg`, so the only real difference is who
- * starts the server. Callers see `DbResult` / `DbClient` and never a driver
- * type.
+ * There used to be a second mode behind DATABASE_URL, for a hosted Postgres on
+ * Vercel. It was removed: nothing exercised it, and it put a two-way branch in
+ * seven files. Restoring it is a connection-string source, not an architecture —
+ * what actually preserves that option is the dialect, which is unchanged.
  */
 
 import { connectionString, ensureDatabaseExists, ensureServerRunning } from "./server.js";
@@ -57,61 +56,14 @@ interface Driver extends DbClient {
 const DATE_OID = 1082;
 const keepAsSent = (value: string): string => value;
 
-// ---------------------------------------------------------------------------
-// Where the data goes
-// ---------------------------------------------------------------------------
-
-function databaseUrl(): string | undefined {
-  const url = process.env["DATABASE_URL"];
-  return url !== undefined && url.trim() !== "" ? url : undefined;
-}
-
-/** True when queries go to a server costingly does not manage. */
-export function usingRemoteDatabase(): boolean {
-  return databaseUrl() !== undefined;
-}
-
-/**
- * Enable TLS unless the host is local.
- *
- * Hosted serverless Postgres requires TLS but commonly presents a chain Node
- * does not trust out of the box, hence `rejectUnauthorized: false` — the
- * standard configuration for these providers.
- */
-function sslFor(connString: string): { rejectUnauthorized: boolean } | undefined {
-  let hostname: string;
-  try {
-    hostname = new URL(connString).hostname;
-  } catch {
-    return undefined;
-  }
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const isLocal =
-    host === "" ||
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "0.0.0.0" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local");
-  return isLocal ? undefined : { rejectUnauthorized: false };
-}
-
 async function createDriver(): Promise<Driver> {
-  const url = databaseUrl();
-  const managed = url === undefined;
-
-  // Starting the cluster is the one thing the managed path adds. Both calls are
-  // idempotent and return almost immediately once things exist, so every command
-  // auto-starts the database and nothing above this line has to care. Creating
-  // the database here rather than in `init` is what makes a half-finished setup
-  // heal itself instead of failing with `database "costingly" does not exist`.
-  if (managed) {
-    await ensureServerRunning();
-    await ensureDatabaseExists();
-  }
-
-  const connString = url ?? connectionString();
+  // Both calls are idempotent and return almost immediately once things exist,
+  // so every command auto-starts the database and nothing above this line has
+  // to care. Creating the database here rather than in `init` is what makes a
+  // half-finished setup heal itself instead of failing with
+  // `database "costingly" does not exist`.
+  await ensureServerRunning();
+  await ensureDatabaseExists();
 
   const pgPkg = (await import("pg")).default;
   const { Pool, types } = pgPkg;
@@ -119,30 +71,22 @@ async function createDriver(): Promise<Driver> {
   types.setTypeParser(DATE_OID, keepAsSent);
 
   const pool = new Pool({
-    connectionString: connString,
-    ssl: sslFor(connString),
-    // Serverless containers are short-lived and platforms cap connections. A
-    // daily sync is not throughput-bound.
-    max: managed ? 10 : 5,
+    connectionString: connectionString(),
+    // No `ssl`: a unix socket is not a network connection, so there is nothing
+    // to encrypt and no certificate to verify.
+    max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
   });
 
-  // Without this, a backend terminated by the server (idle timeout, failover, a
-  // pooler recycling the connection) surfaces as an unhandled 'error' event and
-  // takes the process down. pg evicts the dead client itself.
+  // Without this, a backend terminated by the server (idle timeout, a crash)
+  // surfaces as an unhandled 'error' event and takes the process down. pg
+  // evicts the dead client itself.
   pool.on("error", (error: Error) => {
     console.error("[db] idle client error (connection will be recycled):", error.message);
   });
 
-  const describe = (): string => {
-    if (managed) return "local PostgreSQL (managed by costingly)";
-    try {
-      return `Postgres at ${new URL(connString).host}`;
-    } catch {
-      return "Postgres at (unparseable DATABASE_URL)";
-    }
-  };
+  const describe = (): string => "local PostgreSQL (managed by costingly)";
 
   return {
     query: async (text, params) => {
@@ -248,9 +192,6 @@ export async function describeDriver(): Promise<string> {
  *
  * This does NOT stop the database — the server is shared and long-lived, and
  * stopping it is what `costingly stop` is for.
- *
- * Do NOT call from a serverless handler either: the container is reused between
- * invocations and the warm connections are worth keeping.
  */
 export async function closeDb(): Promise<void> {
   const pending = globalForDb.__costinglyDriver;

@@ -1,11 +1,10 @@
 /**
  * `costingly sync` — the recurring sync.
  *
- * This is what a cron job runs. All it does is call `syncAllItems()` — the same
- * function the Vercel cron route calls — and render the summary. Keeping the
+ * All it does is call `syncAllItems()` and render the summary. Keeping the
  * logic in `src/sync.ts` is what makes the two paths genuinely identical.
  *
- * Exit code is 1 if any item failed, so cron/monitoring can alert on it.
+ * Exit code is 1 if any item failed, so a caller can detect it.
  */
 
 import type { Command } from "commander";
@@ -51,7 +50,7 @@ export function registerSyncCommand(program: Command): void {
     .addHelpText(
       "after",
       `
-Exits non-zero if any bank failed, so cron and monitoring can alert on it.
+Exits non-zero if any bank failed.
 Re-running is safe: a run with nothing to do writes nothing.`,
     )
     .action(async () => {
@@ -59,7 +58,7 @@ Re-running is safe: a run with nothing to do writes nothing.`,
         await runSync();
       } catch (error) {
         // syncAllItems() absorbs per-item failures, so reaching here means
-        // something global broke — bad DATABASE_URL, missing env, and so on.
+        // something global broke — an unreachable database, missing config, and so on.
         throw new CliError(
           `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
         );

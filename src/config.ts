@@ -1,76 +1,230 @@
 /**
- * Environment configuration.
+ * Configuration, backed by `config.json` inside the profile.
  *
- * Deliberately framework-agnostic: this module reads `process.env` and nothing
- * else. It does NOT load a .env file — the local CLI entrypoints in `cli/`
- * do that via `dotenv/config`, and on Vercel the env vars are already present.
- * That keeps `src/` importable unchanged from a Next.js route handler.
+ * The file is owned by the application, not the user: `costingly init` writes
+ * it. It is readable, and editable in a pinch, but nobody is expected to
+ * hand-edit it — which is what lets it be JSON and lets the app rewrite it
+ * safely.
  *
- * Every value is exposed as a lazy getter so that merely importing this module
- * never throws. A missing variable only fails when something actually needs it,
- * which means `costingly keygen` works before .env is filled in.
+ * Resolution, highest priority first:
+ *
+ *   1. environment variables   PLAID_SECRET=... costingly sync
+ *   2. config.json             what `costingly init` wrote
+ *   3. defaults in source
+ *
+ * (CLI flags sit above all of these; commander applies them at the call site.)
+ *
+ * The environment layer is what makes CI work with no file at all, and what
+ * makes a one-off override possible without editing anything.
+ *
+ * Secrets go through `getSecret()` rather than `get()`. They live in the same
+ * file today, at mode 0600 — no better protected than a dotfile was. The point
+ * of the separate accessor is that call sites stop caring where secrets come
+ * from, so moving them into the OS keychain later is one module rather than a
+ * sweep of the codebase.
  */
+
+import { readFileSync } from "node:fs";
+import { chmod, mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { configPath, displayPath } from "./profile.js";
+
+/** Owner read/write only. This file holds live credentials. */
+const FILE_MODE = 0o600;
 
 export type PlaidEnvName = "sandbox" | "production";
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value.trim() === "") {
-    throw new Error(
-      `Missing required environment variable: ${name}. ` +
-        `Run \`costingly init\` to set it up.`,
-    );
-  }
-  return value;
+/** Everything `costingly init` writes. */
+export interface StoredConfig {
+  plaidClientId: string;
+  plaidSecret: string;
+  encryptionKey: string;
+  plaidEnv: PlaidEnvName;
+  port: number;
 }
 
-function plaidEnvName(): PlaidEnvName {
-  const raw = (process.env["PLAID_ENV"] ?? "production").trim().toLowerCase();
-  if (raw === "sandbox" || raw === "production") {
-    return raw;
+export type SecretName = "plaidSecret" | "encryptionKey";
+export type PublicName = "plaidClientId" | "plaidEnv" | "port";
+
+/** The environment variable that overrides each key. */
+const ENV_NAMES: Record<keyof StoredConfig, string> = {
+  plaidClientId: "PLAID_CLIENT_ID",
+  plaidSecret: "PLAID_SECRET",
+  encryptionKey: "ENCRYPTION_KEY",
+  plaidEnv: "PLAID_ENV",
+  port: "PORT",
+};
+
+const DEFAULTS = {
+  /** Users are always on production. Only the sandbox test profile sets this. */
+  plaidEnv: "production" as PlaidEnvName,
+  /** The local Plaid Link web server, not the database — that uses a socket. */
+  port: 4000,
+};
+
+export type ValueSource = "environment" | "config file" | "default" | "missing";
+
+export interface ResolvedValue {
+  key: keyof StoredConfig;
+  source: ValueSource;
+  /** Secrets are reported as present/absent, never rendered. */
+  display: string;
+}
+
+// ---------------------------------------------------------------------------
+// Reading the file
+// ---------------------------------------------------------------------------
+
+/**
+ * Read `config.json`, or an empty object when it does not exist.
+ *
+ * Read synchronously and NOT cached: the profile can move between calls (tests
+ * do exactly that), and the file is small enough that re-reading costs nothing
+ * next to the work every command does anyway.
+ *
+ * A file that exists but cannot be parsed is a hard error. Silently treating
+ * corrupt JSON as "no config" would send the user to `costingly init` and have
+ * them overwrite a file that might hold the only copy of their encryption key.
+ */
+function readStored(): Partial<StoredConfig> {
+  const path = configPath();
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return {};
   }
-  throw new Error(
-    `Invalid PLAID_ENV: "${raw}". Must be "sandbox" or "production". ` +
-      `(Plaid retired the "development" environment; use sandbox for testing.)`,
+
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("expected a JSON object");
+    }
+    return parsed as Partial<StoredConfig>;
+  } catch (error) {
+    throw new Error(
+      `Could not read ${displayPath(path)}:\n  ${error instanceof Error ? error.message : String(error)}\n\n` +
+        `Fix the file, or move it aside and run \`costingly init\` to create a new one.\n` +
+        `If it holds the only copy of your encryption key, do NOT delete it — a lost key\n` +
+        `means re-linking every bank.`,
+    );
+  }
+}
+
+/** The raw resolved value for a key, before validation. */
+function resolve(key: keyof StoredConfig): { value: string | number | undefined; source: ValueSource } {
+  const fromEnv = process.env[ENV_NAMES[key]];
+  if (fromEnv !== undefined && fromEnv.trim() !== "") {
+    return { value: fromEnv.trim(), source: "environment" };
+  }
+
+  const stored = readStored()[key];
+  if (stored !== undefined && stored !== "") {
+    return { value: stored, source: "config file" };
+  }
+
+  if (key in DEFAULTS) {
+    return { value: DEFAULTS[key as keyof typeof DEFAULTS], source: "default" };
+  }
+
+  return { value: undefined, source: "missing" };
+}
+
+function missing(key: keyof StoredConfig): Error {
+  return new Error(
+    `${ENV_NAMES[key]} is not set.\n\n` +
+      `Looked in the environment and in:\n  ${displayPath(configPath())}\n\n` +
+      `Run \`costingly init\` to set it up.`,
   );
 }
 
-export const config = {
-  get plaidClientId(): string {
-    return required("PLAID_CLIENT_ID");
-  },
-  get plaidSecret(): string {
-    return required("PLAID_SECRET");
-  },
-  get plaidEnv(): PlaidEnvName {
-    return plaidEnvName();
-  },
-  /**
-   * Connection string for a real Postgres server, or undefined.
-   *
-   * Optional by design: with nothing set the app runs the local PostgreSQL
-   * cluster it manages itself (see src/server.ts), which is what makes a
-   * zero-install `npx` run work. Setting it points the same code at someone
-   * else's server — the path a Vercel deployment takes.
-   */
-  get databaseUrl(): string | undefined {
-    const value = process.env["DATABASE_URL"];
-    return value !== undefined && value.trim() !== "" ? value : undefined;
-  },
-  get encryptionKey(): string {
-    return required("ENCRYPTION_KEY");
-  },
-  get cronSecret(): string {
-    return required("CRON_SECRET");
-  },
-  /** Port for the local Plaid Link server. Not used in serverless. */
-  get port(): number {
-    const raw = process.env["PORT"];
-    if (raw === undefined || raw.trim() === "") return 4000;
-    const parsed = Number.parseInt(raw, 10);
+// ---------------------------------------------------------------------------
+// Public accessors
+// ---------------------------------------------------------------------------
+
+/** A non-secret value. Throws with an actionable message when unset. */
+export function get<K extends PublicName>(key: K): StoredConfig[K] {
+  const { value } = resolve(key);
+  if (value === undefined) throw missing(key);
+
+  if (key === "port") {
+    const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
     if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
-      throw new Error(`Invalid PORT: "${raw}"`);
+      throw new Error(`Invalid port: "${String(value)}". Must be between 1 and 65535.`);
     }
-    return parsed;
-  },
-};
+    return parsed as StoredConfig[K];
+  }
+
+  if (key === "plaidEnv") {
+    const raw = String(value).trim().toLowerCase();
+    if (raw !== "sandbox" && raw !== "production") {
+      throw new Error(
+        `Invalid plaidEnv: "${String(value)}". Must be "sandbox" or "production".\n` +
+          `(Plaid retired the "development" environment; use sandbox for testing.)`,
+      );
+    }
+    return raw as StoredConfig[K];
+  }
+
+  return String(value) as StoredConfig[K];
+}
+
+/**
+ * A secret. Same store as `get()` today; separate on purpose.
+ *
+ * Keep this the only way secrets are read. When they move to the OS keychain
+ * this function changes and nothing else does.
+ */
+export function getSecret(key: SecretName): string {
+  const { value } = resolve(key);
+  if (value === undefined) throw missing(key);
+  return String(value);
+}
+
+/**
+ * Every key, its source, and a safe rendering. For `costingly doctor`.
+ *
+ * Secrets report presence only. A diagnostic command that printed live
+ * credentials would be pasted into an issue tracker within a week.
+ */
+export function describeConfig(): ResolvedValue[] {
+  return (Object.keys(ENV_NAMES) as (keyof StoredConfig)[]).map((key) => {
+    const { value, source } = resolve(key);
+    const secret = key === "plaidSecret" || key === "encryptionKey";
+    const display =
+      value === undefined ? "not set" : secret ? "set (hidden)" : String(value);
+    return { key, source, display };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Writing
+// ---------------------------------------------------------------------------
+
+/**
+ * Write the config file atomically, owner-only.
+ *
+ * chmod happens on the temp file *before* the rename, so the config is never
+ * momentarily world-readable at its final path.
+ */
+export async function writeConfig(values: StoredConfig): Promise<void> {
+  const path = configPath();
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+
+  const temp = join(dirname(path), `.config.${process.pid}.tmp`);
+  const body = `${JSON.stringify(values, null, 2)}\n`;
+  try {
+    await writeFile(temp, body, { mode: FILE_MODE });
+    await chmod(temp, FILE_MODE);
+    await rename(temp, path);
+  } catch (error) {
+    await unlink(temp).catch(() => {});
+    throw error;
+  }
+}
+
+/** Read the file as-is. For `init`, which needs to know what already exists. */
+export function readConfigFile(): Partial<StoredConfig> {
+  return readStored();
+}
+

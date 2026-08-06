@@ -354,7 +354,7 @@ export async function runTransactions(
     return;
   }
 
-  // More than one candidate. Prompt if we can; a non-TTY (cron, a pipe) has
+  // More than one candidate. Prompt if we can; a non-TTY (a pipe, CI) has
   // nobody to answer, so list the options and exit rather than blocking.
   if (!interactive) {
     console.log(
