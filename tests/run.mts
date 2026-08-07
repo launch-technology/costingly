@@ -32,6 +32,7 @@ const ORDER = [
   "smoke",
   "picker",
   "confirm",
+  "views",
   "init-flow",
   "concurrency",
   "e2e",

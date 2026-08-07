@@ -39,6 +39,14 @@ export {
   type ServerState,
 } from "./server.js";
 export {
+  describeSchema,
+  renderSchemaDoc,
+  type SchemaDoc,
+  type ViewDoc,
+  type ColumnDoc,
+  type LiveFacts,
+} from "./dictionary.js";
+export {
   query,
   execScript,
   withTransaction,

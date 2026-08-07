@@ -117,3 +117,164 @@ CREATE INDEX IF NOT EXISTS transactions_pending_idx    ON transactions (pending)
 
 -- Handy for per-item reporting and for the summary query in the README.
 CREATE INDEX IF NOT EXISTS transactions_item_id_idx    ON transactions (item_id);
+
+-- ===========================================================================
+-- THE VIEW LAYER
+--
+-- The read surface. Anything querying this database for analysis — the MCP
+-- server, a future app, you at a psql prompt — should go through these rather
+-- than the tables above.
+--
+-- Three jobs:
+--
+--   1. Omit what must not be read. `items.access_token_enc` is the credential
+--      for a whole bank login; there is no reason for a reporting query to see
+--      it, so it is simply absent here and the `costingly_ro` role below has no
+--      access to the base table.
+--
+--   2. Omit what would drown a reader. `transactions.raw` is the full Plaid
+--      object per row. `SELECT *` over twenty rows would return twenty JSON
+--      blobs — fine for a program, ruinous for anything with a context window.
+--
+--   3. Carry the meaning. Postgres does NOT propagate a table's COMMENT ON to a
+--      view built over it — a view's columns have their own, empty by default.
+--      So the comments live here, on the surface people actually query. The
+--      `--` comments above are for developers reading this file; these are for
+--      anything introspecting the database.
+--
+-- Deliberately NOT a semantic remodel: `amount` keeps Plaid's sign convention
+-- and the comment explains it, rather than the view flipping it and the two
+-- disagreeing. The only work these views do is flattening `pfc` and joining the
+-- names that every practical query needs.
+-- ===========================================================================
+
+DROP VIEW IF EXISTS v_transactions;
+DROP VIEW IF EXISTS v_accounts;
+DROP VIEW IF EXISTS v_items;
+
+-- ---------------------------------------------------------------------------
+CREATE VIEW v_items AS
+  SELECT item_id,
+         institution_id,
+         institution_name,
+         status,
+         last_synced_at,
+         created_at
+    FROM items;
+
+COMMENT ON VIEW v_items IS
+  'One row per bank LOGIN (Plaid calls it an "Item"), not per account. A single '
+  'login can expose several accounts — a checking and a savings at the same bank '
+  'share one row here. Join v_accounts to get the accounts.';
+COMMENT ON COLUMN v_items.item_id IS 'Plaid Item id. Join key for v_accounts and v_transactions.';
+COMMENT ON COLUMN v_items.institution_name IS 'Bank name, e.g. "Bank of America". May be NULL if Plaid did not report it.';
+COMMENT ON COLUMN v_items.status IS
+  'active | login_required | revoked. Only "active" items are synced; '
+  '"login_required" means the bank needs re-authentication and its data is going stale.';
+COMMENT ON COLUMN v_items.last_synced_at IS 'When costingly last pulled from this login. NULL means never.';
+
+-- ---------------------------------------------------------------------------
+CREATE VIEW v_accounts AS
+  SELECT a.account_id,
+         a.item_id,
+         i.institution_name,
+         a.name,
+         a.official_name,
+         a.mask,
+         a.type,
+         a.subtype,
+         a.currency,
+         a.current_balance,
+         a.available_balance,
+         a.updated_at
+    FROM accounts a
+    JOIN items i ON i.item_id = a.item_id;
+
+COMMENT ON VIEW v_accounts IS
+  'One row per account — a specific card or bank account. institution_name is '
+  'joined in so the common case needs no join.';
+COMMENT ON COLUMN v_accounts.account_id IS 'Plaid account id. Join key for v_transactions.';
+COMMENT ON COLUMN v_accounts.institution_name IS 'Bank name, joined from the login this account belongs to.';
+COMMENT ON COLUMN v_accounts.name IS 'Account name as the bank reports it, e.g. "Joint Account".';
+COMMENT ON COLUMN v_accounts.mask IS 'Last four digits. Combine with name to identify an account to a human.';
+COMMENT ON COLUMN v_accounts.type IS 'depository | credit | loan | investment | other.';
+COMMENT ON COLUMN v_accounts.subtype IS 'checking | savings | credit card | ... Narrower than type.';
+COMMENT ON COLUMN v_accounts.current_balance IS
+  'Balance at the last sync, NOT live. For a credit card this is the amount OWED, '
+  'so a larger number is worse. Refreshed only when a sync returns account data.';
+COMMENT ON COLUMN v_accounts.available_balance IS 'Balance minus pending holds, or remaining credit. Often NULL.';
+COMMENT ON COLUMN v_accounts.updated_at IS 'When the balance above was last written.';
+
+-- ---------------------------------------------------------------------------
+CREATE VIEW v_transactions AS
+  SELECT t.transaction_id,
+         t.account_id,
+         t.item_id,
+         a.name              AS account_name,
+         i.institution_name,
+         t.amount,
+         t.iso_currency_code AS currency,
+         t.date,
+         t.authorized_date,
+         t.name              AS description,
+         t.merchant_name,
+         t.pending,
+         t.payment_channel,
+         t.pfc->>'primary'   AS category,
+         t.pfc->>'detailed'  AS category_detailed
+    FROM transactions t
+    JOIN accounts a ON a.account_id = t.account_id
+    JOIN items    i ON i.item_id    = t.item_id;
+
+COMMENT ON VIEW v_transactions IS
+  'One row per transaction, with account and institution names joined in. This is '
+  'the table to query for spending analysis. READ THE amount COMMENT FIRST — the '
+  'sign convention is the opposite of what most people assume.';
+COMMENT ON COLUMN v_transactions.amount IS
+  'POSITIVE = money OUT (purchases, card spend, debits). NEGATIVE = money IN '
+  '(refunds, credits, deposits, paycheques). This is Plaid''s convention, stored '
+  'verbatim. SUM(amount) therefore gives NET SPEND for a period, with refunds '
+  'cancelling charges. To render a conventional ledger where negative means '
+  'spending, negate at read time with -amount.';
+COMMENT ON COLUMN v_transactions.date IS
+  'The date the transaction POSTED, as a calendar day. Use this for time-based '
+  'grouping unless you specifically want when it happened.';
+COMMENT ON COLUMN v_transactions.authorized_date IS
+  'When the transaction actually occurred, which can be days before it posted. Often NULL.';
+COMMENT ON COLUMN v_transactions.pending IS
+  'TRUE while the transaction is unsettled. A pending row is later REPLACED by a '
+  'settled row with a DIFFERENT transaction_id — so counting both double-counts. '
+  'Filter WHERE NOT pending for settled-only analysis.';
+COMMENT ON COLUMN v_transactions.category IS
+  'Plaid personal_finance_category, primary level — e.g. FOOD_AND_DRINK, '
+  'TRANSPORTATION, RENT_AND_UTILITIES. Already flattened out of JSON. NULL when '
+  'Plaid did not categorise the transaction. NOTE: TRANSFER_IN and TRANSFER_OUT '
+  'include movements between your OWN accounts, such as paying a credit card from '
+  'checking; counting those as spending double-counts the original purchase.';
+COMMENT ON COLUMN v_transactions.category_detailed IS 'Narrower category level, e.g. FOOD_AND_DRINK_COFFEE.';
+COMMENT ON COLUMN v_transactions.description IS 'Raw description from the bank. Messy; prefer merchant_name when set.';
+COMMENT ON COLUMN v_transactions.merchant_name IS 'Plaid''s cleaned-up merchant name. NULL surprisingly often — fall back to description.';
+COMMENT ON COLUMN v_transactions.currency IS 'ISO-4217, e.g. USD. Do not sum across different currencies.';
+COMMENT ON COLUMN v_transactions.account_name IS 'Joined from v_accounts for convenience.';
+COMMENT ON COLUMN v_transactions.institution_name IS 'Joined from v_items for convenience.';
+
+-- ---------------------------------------------------------------------------
+-- costingly_ro — the role every read-only query runs as.
+--
+-- Granted on the views ONLY. A query that runs `SET LOCAL ROLE costingly_ro`
+-- cannot reach the base tables at all, which is what makes access_token_enc
+-- genuinely unreachable rather than merely absent from a view definition.
+-- Verified: even a superuser is restricted after SET ROLE.
+--
+-- NOLOGIN — it is never connected as, only switched to inside a transaction.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'costingly_ro') THEN
+    CREATE ROLE costingly_ro NOLOGIN;
+  END IF;
+END
+$$;
+
+GRANT USAGE ON SCHEMA public TO costingly_ro;
+GRANT SELECT ON v_items, v_accounts, v_transactions TO costingly_ro;
