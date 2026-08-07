@@ -26,7 +26,7 @@ const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
 const { query, withTransaction, execScript, closeDb, stopServer } = await import("../src/index.js");
-const { describeSchema, renderSchemaDoc } = await import("../src/db/dictionary.js");
+const { describeDatabase, renderDatabaseDoc } = await import("../src/db/dictionary.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -119,10 +119,10 @@ ok(!(await asReadOnly("SELECT 1 FROM pg_authid LIMIT 1")).allowed,
 // adding a column forces a decision rather than quietly degrading the dictionary.
 const NO_COMMENT_NEEDED = new Set([
   "transaction_id", "account_id", "item_id", "institution_id",
-  "payment_channel", "official_name", "currency", "created_at",
+  "official_name", "currency", "created_at",
 ]);
 
-const doc = await describeSchema();
+const doc = await describeDatabase();
 const uncommented = doc.views.flatMap((v) =>
   v.columns.filter((c) => c.comment === null && !NO_COMMENT_NEEDED.has(c.name))
     .map((c) => `${v.name}.${c.name}`));
@@ -138,24 +138,28 @@ const pending = doc.views.find((v) => v.name === "v_transactions")
   ?.columns.find((c) => c.name === "pending");
 ok(/double-count/.test(pending?.comment ?? ""), "the pending double-count trap is documented");
 
-// --- live facts must reflect the data, not the schema ---------------------
-eq(doc.facts.dateRange, { first: "2026-01-15", last: "2026-02-02" }, "date range comes from the data");
-eq(doc.facts.categories, ["FOOD_AND_DRINK", "INCOME"],
-   "only categories PRESENT in this database are listed, not Plaid's full set");
-eq(doc.facts.currencies, ["USD"], "currencies come from the data");
-eq(doc.facts.pendingCount, 1, "pending count is live");
-eq(doc.facts.accounts.length, 1, "accounts are listed by name for filtering");
-eq(doc.facts.accounts[0]?.institution, "Test Bank", "with their institution");
-eq(doc.views.find((v) => v.name === "v_transactions")?.rowCount, 3, "row counts are live");
+// The comments now carry the burden the old live-facts section carried: telling
+// a reader that a literal must be looked up rather than guessed.
+const category = doc.views.find((v) => v.name === "v_transactions")
+  ?.columns.find((c) => c.name === "category");
+ok(/ENUMERATE BEFORE FILTERING/.test(category?.comment ?? ""),
+   "category tells the reader to enumerate rather than guess a value");
 
 // --- the rendered document -------------------------------------------------
-const text = renderSchemaDoc(doc);
+const text = renderDatabaseDoc(doc);
 ok(text.includes("POSITIVE = money OUT"), "the rendered doc carries the sign convention");
-ok(text.includes("FOOD_AND_DRINK"), "the rendered doc lists real categories");
-ok(text.includes("Test Bank"), "the rendered doc names real accounts");
+ok(text.includes("SELECT DISTINCT"), "and shows how to enumerate values");
 ok(!text.includes("access_token_enc"), "THE RENDERED DOC NEVER MENTIONS THE TOKEN COLUMN");
 ok(!text.includes("aXY=.dGFn"), "and never leaks a token value");
 ok(text.length < 20000, `the doc is small enough to hand to a model (${text.length} chars)`);
+
+// --- it describes structure, never contents -------------------------------
+// These strings exist only in the rows inserted above. If any appears, some
+// data-derived fact has crept back into the document.
+ok(!text.includes("Test Bank"), "THE DOC NAMES NO INSTITUTION FROM THE DATA");
+ok(!text.includes("Blue Bottle"), "no merchant names from the data");
+ok(!text.includes("Checking"), "no account names from the data");
+ok(!/\d[\d,]*\s+rows/.test(text), "no row counts");
 
 // --- re-running the schema must not break the views -----------------------
 await execScript(await readFile(`${P}/schema.sql`, "utf8"));
@@ -163,6 +167,22 @@ const again = await query<{ n: string }>(`SELECT COUNT(*)::text n FROM v_transac
 eq(again.rows[0]?.n, "3", "schema.sql is idempotent — views survive a re-run");
 ok((await asReadOnly("SELECT 1 FROM v_items LIMIT 1")).allowed,
    "and the role's grants survive it too");
+
+// --- THE CACHING INVARIANT --------------------------------------------------
+// The document is computed once per process and reused for its lifetime. That
+// is only sound if new data cannot change it. Add a transaction and a whole
+// account, then re-render: any row count, date range or value enumeration that
+// creeps back in makes these bytes differ, and the cache would start lying.
+await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+             VALUES ('a2', 'i1', 'Savings', '1111', 'depository', 'savings', 'EUR', 900.0)`);
+await query(`
+  INSERT INTO transactions (transaction_id, account_id, item_id, amount, iso_currency_code,
+                            date, name, merchant_name, pending, pfc, raw)
+  VALUES ('t4','a2','i1', 7.77,'EUR','2027-06-01','LATER THING','Someone', false,
+          '{"primary":"GENERAL_MERCHANDISE","detailed":"GENERAL_MERCHANDISE_OTHER"}'::jsonb, '{}'::jsonb)`);
+
+eq(renderDatabaseDoc(await describeDatabase()), text,
+   "THE DOCUMENT IS BYTE-IDENTICAL AFTER NEW DATA — this is what makes it cacheable");
 
 await closeDb();
 await wipe();

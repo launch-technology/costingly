@@ -39,12 +39,11 @@ export {
   type ServerState,
 } from "./db/server.js";
 export {
-  describeSchema,
-  renderSchemaDoc,
-  type SchemaDoc,
+  describeDatabase,
+  renderDatabaseDoc,
+  type DatabaseDoc,
   type ViewDoc,
   type ColumnDoc,
-  type LiveFacts,
 } from "./db/dictionary.js";
 export {
   query,

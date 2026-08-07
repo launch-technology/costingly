@@ -195,7 +195,9 @@ COMMENT ON VIEW v_accounts IS
   'joined in so the common case needs no join.';
 COMMENT ON COLUMN v_accounts.account_id IS 'Plaid account id. Join key for v_transactions.';
 COMMENT ON COLUMN v_accounts.institution_name IS 'Bank name, joined from the login this account belongs to.';
-COMMENT ON COLUMN v_accounts.name IS 'Account name as the bank reports it, e.g. "Joint Account".';
+COMMENT ON COLUMN v_accounts.name IS
+  'Account name as the bank reports it, e.g. "Joint Account". Free text chosen by '
+  'the institution or the user — never assume one, list this view first.';
 COMMENT ON COLUMN v_accounts.mask IS 'Last four digits. Combine with name to identify an account to a human.';
 COMMENT ON COLUMN v_accounts.type IS 'depository | credit | loan | investment | other.';
 COMMENT ON COLUMN v_accounts.subtype IS 'checking | savings | credit card | ... Narrower than type.';
@@ -248,15 +250,30 @@ COMMENT ON COLUMN v_transactions.pending IS
 COMMENT ON COLUMN v_transactions.category IS
   'Plaid personal_finance_category, primary level — e.g. FOOD_AND_DRINK, '
   'TRANSPORTATION, RENT_AND_UTILITIES. Already flattened out of JSON. NULL when '
-  'Plaid did not categorise the transaction. NOTE: TRANSFER_IN and TRANSFER_OUT '
-  'include movements between your OWN accounts, such as paying a credit card from '
-  'checking; counting those as spending double-counts the original purchase.';
-COMMENT ON COLUMN v_transactions.category_detailed IS 'Narrower category level, e.g. FOOD_AND_DRINK_COFFEE.';
+  'Plaid did not categorise the transaction. Plaid defines roughly eighty of '
+  'these and any one database contains a fraction, so ENUMERATE BEFORE FILTERING: '
+  'SELECT DISTINCT category FROM v_transactions ORDER BY 1. NOTE: TRANSFER_IN and '
+  'TRANSFER_OUT include movements between your OWN accounts, such as paying a '
+  'credit card from checking; counting those as spending double-counts the '
+  'original purchase.';
+COMMENT ON COLUMN v_transactions.category_detailed IS
+  'Narrower category level, e.g. FOOD_AND_DRINK_COFFEE. Far more values than '
+  'category, and correspondingly easier to guess wrong — enumerate before filtering.';
 COMMENT ON COLUMN v_transactions.description IS 'Raw description from the bank. Messy; prefer merchant_name when set.';
-COMMENT ON COLUMN v_transactions.merchant_name IS 'Plaid''s cleaned-up merchant name. NULL surprisingly often — fall back to description.';
+COMMENT ON COLUMN v_transactions.merchant_name IS
+  'Plaid''s cleaned-up merchant name. NULL surprisingly often — fall back to '
+  'description. Exact spelling is Plaid''s, not the bank''s: match with ILIKE, or '
+  'enumerate with SELECT DISTINCT merchant_name, rather than guessing a literal.';
+COMMENT ON COLUMN v_transactions.payment_channel IS
+  'How the transaction was made — online | in store | other. Enumerate to confirm '
+  'which values this database actually uses.';
 COMMENT ON COLUMN v_transactions.currency IS 'ISO-4217, e.g. USD. Do not sum across different currencies.';
-COMMENT ON COLUMN v_transactions.account_name IS 'Joined from v_accounts for convenience.';
-COMMENT ON COLUMN v_transactions.institution_name IS 'Joined from v_items for convenience.';
+COMMENT ON COLUMN v_transactions.account_name IS
+  'Joined from v_accounts for convenience. Bank-supplied text, so it varies by '
+  'institution — enumerate from v_accounts rather than assuming a name.';
+COMMENT ON COLUMN v_transactions.institution_name IS
+  'Joined from v_items for convenience. Enumerate from v_items rather than '
+  'assuming which banks are linked.';
 
 -- ---------------------------------------------------------------------------
 -- costingly_ro — the role every read-only query runs as.

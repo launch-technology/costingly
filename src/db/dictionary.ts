@@ -1,24 +1,33 @@
 /**
- * What the data means — assembled at call time, not written down.
+ * What the data means — assembled from the database itself, not written down.
  *
- * Anything writing SQL against this database needs three different kinds of
- * knowledge, and they live in three different places:
+ * Anything writing SQL against this database needs two kinds of knowledge:
  *
  *   structure   information_schema — column names, types, nullability
  *   meaning     COMMENT ON, on the views (see the view layer in schema.sql)
- *   live facts  the database itself — the actual date range, the real account
- *               names, the categories genuinely present
  *
- * The third is why this is a function rather than a markdown file. No static
- * document can say "your data spans 2024-08-08 to 2026-08-06" or list your four
- * accounts by name, and those are exactly the facts that turn a guessed query
- * into a correct one. Plaid documents roughly eighty personal-finance
- * categories; a given database usually contains a fraction of them, and
- * filtering on one that is absent returns zero rows and looks like an answer.
+ * Both live in Postgres, so this is generated rather than maintained by hand. A
+ * markdown file describing the schema is a file that drifts; a column added
+ * without a comment shows up here immediately, and the test suite fails on it.
  *
  * Deliberately describes the VIEWS, never the base tables. The views are the
  * read surface, they are what `costingly_ro` can reach, and they are where the
  * comments live — Postgres does not propagate a table's comments to a view.
+ *
+ * DELIBERATELY EXCLUDES anything that changes when a sync runs: no row counts,
+ * no date range, no list of the categories or accounts present. Two reasons.
+ *
+ * The first is caching. This document is static between migrations, so a caller
+ * can compute it once per process and reuse it forever. Fold in a row count and
+ * that stops being true — the cache would confidently report yesterday's
+ * numbers, which is worse than not reporting them.
+ *
+ * The second is that enumerating values is speculative. Listing every category
+ * on the chance somebody filters by category means also listing merchants,
+ * payment channels and subtypes, and paying for all of it on every call. The
+ * column comments instead tell a reader to enumerate what it needs, at the
+ * moment it is looking at that column — `SELECT DISTINCT category FROM
+ * v_transactions` costs one query and only happens when it matters.
  */
 
 import { query } from "./client.js";
@@ -37,30 +46,11 @@ export interface ColumnDoc {
 export interface ViewDoc {
   name: string;
   comment: string | null;
-  rowCount: number;
   columns: ColumnDoc[];
 }
 
-/** Facts read from the data, not from the schema. */
-export interface LiveFacts {
-  /** Oldest and newest transaction date, or null when there are none. */
-  dateRange: { first: string; last: string } | null;
-  /** The `category` values actually present — usually far fewer than Plaid's. */
-  categories: string[];
-  accounts: Array<{
-    institution: string | null;
-    name: string | null;
-    mask: string | null;
-    type: string | null;
-    subtype: string | null;
-  }>;
-  currencies: string[];
-  pendingCount: number;
-}
-
-export interface SchemaDoc {
+export interface DatabaseDoc {
   views: ViewDoc[];
-  facts: LiveFacts;
 }
 
 interface ColumnRow {
@@ -72,13 +62,9 @@ interface ColumnRow {
 }
 
 /**
- * Build the document.
- *
- * One round trip per concern rather than one giant query — the whole thing runs
- * in a few milliseconds against a personal-sized database, and keeping the
- * queries separate keeps each one readable.
+ * Build the document. Two queries, no table scans — nothing here counts rows.
  */
-export async function describeSchema(): Promise<SchemaDoc> {
+export async function describeDatabase(): Promise<DatabaseDoc> {
   const list = VIEWS.map((v) => `'${v}'`).join(", ");
 
   // Structure and meaning together: col_description() is how a COMMENT ON
@@ -102,15 +88,10 @@ export async function describeSchema(): Promise<SchemaDoc> {
      WHERE relname IN (${list})`);
   const commentFor = new Map(viewComments.map((v) => [v.name, v.comment]));
 
-  const views: ViewDoc[] = [];
-  for (const name of VIEWS) {
-    // Not parameterised because the name comes from the constant above, never
-    // from a caller.
-    const { rows } = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM ${name}`);
-    views.push({
+  return {
+    views: VIEWS.map((name) => ({
       name,
       comment: commentFor.get(name) ?? null,
-      rowCount: Number(rows[0]?.n ?? 0),
       columns: columns
         .filter((c) => c.table_name === name)
         .map((c) => ({
@@ -119,40 +100,7 @@ export async function describeSchema(): Promise<SchemaDoc> {
           nullable: c.is_nullable === "YES",
           comment: c.comment,
         })),
-    });
-  }
-
-  return { views, facts: await readFacts() };
-}
-
-async function readFacts(): Promise<LiveFacts> {
-  const { rows: span } = await query<{ first: string | null; last: string | null; pending: string }>(`
-    SELECT MIN(date)::text AS first,
-           MAX(date)::text AS last,
-           COUNT(*) FILTER (WHERE pending)::text AS pending
-      FROM v_transactions`);
-
-  const { rows: cats } = await query<{ category: string }>(`
-    SELECT DISTINCT category FROM v_transactions
-     WHERE category IS NOT NULL ORDER BY category`);
-
-  const { rows: curr } = await query<{ currency: string }>(`
-    SELECT DISTINCT currency FROM v_transactions
-     WHERE currency IS NOT NULL ORDER BY currency`);
-
-  const { rows: accounts } = await query<LiveFacts["accounts"][number]>(`
-    SELECT institution_name AS institution, name, mask, type, subtype
-      FROM v_accounts ORDER BY institution_name, name`);
-
-  const first = span[0]?.first ?? null;
-  const last = span[0]?.last ?? null;
-
-  return {
-    dateRange: first !== null && last !== null ? { first, last } : null,
-    categories: cats.map((c) => c.category),
-    currencies: curr.map((c) => c.currency),
-    accounts,
-    pendingCount: Number(span[0]?.pending ?? 0),
+    })),
   };
 }
 
@@ -163,28 +111,27 @@ async function readFacts(): Promise<LiveFacts> {
  * debugging, or by a model deciding what to query — and a wall of nested JSON
  * costs tokens without adding clarity.
  */
-export function renderSchemaDoc(doc: SchemaDoc): string {
+export function renderDatabaseDoc(doc: DatabaseDoc): string {
   const out: string[] = [];
-  const { facts } = doc;
 
   out.push("costingly — local Postgres holding your bank and credit-card transactions.");
   out.push("");
   out.push("Query the v_ views below. The underlying tables are not readable: they hold");
   out.push("encrypted bank credentials and the raw Plaid payloads.");
   out.push("");
-
-  if (facts.dateRange) {
-    out.push(
-      `Data covers ${facts.dateRange.first} to ${facts.dateRange.last}` +
-        (facts.pendingCount > 0 ? `, including ${facts.pendingCount} pending transaction(s).` : "."),
-    );
-  } else {
-    out.push("No transactions yet — run `costingly sync`.");
-  }
+  out.push("This describes STRUCTURE ONLY. It does not tell you which values are present,");
+  out.push("how many rows there are, or what period the data covers — those change every");
+  out.push("time a sync runs. Before filtering on a literal, enumerate it:");
+  out.push("");
+  out.push("    SELECT DISTINCT category FROM v_transactions ORDER BY 1;");
+  out.push("    SELECT MIN(date), MAX(date) FROM v_transactions;");
+  out.push("");
+  out.push("A filter on a value this database does not contain returns zero rows rather");
+  out.push("than an error, which is indistinguishable from a real answer.");
   out.push("");
 
   for (const view of doc.views) {
-    out.push(`${view.name}  (${view.rowCount.toLocaleString()} rows)`);
+    out.push(view.name);
     if (view.comment) out.push(indent(view.comment, 2));
     out.push("");
     for (const column of view.columns) {
@@ -194,22 +141,7 @@ export function renderSchemaDoc(doc: SchemaDoc): string {
     out.push("");
   }
 
-  out.push("VALUES PRESENT IN THIS DATABASE");
-  out.push("");
-  out.push(`  category (${facts.categories.length}):`);
-  out.push(indent(facts.categories.join(", ") || "none", 4));
-  out.push("");
-  out.push(`  currency: ${facts.currencies.join(", ") || "none"}`);
-  out.push("");
-  out.push("  accounts:");
-  for (const a of facts.accounts) {
-    out.push(
-      `    ${a.institution ?? "(unknown bank)"} — ${a.name ?? "(unnamed)"}` +
-        `${a.mask ? ` ••${a.mask}` : ""}  [${a.type ?? "?"}/${a.subtype ?? "?"}]`,
-    );
-  }
-
-  return out.join("\n");
+  return out.join("\n").trimEnd();
 }
 
 /** Wrap a comment to a readable width at a given indent. */
