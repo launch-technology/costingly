@@ -200,8 +200,8 @@ COMMENT ON COLUMN v_accounts.mask IS 'Last four digits. Combine with name to ide
 COMMENT ON COLUMN v_accounts.type IS 'depository | credit | loan | investment | other.';
 COMMENT ON COLUMN v_accounts.subtype IS 'checking | savings | credit card | ... Narrower than type.';
 COMMENT ON COLUMN v_accounts.current_balance IS
-  'Balance at the last sync, NOT live. For a credit card this is the amount OWED, '
-  'so a larger number is worse. Refreshed only when a sync returns account data.';
+  'Balance as of the last sync, NOT live. For a credit card this is the amount '
+  'OWED, so a larger number is worse.';
 COMMENT ON COLUMN v_accounts.available_balance IS 'Balance minus pending holds, or remaining credit. Often NULL.';
 COMMENT ON COLUMN v_accounts.updated_at IS 'When the balance above was last written.';
 
