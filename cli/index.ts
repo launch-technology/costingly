@@ -13,6 +13,7 @@
 
 import { Command } from "commander";
 import { closeDb } from "../src/db/client.js";
+import { isMissingSchema, MISSING_SCHEMA_CLI } from "../src/db/errors.js";
 import { ignoreEpipe } from "./format.js";
 import { environmentBanner } from "./banner.js";
 import { CliError } from "./errors.js";
@@ -97,19 +98,6 @@ async function main(): Promise<void> {
   await program.parseAsync(process.argv);
 }
 
-/**
- * Postgres `undefined_table`. On a fresh install this is the very first thing a
- * user hits — the cluster exists but has no schema — and the raw
- * `relation "items" does not exist` is a terrible first impression.
- */
-function isMissingSchema(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { code?: unknown }).code === "42P01"
-  );
-}
-
 main()
   .catch((error: unknown) => {
     if (error instanceof CliError) {
@@ -117,12 +105,13 @@ main()
       process.exitCode = error.exitCode;
       return;
     }
+    // Postgres `undefined_table`. On a fresh install this is the very first
+    // thing a user hits — the cluster exists but has no schema — and the raw
+    // `relation "items" does not exist` is a terrible first impression. The MCP
+    // server hits the same error and needs a different wording, so the test for
+    // it lives in src/db/errors.ts and both surfaces share it.
     if (isMissingSchema(error)) {
-      console.error(
-        "The database has not been set up yet.\n\n" +
-          "  costingly init      set up credentials and create it\n" +
-          "  costingly migrate   just create the tables",
-      );
+      console.error(MISSING_SCHEMA_CLI);
       process.exitCode = 1;
       return;
     }

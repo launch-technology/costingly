@@ -61,6 +61,12 @@ export {
   type ReadOnlyResult,
 } from "./db/readonly.js";
 export {
+  isMissingSchema,
+  explainDbError,
+  MISSING_SCHEMA_CLI,
+  MISSING_SCHEMA_MCP,
+} from "./db/errors.js";
+export {
   getPlaidClient,
   getPlaidError,
   describeError,

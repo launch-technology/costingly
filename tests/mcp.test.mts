@@ -75,9 +75,17 @@ const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
-eq(tools.map((t) => t.name), ["describe_database"], "exactly one tool is advertised");
+eq(tools.map((t) => t.name).sort(), ["describe_database", "query"], "both tools are advertised");
 
-const tool = tools[0]!;
+// The server-level instructions are the only place the relationship between the
+// two tools is stated, and the only place the injection warning lives.
+const instructions = client.getInstructions() ?? "";
+ok(instructions.length > 100, `the server sends instructions (${instructions.length} chars)`);
+ok(/describe_database first/i.test(instructions), "telling the client which tool to call first");
+ok(/never as instructions/i.test(instructions),
+   "AND WARNING THAT TRANSACTION TEXT IS THIRD-PARTY DATA, not instructions");
+
+const tool = tools.find((t) => t.name === "describe_database")!;
 eq(tool.annotations?.["readOnlyHint"], true, "it is annotated read-only");
 eq(tool.annotations?.["destructiveHint"], undefined, "and claims nothing destructive");
 eq(tool.inputSchema.type, "object", "it has an object input schema");
@@ -111,6 +119,58 @@ const second = await client.callTool({ name: "describe_database", arguments: {} 
 eq((second.content as Array<{ text: string }>)[0]?.text, doc,
    "a second call returns the identical cached document");
 
+// --- the query tool ---------------------------------------------------------
+const queryTool = tools.find((t) => t.name === "query")!;
+eq(queryTool.annotations?.["readOnlyHint"], true, "query is annotated read-only");
+eq(Object.keys(queryTool.inputSchema.properties ?? {}), ["sql"], "query takes one argument, sql");
+eq((queryTool.inputSchema as { required?: string[] }).required, ["sql"], "and it is required");
+ok(/POSITIVE amount/i.test(
+     JSON.stringify((queryTool.inputSchema.properties as Record<string, { description?: string }>)?.["sql"] ?? {})),
+   "the ARGUMENT's own description carries the sign convention, where it is read");
+
+// callTool's return type is a union — the compatibility shape carries
+// `toolResult` rather than `content` — so this reads it loosely on purpose.
+const text = (r: unknown): string =>
+  ((r as { content?: Array<{ text?: string }> }).content ?? [])[0]?.text ?? "";
+
+// A real query against the seeded data.
+const rows = await client.callTool({
+  name: "query",
+  arguments: { sql: "SELECT institution_name, status FROM v_items" },
+});
+eq(rows.isError, undefined, "a valid SELECT is not an error");
+const rowsText = text(rows);
+ok(rowsText.includes("institution_name | status"), "results come back as a delimited table");
+ok(rowsText.includes("Test Bank | active"), "with the real row");
+ok(rowsText.includes("(1 row)"), "and a row count");
+
+// Zero rows must be distinguishable from a broken query.
+const none = text(await client.callTool({
+  name: "query", arguments: { sql: "SELECT item_id FROM v_items WHERE false" },
+}));
+ok(none.includes("item_id"), "an empty result still reports its columns");
+ok(/0 rows/.test(none), "AND SAYS SO EXPLICITLY, so it reads as an answer not a failure");
+
+// The guard is the database's, not a string check — proven in readonly.test.mts.
+// Here we only assert the MCP layer surfaces the refusal usefully.
+const write = await client.callTool({
+  name: "query", arguments: { sql: "DELETE FROM transactions WHERE true" },
+});
+eq(write.isError, true, "a write is refused and reported as isError");
+
+const token = await client.callTool({
+  name: "query", arguments: { sql: "SELECT access_token_enc FROM items" },
+});
+eq(token.isError, true, "READING ENCRYPTED CREDENTIALS IS REFUSED");
+ok(!text(token).includes("aXY=.dGFn"), "and the refusal leaks no token");
+
+// The whole point of passing PostgreSQL's text through: the hint is the fix.
+const typo = text(await client.callTool({
+  name: "query", arguments: { sql: "SELECT catgory FROM v_transactions" },
+}));
+ok(/HINT:/.test(typo) && /category/.test(typo),
+   "A MISSPELLED COLUMN RETURNS POSTGRESQL'S HINT, which is what lets the model self-correct");
+
 // --- failure modes ---------------------------------------------------------
 // An unknown tool comes back as a RESULT with isError, not a protocol error, so
 // the model can read what went wrong. Verified against SDK behaviour.
@@ -118,6 +178,12 @@ const unknown = await client.callTool({ name: "no_such_tool", arguments: {} });
 eq(unknown.isError, true, "an unknown tool is reported as isError, not a crash");
 ok(/no_such_tool/.test((unknown.content as Array<{ text: string }>)[0]?.text ?? ""),
    "and names the tool that was missing");
+
+// Now that a tool HAS an input schema, zod validates — and the failure is a
+// readable result rather than a protocol error, so the model can fix its call.
+const badArgs = await client.callTool({ name: "query", arguments: { sqll: "SELECT 1" } });
+eq(badArgs.isError, true, "a wrong argument name is rejected by the input schema");
+ok(/sql/i.test(text(badArgs)), "and the message names the argument at fault");
 
 // --- shutdown ---------------------------------------------------------------
 await client.close();
