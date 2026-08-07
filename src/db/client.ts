@@ -26,6 +26,14 @@ export interface DbResult<T extends DbRow = DbRow> {
   rows: T[];
   /** Rows affected by INSERT/UPDATE/DELETE. 0 for SELECT-shaped statements. */
   rowCount: number;
+  /**
+   * Column names in select order.
+   *
+   * Comes from the result descriptor, not from the rows, so it is still correct
+   * when the query matched nothing — which is exactly when a caller most needs
+   * to know what shape the answer would have had.
+   */
+  columns: string[];
 }
 
 /** Anything queries can run against — the pool, or a transaction. */
@@ -91,7 +99,11 @@ async function createDriver(): Promise<Driver> {
   return {
     query: async (text, params) => {
       const result = await pool.query(text, params ? [...params] : undefined);
-      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+      return {
+        rows: result.rows,
+        rowCount: result.rowCount ?? 0,
+        columns: (result.fields ?? []).map((f) => f.name),
+      };
     },
     execScript: async (sql) => {
       // pg sends multi-statement strings in one implicit transaction.
@@ -104,7 +116,11 @@ async function createDriver(): Promise<Driver> {
         const result = await fn({
           query: async (text, params) => {
             const r = await client.query(text, params ? [...params] : undefined);
-            return { rows: r.rows, rowCount: r.rowCount ?? 0 };
+            return {
+              rows: r.rows,
+              rowCount: r.rowCount ?? 0,
+              columns: (r.fields ?? []).map((f) => f.name),
+            };
           },
         });
         await client.query("COMMIT");

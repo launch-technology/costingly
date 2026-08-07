@@ -33,6 +33,7 @@ const ORDER = [
   "picker",
   "confirm",
   "views",
+  "readonly",
   "init-flow",
   "concurrency",
   "e2e",

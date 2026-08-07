@@ -57,6 +57,11 @@ export {
   type DbRow,
 } from "./db/client.js";
 export {
+  queryReadOnly,
+  type ReadOnlyOptions,
+  type ReadOnlyResult,
+} from "./db/readonly.js";
+export {
   getPlaidClient,
   getPlaidError,
   describeError,

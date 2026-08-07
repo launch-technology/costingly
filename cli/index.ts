@@ -28,6 +28,7 @@ import { registerUnlinkCommand } from "./unlink.js";
 import { registerResetCommand } from "./reset.js";
 import { registerStopCommand } from "./stop.js";
 import { registerDoctorCommand } from "./doctor.js";
+import { registerMcpCommand } from "./mcp.js";
 
 /**
  * Build the command tree without parsing.
@@ -36,10 +37,11 @@ import { registerDoctorCommand } from "./doctor.js";
  * `program.parseAsync([...], { from: "user" })`.
  */
 export function buildProgram(): Command {
+  const _packageVersion = packageVersion();
   const program = new Command()
     .name("costingly")
     .description("Daily sync of bank and credit-card transactions from Plaid into Postgres.")
-    .version(packageVersion(), "-V, --version")
+    .version(_packageVersion, "-V, --version")
     .showHelpAfterError("(run `costingly --help` for the command list)")
     .addHelpText("before", environmentBanner())
     .addHelpText(
@@ -53,6 +55,7 @@ Per-command flags:  costingly <command> --help
   // grouped catalog the old hand-rolled help.ts used to print.
   registerInitCommand(program);
   registerMigrateCommand(program);
+  registerMcpCommand(program);
   registerLinkCommand(program);
   registerSyncCommand(program);
   registerStatusCommand(program);
