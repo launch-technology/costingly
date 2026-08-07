@@ -23,8 +23,8 @@ import type {
   TransactionsSyncRequest,
   TransactionsUpdateStatus,
 } from "plaid";
-import type { DbClient } from "./db.js";
-import { withTransaction } from "./db.js";
+import type { DbClient } from "../db/client.js";
+import { withTransaction } from "../db/client.js";
 import {
   listSyncableItems,
   setItemCursor,
@@ -37,7 +37,7 @@ import {
   getPlaidClient,
   isItemLoginRequired,
   isMutationDuringPagination,
-} from "./plaid.js";
+} from "./client.js";
 
 /** Plaid's maximum page size for /transactions/sync. */
 const PAGE_SIZE = 500;

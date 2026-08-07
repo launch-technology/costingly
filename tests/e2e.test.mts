@@ -49,12 +49,12 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { execScript, query, closeDb, describeDriver } = await import("../src/db.js");
-const { getPlaidClient } = await import("../src/plaid.js");
-const { exchangePublicToken } = await import("../src/link.js");
-const { syncAllItems } = await import("../src/sync.js");
-const { listAllItems } = await import("../src/items.js");
-const { stopServer } = await import("../src/server.js");
+const { execScript, query, closeDb, describeDriver } = await import("../src/db/client.js");
+const { getPlaidClient } = await import("../src/plaid/client.js");
+const { exchangePublicToken } = await import("../src/plaid/link.js");
+const { syncAllItems } = await import("../src/plaid/sync.js");
+const { listAllItems } = await import("../src/plaid/items.js");
+const { stopServer } = await import("../src/db/server.js");
 const { readFile, rm } = await import("node:fs/promises");
 
 /**
@@ -166,8 +166,8 @@ await closeDb();
 // module instance — which is the point of the assertion below. TypeScript
 // cannot resolve a specifier with a query string, so the type comes from the
 // plain path and the specifier is built at runtime.
-const REOPEN = "../src/db.js?reopen=1";
-const { query: q2, closeDb: close2 } = (await import(REOPEN)) as typeof import("../src/db.js");
+const REOPEN = "../src/db/client.js?reopen=1";
+const { query: q2, closeDb: close2 } = (await import(REOPEN)) as typeof import("../src/db/client.js");
 const persisted = await q2<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
 eq(persisted.rows[0]!.c, after.rows[0]!.c, "data survives close/reopen");
 await close2();

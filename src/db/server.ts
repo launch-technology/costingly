@@ -28,7 +28,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { join } from "node:path";
-import { APP_NAME, displayPath, profileDir } from "./profile.js";
+import { APP_NAME, displayPath, profileDir } from "../profile.js";
 
 /**
  * Postgres major version, and part of the cluster directory name.

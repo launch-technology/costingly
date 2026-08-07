@@ -8,7 +8,7 @@
 
 import type { Command } from "commander";
 import { readFile } from "node:fs/promises";
-import { execScript, query } from "../src/db.js";
+import { execScript, query } from "../src/db/client.js";
 import { schemaPath } from "./paths.js";
 import { CliError } from "./errors.js";
 

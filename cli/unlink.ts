@@ -11,9 +11,9 @@
 import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { query } from "../src/db.js";
-import { listAllItems, type StoredItem } from "../src/items.js";
-import { removeItem } from "../src/remove.js";
+import { query } from "../src/db/client.js";
+import { listAllItems, type StoredItem } from "../src/plaid/items.js";
+import { removeItem } from "../src/plaid/remove.js";
 import { confirmDestructive } from "./confirm.js";
 
 type ItemStats = { accounts: number; transactions: number };

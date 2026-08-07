@@ -9,7 +9,7 @@
 
 import { existsSync } from "node:fs";
 import { configPath, displayPath, profileDir, profileSource } from "../src/profile.js";
-import { clusterDir } from "../src/server.js";
+import { clusterDir } from "../src/db/server.js";
 
 export function environmentBanner(): string {
   const lines: string[] = [];

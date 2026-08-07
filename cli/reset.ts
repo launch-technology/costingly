@@ -12,7 +12,7 @@
 
 import type { Command } from "commander";
 import { get } from "../src/config.js";
-import { countData, removeAllItems, resetSyncedData } from "../src/remove.js";
+import { countData, removeAllItems, resetSyncedData } from "../src/plaid/remove.js";
 import { confirmDestructive } from "./confirm.js";
 
 interface ResetOptions {

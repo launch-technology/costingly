@@ -6,7 +6,7 @@
 
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 import type { PlaidError } from "plaid";
-import { get, getSecret } from "./config.js";
+import { get, getSecret } from "../config.js";
 
 // Cached on globalThis for the same reason as the pg pool: warm serverless
 // containers and Next.js hot reloads should not rebuild the client each time.

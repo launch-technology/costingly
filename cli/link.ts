@@ -2,7 +2,7 @@
  * `costingly link` — local-only Plaid Link server.
  *
  * Serves one static page that opens Plaid Link, plus the two endpoints that
- * page needs. All the actual Plaid work lives in `src/link.ts`; this file is
+ * page needs. All the actual Plaid work lives in `src/plaid/link.ts`; this file is
  * only the HTTP shell, so nothing here has to move to Next.js later.
  *
  * Bound to 127.0.0.1 on purpose. These endpoints are unauthenticated — anyone
@@ -15,8 +15,8 @@ import express from "express";
 import type { Request, Response } from "express";
 
 import { get } from "../src/config.js";
-import { createLinkToken, exchangePublicToken } from "../src/link.js";
-import { describeError } from "../src/plaid.js";
+import { createLinkToken, exchangePublicToken } from "../src/plaid/link.js";
+import { describeError } from "../src/plaid/client.js";
 import { publicDir } from "./paths.js";
 import { CliError } from "./errors.js";
 

@@ -26,7 +26,7 @@ const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
 const { query, withTransaction, execScript, closeDb, stopServer } = await import("../src/index.js");
-const { describeSchema, renderSchemaDoc } = await import("../src/dictionary.js");
+const { describeSchema, renderSchemaDoc } = await import("../src/db/dictionary.js");
 
 const out: string[] = [];
 let fail = 0;

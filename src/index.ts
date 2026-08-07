@@ -37,7 +37,7 @@ export {
   connectionString,
   DATABASE_NAME,
   type ServerState,
-} from "./server.js";
+} from "./db/server.js";
 export {
   describeSchema,
   renderSchemaDoc,
@@ -45,7 +45,7 @@ export {
   type ViewDoc,
   type ColumnDoc,
   type LiveFacts,
-} from "./dictionary.js";
+} from "./db/dictionary.js";
 export {
   query,
   execScript,
@@ -55,7 +55,7 @@ export {
   type DbClient,
   type DbResult,
   type DbRow,
-} from "./db.js";
+} from "./db/client.js";
 export {
   getPlaidClient,
   getPlaidError,
@@ -63,7 +63,7 @@ export {
   isPlaidErrorCode,
   isMutationDuringPagination,
   isItemLoginRequired,
-} from "./plaid.js";
+} from "./plaid/client.js";
 export {
   saveItem,
   getItem,
@@ -75,19 +75,19 @@ export {
   deleteItem,
   type StoredItem,
   type SaveItemParams,
-} from "./items.js";
+} from "./plaid/items.js";
 export {
   createLinkToken,
   exchangePublicToken,
   type CreateLinkTokenOptions,
   type LinkedItem,
-} from "./link.js";
+} from "./plaid/link.js";
 export {
   syncAllItems,
   syncItem,
   type ItemSyncResult,
   type SyncSummary,
-} from "./sync.js";
+} from "./plaid/sync.js";
 export {
   countData,
   revokeAtPlaid,
@@ -96,4 +96,4 @@ export {
   resetSyncedData,
   type DataCounts,
   type RemovalOutcome,
-} from "./remove.js";
+} from "./plaid/remove.js";

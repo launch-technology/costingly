@@ -2,15 +2,15 @@
  * `costingly sync` — the recurring sync.
  *
  * All it does is call `syncAllItems()` and render the summary. Keeping the
- * logic in `src/sync.ts` is what makes the two paths genuinely identical.
+ * logic in `src/plaid/sync.ts` is what makes the two paths genuinely identical.
  *
  * Exit code is 1 if any item failed, so a caller can detect it.
  */
 
 import type { Command } from "commander";
 import { TransactionsUpdateStatus } from "plaid";
-import { syncAllItems } from "../src/sync.js";
-import type { ItemSyncResult } from "../src/sync.js";
+import { syncAllItems } from "../src/plaid/sync.js";
+import type { ItemSyncResult } from "../src/plaid/sync.js";
 import { CliError } from "./errors.js";
 
 function label(result: ItemSyncResult): string {

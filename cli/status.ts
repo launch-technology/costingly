@@ -9,8 +9,8 @@
  */
 
 import type { Command } from "commander";
-import { query } from "../src/db.js";
-import { describeServer } from "../src/server.js";
+import { query } from "../src/db/client.js";
+import { describeServer } from "../src/db/server.js";
 import { money, ago } from "./format.js";
 
 type Row = {

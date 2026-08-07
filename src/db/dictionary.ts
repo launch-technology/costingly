@@ -21,7 +21,7 @@
  * comments live — Postgres does not propagate a table's comments to a view.
  */
 
-import { query } from "./db.js";
+import { query } from "./client.js";
 
 /** The views that make up the read surface, in the order they are documented. */
 const VIEWS = ["v_transactions", "v_accounts", "v_items"] as const;

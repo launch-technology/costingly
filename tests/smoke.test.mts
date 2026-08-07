@@ -48,11 +48,11 @@ function throws(fn: () => unknown, fragment: string): void {
 }
 
 // --- module loading -------------------------------------------------------
-const db = await import("../src/db.js");
+const db = await import("../src/db/client.js");
 const crypto = await import("../src/crypto.js");
 const configMod = await import("../src/config.js");
 const index = await import("../src/index.js");
-const server = await import("../src/server.js");
+const server = await import("../src/db/server.js");
 
 check("all modules load under Node ESM", () => {
   assert(typeof db.query === "function", "db.query missing");

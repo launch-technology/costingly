@@ -15,7 +15,7 @@
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
 import { get } from "../src/config.js";
-import { clusterDir } from "../src/server.js";
+import { clusterDir } from "../src/db/server.js";
 import { displayPath } from "../src/profile.js";
 
 /**

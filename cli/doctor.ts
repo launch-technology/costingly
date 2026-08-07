@@ -15,7 +15,7 @@
 import type { Command } from "commander";
 import { stat } from "node:fs/promises";
 import { describeConfig } from "../src/config.js";
-import { clusterDir, serverLogPath, serverStatus, socketDir } from "../src/server.js";
+import { clusterDir, serverLogPath, serverStatus, socketDir } from "../src/db/server.js";
 import { configPath, displayPath, profileDir, profileSource } from "../src/profile.js";
 import { packageVersion } from "./paths.js";
 

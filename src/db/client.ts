@@ -2,7 +2,7 @@
  * Database access.
  *
  * One mode: the local PostgreSQL cluster costingly manages itself, inside the
- * profile (see src/profile.ts and src/server.ts). The connection is derived,
+ * profile (see src/profile.ts and src/db/server.ts). The connection is derived,
  * never configured — a unix socket under the profile, peer authentication, no
  * host, no port, no password. There is nothing to set and nothing that can
  * disagree with where the cluster actually is.

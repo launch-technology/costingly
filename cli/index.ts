@@ -12,7 +12,7 @@
  */
 
 import { Command } from "commander";
-import { closeDb } from "../src/db.js";
+import { closeDb } from "../src/db/client.js";
 import { ignoreEpipe } from "./format.js";
 import { environmentBanner } from "./banner.js";
 import { CliError } from "./errors.js";

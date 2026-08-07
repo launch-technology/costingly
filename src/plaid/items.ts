@@ -7,9 +7,9 @@
  */
 
 import type { AccountBase } from "plaid";
-import type { DbClient } from "./db.js";
-import { query } from "./db.js";
-import { encrypt, decrypt } from "./crypto.js";
+import type { DbClient } from "../db/client.js";
+import { query } from "../db/client.js";
+import { encrypt, decrypt } from "../crypto.js";
 
 /** An Item as the rest of the app sees it: access token already decrypted. */
 export interface StoredItem {

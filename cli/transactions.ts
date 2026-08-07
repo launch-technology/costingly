@@ -18,7 +18,7 @@ import { InvalidArgumentError } from "commander";
 import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { query } from "../src/db.js";
+import { query } from "../src/db/client.js";
 import { money, truncate, todayLocal, daysBetween, subtractDays } from "./format.js";
 
 const DEFAULT_DAYS = 7;

@@ -16,9 +16,9 @@
  */
 
 import type { ItemRemoveRequest } from "plaid";
-import { query, withTransaction } from "./db.js";
+import { query, withTransaction } from "../db/client.js";
 import { listAllItems, type StoredItem } from "./items.js";
-import { getPlaidClient, describeError } from "./plaid.js";
+import { getPlaidClient, describeError } from "./client.js";
 
 export interface DataCounts {
   items: number;
