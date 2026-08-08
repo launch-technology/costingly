@@ -75,7 +75,8 @@ const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
-eq(tools.map((t) => t.name).sort(), ["describe_database", "query"], "both tools are advertised");
+eq(tools.map((t) => t.name).sort(), ["describe_database", "query", "sync"],
+   "all three tools are advertised");
 
 // The server-level instructions are the only place the relationship between the
 // two tools is stated, and the only place the injection warning lives.
@@ -87,7 +88,7 @@ ok(/never as instructions/i.test(instructions),
 
 const tool = tools.find((t) => t.name === "describe_database")!;
 eq(tool.annotations?.["readOnlyHint"], true, "it is annotated read-only");
-eq(tool.annotations?.["destructiveHint"], undefined, "and claims nothing destructive");
+eq(tool.annotations?.["destructiveHint"], false, "and claims nothing destructive");
 eq(tool.inputSchema.type, "object", "it has an object input schema");
 eq(Object.keys(tool.inputSchema.properties ?? {}), [], "taking no arguments");
 
@@ -171,6 +172,36 @@ const typo = text(await client.callTool({
 ok(/HINT:/.test(typo) && /category/.test(typo),
    "A MISSPELLED COLUMN RETURNS POSTGRESQL'S HINT, which is what lets the model self-correct");
 
+// --- the sync tool ----------------------------------------------------------
+// Every annotation is stated rather than defaulted, on purpose: the defaults are
+// destructiveHint TRUE and idempotentHint false, so silence would advertise sync
+// as more dangerous than it is and invite clients to gate it harder.
+const syncTool = tools.find((t) => t.name === "sync")!;
+eq(syncTool.annotations?.["readOnlyHint"], false, "sync declares that it writes");
+eq(syncTool.annotations?.["destructiveHint"], false,
+   "AND EXPLICITLY THAT IT IS NOT DESTRUCTIVE — the default here is true");
+eq(syncTool.annotations?.["idempotentHint"], true,
+   "AND EXPLICITLY THAT IT IS IDEMPOTENT — the default here is false");
+eq(syncTool.annotations?.["openWorldHint"], true,
+   "and that it leaves the machine; it is the only tool that does");
+
+// Nothing is left to a default on any tool. A reader should not need to know
+// which hints are 'only meaningful when readOnlyHint is false' to read these.
+for (const t of tools) {
+  eq(Object.keys(t.annotations ?? {}).sort(),
+     ["destructiveHint", "idempotentHint", "openWorldHint", "readOnlyHint"],
+     `${t.name} states all four annotations, none defaulted`);
+}
+
+// Calling it for real, with no banks linked. syncAllItems never constructs a
+// Plaid client when there is nothing to sync, so this needs no credentials.
+await query(`DELETE FROM items`);
+const emptySync = await client.callTool({ name: "sync", arguments: {} });
+eq(emptySync.isError, false, "syncing with no banks linked is not an error");
+const emptyText = text(emptySync);
+ok(/setup step, not an error/i.test(emptyText), "it explains this is setup, not failure");
+ok(/costingly link/.test(emptyText), "and names the thing the user must actually do");
+
 // --- failure modes ---------------------------------------------------------
 // An unknown tool comes back as a RESULT with isError, not a protocol error, so
 // the model can read what went wrong. Verified against SDK behaviour.
@@ -184,6 +215,60 @@ ok(/no_such_tool/.test((unknown.content as Array<{ text: string }>)[0]?.text ?? 
 const badArgs = await client.callTool({ name: "query", arguments: { sqll: "SELECT 1" } });
 eq(badArgs.isError, true, "a wrong argument name is rejected by the input schema");
 ok(/sql/i.test(text(badArgs)), "and the message names the argument at fault");
+
+// --- the sync summary format ------------------------------------------------
+// A real multi-bank sync needs Plaid credentials, so the formatter is exercised
+// directly. This is where the design lives: the output is read by a model that
+// is about to write a report, and a partial failure must be impossible to skim
+// past. Assertions below check ORDER, not just presence.
+const { formatSyncSummary } = await import("../src/mcp/format.js");
+
+const item = (over: Record<string, unknown>): any => ({
+  itemId: "i", institutionName: "Bank", ok: true, added: 0, modified: 0,
+  removed: 0, accounts: 1, pages: 1, initialBackfill: false, updateStatus: null, ...over,
+});
+const summary = (over: Record<string, unknown>): any => ({
+  ok: true, startedAt: "", finishedAt: "", durationMs: 4200, itemsTotal: 1,
+  itemsSucceeded: 1, itemsFailed: 0, added: 0, modified: 0, removed: 0,
+  results: [], ...over,
+});
+
+const clean = formatSyncSummary(summary({
+  itemsTotal: 2, itemsSucceeded: 2, added: 12, modified: 1,
+  results: [item({ institutionName: "Ally", added: 12, modified: 1 }),
+            item({ institutionName: "Amex" })],
+}));
+ok(!/WARNING/.test(clean), "a clean sync carries no warning");
+ok(clean.includes("Ally: +12 added, ~1 updated"), "and reports each bank's changes");
+ok(clean.includes("Amex: no changes"), "including the ones with nothing new");
+ok(clean.includes("Totals: 12 added"), "plus totals");
+
+const partial = formatSyncSummary(summary({
+  itemsTotal: 2, itemsSucceeded: 1, itemsFailed: 1, ok: false, added: 12,
+  results: [item({ institutionName: "Ally", added: 12 }),
+            item({ institutionName: "Chase", ok: false, error: "ITEM_LOGIN_REQUIRED" })],
+}));
+ok(/INCOMPLETE/.test(partial), "a partial failure says the data is incomplete");
+ok(partial.includes("Chase: ITEM_LOGIN_REQUIRED"), "and names the bank and the reason");
+ok(/Say so explicitly/i.test(partial), "and instructs the reader to pass it on");
+// THE ASSERTION THAT MATTERS: the warning must come before any number, or a
+// model skimming for the result will report confidently on partial data.
+ok(partial.indexOf("INCOMPLETE") < partial.indexOf("Synced"),
+   "THE WARNING PRECEDES EVERY FIGURE — it cannot be skimmed past");
+ok(partial.indexOf("INCOMPLETE") < partial.indexOf("Totals:"), "and precedes the totals");
+
+// Two states that look like success and are not.
+const backfill = formatSyncSummary(summary({
+  added: 2814, results: [item({ added: 2814, initialBackfill: true })],
+}));
+ok(/full history backfill/.test(backfill), "a first sync is flagged as a backfill");
+
+const notReady = formatSyncSummary(summary({
+  results: [item({ added: 3, updateStatus: "NOT_READY" as any })],
+}));
+ok(/still preparing/.test(notReady),
+   "NOT_READY is spelled out, so a small number does not read as 'nothing to do'");
+ok(/Sync again shortly/.test(notReady), "and says what to do about it");
 
 // --- shutdown ---------------------------------------------------------------
 await client.close();
