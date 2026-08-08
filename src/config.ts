@@ -24,7 +24,7 @@
  * sweep of the codebase.
  */
 
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { configPath, displayPath } from "./profile.js";
@@ -226,5 +226,53 @@ export async function writeConfig(values: StoredConfig): Promise<void> {
 /** Read the file as-is. For `init`, which needs to know what already exists. */
 export function readConfigFile(): Partial<StoredConfig> {
   return readStored();
+}
+
+/**
+ * A secret if it is set anywhere, or undefined. Never throws.
+ *
+ * `getSecret()` is right for a value the program cannot run without — its throw
+ * carries an actionable message. This is for the caller that has a plan for the
+ * absent case, which today means the encryption key: it can be created rather
+ * than demanded.
+ */
+export function getSecretIfSet(key: SecretName): string | undefined {
+  const { value } = resolve(key);
+  return value === undefined ? undefined : String(value);
+}
+
+/**
+ * Merge values into `config.json`, preserving everything already in it.
+ *
+ * Synchronous because its one caller sits under `encrypt()`/`decrypt()`, which
+ * are synchronous, and making those async would ripple through every call site
+ * to save nothing — this writes a few hundred bytes, once, on first use.
+ *
+ * Only what is already in the FILE is preserved. Values resolved from the
+ * environment are deliberately not written back: an environment variable is a
+ * per-invocation override, and persisting one would silently turn a temporary
+ * setting into permanent state.
+ */
+export function updateConfigSync(patch: Partial<StoredConfig>): void {
+  const path = configPath();
+  // readStored() throws on unparseable JSON rather than treating it as empty.
+  // That matters more here than anywhere else: silently starting from {} would
+  // drop an existing encryption key and orphan every stored access token.
+  const merged = { ...readStored(), ...patch };
+
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temp = join(dirname(path), `.config.${process.pid}.tmp`);
+  try {
+    writeFileSync(temp, `${JSON.stringify(merged, null, 2)}\n`, { mode: FILE_MODE });
+    chmodSync(temp, FILE_MODE);
+    renameSync(temp, path);
+  } catch (error) {
+    try {
+      unlinkSync(temp);
+    } catch {
+      // Nothing to clean up.
+    }
+    throw error;
+  }
 }
 

@@ -141,6 +141,57 @@ process.env["COSTINGLY_HOME"] = other;
 eq(cfg.readConfigFile(), {}, "a different profile sees a different (empty) config");
 eq(cfg.readConfigFile().plaidClientId, undefined, "PROFILES ARE FULLY ISOLATED");
 
+// ---------------------------------------------------------------------------
+// updateConfigSync, and the encryption key creating itself
+// ---------------------------------------------------------------------------
+// A bundled install has no terminal, so there is no `costingly init` to generate
+// an encryption key. It has to appear on first use — and it has to appear
+// exactly once, because a second one would orphan every stored access token.
+
+const keyDir = await mkdtemp(join(tmpdir(), "costingly-key-"));
+process.env["COSTINGLY_HOME"] = keyDir;
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "PORT"]) {
+  delete process.env[name];
+}
+
+// A pre-existing file whose other values must survive the merge.
+await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc", port: 4321 }), "utf8");
+
+const crypto = await import(`${P}/src/crypto.js?key-test`);
+
+eq(cfg.getSecretIfSet("encryptionKey"), undefined, "no encryption key to begin with");
+
+const sealed = crypto.encrypt("a-plaid-access-token");
+const stored = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, string | number>;
+
+ok(typeof stored["encryptionKey"] === "string", "ENCRYPTING WITHOUT A KEY CREATES ONE");
+eq(Buffer.from(String(stored["encryptionKey"]), "base64").length, 32, "and it is 32 bytes");
+eq(stored["plaidClientId"], "abc", "the merge preserves other values in the file");
+eq(stored["port"], 4321, "including non-secrets");
+eq(crypto.decrypt(sealed), "a-plaid-access-token", "and the value round-trips");
+
+// The property that matters: stable across calls. A key regenerated on the
+// second call would make every previously stored token undecryptable.
+const firstKey = String(stored["encryptionKey"]);
+crypto.encrypt("second");
+const after = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, string>;
+eq(after["encryptionKey"], firstKey, "A SECOND CALL REUSES THE KEY, never regenerates it");
+
+const keyMode = await stat(configPath());
+eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfigSync is still 0600");
+
+// An environment value is a per-invocation override, not state. Persisting one
+// would silently turn a temporary setting into a permanent one.
+process.env["PLAID_SECRET"] = "from-the-environment";
+cfg.updateConfigSync({ plaidEnv: "sandbox" });
+const afterEnv = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, string>;
+eq(afterEnv["plaidEnv"], "sandbox", "updateConfigSync writes what it was given");
+eq(afterEnv["plaidSecret"], undefined,
+   "AND NEVER PERSISTS A VALUE THAT CAME FROM THE ENVIRONMENT");
+delete process.env["PLAID_SECRET"];
+
+await rm(keyDir, { recursive: true, force: true });
+
 await rm(dir, { recursive: true, force: true });
 await rm(other, { recursive: true, force: true });
 delete process.env["COSTINGLY_HOME"];

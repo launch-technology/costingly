@@ -9,8 +9,10 @@
 export {
   get,
   getSecret,
+  getSecretIfSet,
   describeConfig,
   writeConfig,
+  updateConfigSync,
   readConfigFile,
   type PlaidEnvName,
   type StoredConfig,
