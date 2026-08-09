@@ -49,13 +49,18 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { execScript, query, closeDb, describeDriver } = await import("../src/db/client.js");
+const { query, closeDb, describeDriver, setMigrationSource } = await import("../src/db/client.js");
 const { getPlaidClient } = await import("../src/plaid/client.js");
 const { exchangePublicToken } = await import("../src/plaid/link.js");
 const { syncAllItems } = await import("../src/plaid/sync.js");
 const { listAllItems } = await import("../src/plaid/items.js");
 const { stopServer } = await import("../src/db/server.js");
 const { readFile, rm } = await import("node:fs/promises");
+
+// Register the migration loader the way cli/index.ts does, then let the first
+// query build the database. Tests take the same path a real install takes.
+const { loadMigrations } = await import("../cli/migrations.js");
+setMigrationSource(loadMigrations);
 
 /**
  * Wipe the scratch cluster.
@@ -86,10 +91,12 @@ function ok(c: boolean, what: string): void { eq(c, true, what); }
 out.push(`  --    driver: ${await describeDriver()}`);
 
 // migrate
-await execScript(await readFile(`${P}/schema.sql`, "utf8"));
 const t = await query<{ table_name: string }>(
   `SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY 1`);
-eq(t.rows.map(r => r.table_name), ["accounts", "items", "transactions"], "migrate creates the schema");
+// schema_migrations is the ledger of which numbered files have run — internal
+// bookkeeping, never granted to costingly_ro and absent from every view.
+eq(t.rows.map(r => r.table_name), ["accounts", "items", "schema_migrations", "transactions"],
+   "the migrations ran themselves, with no migrate step");
 
 // real sandbox link, no browser
 const plaid = getPlaidClient();

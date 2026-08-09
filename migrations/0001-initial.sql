@@ -1,8 +1,9 @@
 -- ===========================================================================
--- costingly schema
+-- 0001 — initial schema
 --
--- Applied by `costingly migrate`. Every statement is IF NOT EXISTS / idempotent,
--- so re-running the migration is safe.
+-- The baseline every costingly database starts from. Applied once, recorded in
+-- schema_migrations, and never re-run: later changes are their own numbered
+-- files in this directory rather than edits to this one.
 --
 -- ---------------------------------------------------------------------------
 -- PLAID SIGN CONVENTION  (important — it is the opposite of what most people

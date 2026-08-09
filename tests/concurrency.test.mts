@@ -55,12 +55,23 @@ async function cli(...args: string[]): Promise<{ code: number; stdout: string; s
 }
 
 // --- 0. baseline ----------------------------------------------------------
-// The CLI probes below run `costingly status`, which needs tables. Applying the
-// schema here keeps the suite self-sufficient on a fresh profile.
-const { execScript } = (await import(`${P}/dist/src/index.js`)) as typeof import("../src/index.js");
-const { readFile } = await import("node:fs/promises");
-await execScript(await readFile(`${P}/schema.sql`, "utf8"));
+// Register the migration loader the way cli/index.ts does, so the first in-process
+// query builds the database. From dist/ like everything else here: the CLI child
+// processes run the built code and both sides must agree on which build they are
+// talking to.
+const { setMigrationSource } =
+  (await import(`${P}/dist/src/index.js`)) as typeof import("../src/index.js");
+const { loadMigrations } =
+  (await import(`${P}/dist/cli/migrations.js`)) as typeof import("../cli/migrations.js");
+setMigrationSource(loadMigrations);
+
+// The first connection is what creates the cluster, starts it, creates the
+// database and runs the migrations — so it has to happen before anything asks
+// whether the server is up.
+await query(`SELECT 1`);
 eq(await serverStatus(), "running", "server is running");
+eq((await query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`)).rows.map((r) => r.id),
+   ["0001-initial"], "and the migrations ran themselves, with no migrate step");
 
 // --- 1. DATE still comes back as a plain YYYY-MM-DD string ----------------
 // A regression here silently shifts every transaction by a calendar day.

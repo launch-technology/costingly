@@ -14,6 +14,38 @@
  */
 
 import { connectionString, ensureDatabaseExists, ensureServerRunning } from "./server.js";
+import { pendingMigrations, runMigrations, type Migration } from "./migrate.js";
+
+// ---------------------------------------------------------------------------
+// Where the migrations come from
+// ---------------------------------------------------------------------------
+/**
+ * Registered by the entry point, because reading `migrations/` means resolving a
+ * path from `import.meta.url` and src/ deliberately does not do that — see the
+ * header of cli/paths.ts. Nothing registered means no automatic migration, which
+ * is the right default for code embedding this module rather than running the
+ * CLI.
+ */
+let migrationSource: (() => Promise<Migration[]>) | undefined;
+
+/**
+ * Register the loader. Must happen before anything opens the database.
+ *
+ * The throw is not defensive noise — it is the exact bug this design invites,
+ * made loud. Registering late used to succeed and silently skip every
+ * migration, and the failure surfaced several steps later as
+ * `relation "items" does not exist`. It cost a debugging cycle in the test
+ * suite before this check existed.
+ */
+export function setMigrationSource(load: () => Promise<Migration[]>): void {
+  if (globalForDb.__costinglyDriver !== undefined) {
+    throw new Error(
+      "setMigrationSource() was called after the database was already opened, so " +
+        "migrations would be skipped for this process. Register it before the first query.",
+    );
+  }
+  migrationSource = load;
+}
 
 // ---------------------------------------------------------------------------
 // Driver-agnostic surface
@@ -45,8 +77,6 @@ export interface DbClient {
 }
 
 interface Driver extends DbClient {
-  /** Run a multi-statement script (schema.sql). Not parameterised. */
-  execScript(sql: string): Promise<void>;
   transaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
   close(): Promise<void>;
   describe(): string;
@@ -64,15 +94,15 @@ interface Driver extends DbClient {
 const DATE_OID = 1082;
 const keepAsSent = (value: string): string => value;
 
-async function createDriver(): Promise<Driver> {
-  // Both calls are idempotent and return almost immediately once things exist,
-  // so every command auto-starts the database and nothing above this line has
-  // to care. Creating the database here rather than in `init` is what makes a
-  // half-finished setup heal itself instead of failing with
-  // `database "costingly" does not exist`.
-  await ensureServerRunning();
-  await ensureDatabaseExists();
-
+/**
+ * Build a connection pool. Nothing else.
+ *
+ * No provisioning, no DDL, no migrations — this only knows how to talk to a
+ * database that already exists. Keeping it that narrow is what makes it
+ * possible to reason about (and test) the pool separately from everything that
+ * has to happen before a pool is useful.
+ */
+async function connect(): Promise<Driver> {
   const pgPkg = (await import("pg")).default;
   const { Pool, types } = pgPkg;
 
@@ -96,7 +126,7 @@ async function createDriver(): Promise<Driver> {
 
   const describe = (): string => "local PostgreSQL (managed by costingly)";
 
-  return {
+  const driver: Driver = {
     query: async (text, params) => {
       const result = await pool.query(text, params ? [...params] : undefined);
       return {
@@ -104,10 +134,6 @@ async function createDriver(): Promise<Driver> {
         rowCount: result.rowCount ?? 0,
         columns: (result.fields ?? []).map((f) => f.name),
       };
-    },
-    execScript: async (sql) => {
-      // pg sends multi-statement strings in one implicit transaction.
-      await pool.query(sql);
     },
     transaction: async (fn) => {
       const client = await pool.connect();
@@ -142,6 +168,53 @@ async function createDriver(): Promise<Driver> {
     close: () => pool.end(),
     describe,
   };
+
+  return driver;
+}
+
+/**
+ * Bring the database's shape up to date, if a migration source was registered.
+ *
+ * Separate from connecting on purpose. A pool is "how to talk to Postgres";
+ * which migrations have run is an application fact one layer up, and `Driver`
+ * has no business knowing migrations exist. This function needs only a
+ * `DbClient`, which is the smaller contract.
+ *
+ * Costs one read of a small table when there is nothing to do — every start
+ * after the first. Only a non-empty pending set escalates to a transaction and
+ * an advisory lock. A failure is deliberately fatal: a database whose shape
+ * disagrees with the code fails confusingly and much later.
+ */
+async function applyPendingMigrations(driver: Driver): Promise<void> {
+  if (migrationSource === undefined) return;
+
+  const migrations = await migrationSource();
+  if ((await pendingMigrations(driver, migrations)).length === 0) return;
+
+  await driver.transaction((client) => runMigrations(client, migrations));
+}
+
+/**
+ * Everything that has to be true before a query can run, in order.
+ *
+ * The three steps are genuinely different jobs — provision the server, open a
+ * pool, migrate the schema — and this is the only place that knows they belong
+ * together. Doing it lazily on first connection rather than at process start is
+ * what keeps `costingly doctor`, which must never touch the database, honest.
+ *
+ * `ensureServerRunning`/`ensureDatabaseExists` are idempotent and return almost
+ * immediately once things exist, so every command auto-starts the database and
+ * nothing above this line has to care. Creating the database here rather than in
+ * `init` is what lets a half-finished setup heal itself instead of failing with
+ * `database "costingly" does not exist`.
+ */
+async function openDatabase(): Promise<Driver> {
+  await ensureServerRunning();
+  await ensureDatabaseExists();
+
+  const driver = await connect();
+  await applyPendingMigrations(driver);
+  return driver;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +231,7 @@ function getDriver(): Promise<Driver> {
   const existing = globalForDb.__costinglyDriver;
   if (existing) return existing;
 
-  const created = createDriver().catch((error: unknown) => {
+  const created = openDatabase().catch((error: unknown) => {
     // Do not cache a rejected promise: it would re-throw on every later call,
     // including from closeDb() in the teardown path, where it surfaces as an
     // unhandled rejection on top of the real error.
@@ -176,12 +249,6 @@ export async function query<T extends DbRow = DbRow>(
 ): Promise<DbResult<T>> {
   const driver = await getDriver();
   return driver.query<T>(text, params);
-}
-
-/** Apply a multi-statement script such as schema.sql. */
-export async function execScript(sql: string): Promise<void> {
-  const driver = await getDriver();
-  return driver.execScript(sql);
 }
 
 /**

@@ -34,7 +34,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 // SAFETY: everything below wipes HOME. Refuse to run against anything else.
 if (HOME !== "/tmp/costingly-mcp") throw new Error("refusing to run against a real profile");
 
-const { execScript, query, closeDb, stopServer } = await import("../src/index.js");
+const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
 const { CostinglyMcpServer } = await import("../src/mcp/server.js");
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
@@ -56,7 +56,10 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-await execScript(await readFile(`${P}/schema.sql`, "utf8"));
+// Register the migration loader the way cli/index.ts does, then let the first
+// query build the database. Tests take the same path a real install takes.
+const { loadMigrations } = await import("../cli/migrations.js");
+setMigrationSource(loadMigrations);
 await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
 

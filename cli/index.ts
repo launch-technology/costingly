@@ -12,12 +12,13 @@
  */
 
 import { Command } from "commander";
-import { closeDb } from "../src/db/client.js";
+import { closeDb, setMigrationSource } from "../src/db/client.js";
 import { isMissingSchema, MISSING_SCHEMA_CLI } from "../src/db/errors.js";
 import { ignoreEpipe } from "./format.js";
 import { environmentBanner } from "./banner.js";
 import { CliError } from "./errors.js";
 import { packageVersion } from "./paths.js";
+import { loadMigrations } from "./migrations.js";
 
 import { registerInitCommand } from "./init.js";
 import { registerMigrateCommand } from "./migrate.js";
@@ -30,6 +31,13 @@ import { registerResetCommand } from "./reset.js";
 import { registerStopCommand } from "./stop.js";
 import { registerDoctorCommand } from "./doctor.js";
 import { registerMcpCommand } from "./mcp.js";
+
+// Reading migrations/ means resolving a path from import.meta.url, which src/
+// does not do (see the header of paths.ts). Registering the loader here — at the
+// one entry point every command shares — lets the driver migrate the database
+// itself on first connection, so nobody has to run `costingly migrate`. That
+// matters most where there is no terminal to run it in: a bundled install.
+setMigrationSource(loadMigrations);
 
 /**
  * Build the command tree without parsing.

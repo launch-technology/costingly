@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { describeDatabase, renderDatabaseDoc, type DatabaseDoc } from "../db/dictionary.js";
+import { query } from "../db/client.js";
 import { queryReadOnly } from "../db/readonly.js";
 import { explainDbError } from "../db/errors.js";
 import { syncAllItems } from "../plaid/sync.js";
@@ -92,8 +93,40 @@ export class CostinglyMcpServer {
 
         await this.connect(transport);
 
+        this.warmUp();
+
         // Nothing past this line runs until the client closes the connection.
         await closed;
+    }
+
+    /**
+     * Start the database without waiting for it.
+     *
+     * On a fresh install the first connection runs initdb, starts the cluster,
+     * creates the database and applies the schema — around five seconds. This
+     * server is useless without all of that, so there is no reason to defer it
+     * until someone asks a question.
+     *
+     * But it must not block the handshake either. Awaiting it before connect()
+     * would put five seconds between Claude Desktop spawning this process and
+     * the tool list appearing, and a database that could not start at all would
+     * leave the user with a dead extension and no way to ask what went wrong.
+     *
+     * So it is started, not awaited. getDriver() caches the promise, so a tool
+     * call arriving mid-warm-up joins this same work rather than beginning a
+     * second copy — and a failed attempt is deliberately un-cached, so that call
+     * retries and reports the real error through isError, where the model can
+     * pass it on. Nothing here is load-bearing; it only moves the cost earlier.
+     */
+    private warmUp(): void {
+        void query("SELECT 1").catch((error: unknown) => {
+            // stderr, never stdout: stdout is the protocol channel. Claude
+            // Desktop captures this into mcp-server-costingly.log.
+            console.error(
+                "[costingly] database not ready at startup:",
+                error instanceof Error ? error.message : error,
+            );
+        });
     }
 
     private async _registerDescribeDatabaseTool(): Promise<void> {

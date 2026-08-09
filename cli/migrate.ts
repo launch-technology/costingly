@@ -1,22 +1,29 @@
 /**
- * `costingly migrate` — apply schema.sql.
+ * `costingly migrate` — apply any migrations this database has not run.
  *
- * schema.sql is entirely IF NOT EXISTS, so this is safe to re-run. It is
- * executed as one multi-statement query, which pg wraps in an implicit
- * transaction — the schema either applies completely or not at all.
+ * Almost never needed. The same thing happens automatically on the first
+ * database connection of every command, because a bundled install has no
+ * terminal to run this in. What remains is an explicit handle for when you want
+ * to see what happened, or to force the check without doing anything else.
  */
 
 import type { Command } from "commander";
-import { readFile } from "node:fs/promises";
-import { execScript, query } from "../src/db/client.js";
-import { schemaPath } from "./paths.js";
+import { withTransaction } from "../src/db/client.js";
+import { runMigrations } from "../src/db/migrate.js";
+import { loadMigrations } from "./migrations.js";
 import { CliError } from "./errors.js";
 
 export function registerMigrateCommand(program: Command): void {
   program
     .command("migrate")
-    .description("Create the database tables (safe to re-run)")
-    .helpGroup("Setup — run once, in this order:")
+    .description("Apply any pending database migrations (usually automatic)")
+    .helpGroup("Looking at your data:")
+    .addHelpText(
+      "after",
+      `
+Migrations run by themselves the first time any command opens the database, so
+this is only useful for seeing what is pending or confirming there is nothing.`,
+    )
     .action(async () => {
       try {
         await runMigrate();
@@ -29,21 +36,17 @@ export function registerMigrateCommand(program: Command): void {
 }
 
 export async function runMigrate(): Promise<void> {
-  // schemaPath comes from paths.ts, which walks up to package.json. Resolving
-  // it relative to this module would be off by one once compiled into dist/.
-  const sql = await readFile(schemaPath, "utf8");
+  const migrations = await loadMigrations();
 
-  console.log(`Applying ${schemaPath} ...`);
-  // schema.sql is multi-statement. execScript sends it as one string, which pg
-  // wraps in an implicit transaction.
-  await execScript(sql);
+  // Opening the connection has almost certainly applied these already — this is
+  // the same call the driver makes. Running it again is how the command reports
+  // rather than acts, and it is safe: the ledger makes it a no-op.
+  const applied = await withTransaction((client) => runMigrations(client, migrations));
 
-  const tables = await query<{ table_name: string }>(
-    `SELECT table_name
-       FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-      ORDER BY table_name`,
-  );
-
-  console.log(`Done. Tables: ${tables.rows.map((row) => row.table_name).join(", ") || "(none)"}`);
+  if (applied.length === 0) {
+    console.log(`Database is up to date (${migrations.length} migration(s) applied).`);
+    return;
+  }
+  console.log(`Applied ${applied.length} migration(s):`);
+  for (const id of applied) console.log(`  ${id}`);
 }
