@@ -9,7 +9,12 @@ import { syncAllItems } from "../plaid/sync.js";
 import { getItem } from "../plaid/items.js";
 import { revokeAtPlaid } from "../plaid/remove.js";
 import { describeError } from "../plaid/client.js";
-import { startLinkServer, stopLinkServer, takeRecentLinks } from "../link/server.js";
+import {
+    startLinkServer,
+    stopLinkServer,
+    takeRecentLinks,
+    takeRecentRepairs,
+} from "../link/server.js";
 import { get, getSecretIfSet } from "../config.js";
 import { formatRows, formatSyncSummary } from "./format.js";
 
@@ -54,7 +59,7 @@ function credentialsPresent(): boolean {
  * Returned in the initialize result, above any individual tool.
  *
  * This is the only place to say what the *server* is for. Without it a client
- * sees a thing called "costingly" exposing five tools and has to infer the rest
+ * sees a thing called "costingly" exposing six tools and has to infer the rest
  * from their names. It is also where the relationship between the tools belongs
  * — no tool's own description is the right place to explain the others.
  */
@@ -67,7 +72,8 @@ const INSTRUCTIONS =
     "  2. query — run a read-only SELECT and get the rows back\n" +
     "  3. sync — refresh from the banks\n" +
     "  4. link_bank — connect a bank, when none are connected yet\n" +
-    "  5. unlink_bank — disconnect one and delete its data. Destructive.\n\n" +
+    "  5. relink_bank — repair a connection whose login expired\n" +
+    "  6. unlink_bank — disconnect one and delete its data. Destructive.\n\n" +
     "Call describe_database first in a conversation. Its column comments carry " +
     "conventions that are wrong if guessed — most importantly that a POSITIVE " +
     "amount means money leaving the account.\n\n" +
@@ -121,6 +127,7 @@ export class CostinglyMcpServer {
         await this._registerQueryTool()
         await this._registerSyncTool()
         await this._registerLinkBankTool()
+        await this._registerRelinkBankTool()
         await this._registerUnlinkBankTool()
     }
 
@@ -348,9 +355,12 @@ export class CostinglyMcpServer {
                     "browser, and for most large banks it sends the user to their bank's own " +
                     "website to authenticate. Their credentials are typed into Plaid's window " +
                     "and never reach costingly or this conversation.\n\n" +
-                    "Call this when no banks are connected, when the user asks to add one, or " +
-                    "when a bank's status is login_required and its connection needs repairing. " +
+                    "Call this when no banks are connected or when the user asks to add one. " +
                     "They can connect several in one visit.\n\n" +
+                    "This connects a NEW bank. To repair an existing connection whose status " +
+                    "has gone to login_required, use relink_bank — using this one would create " +
+                    "a second, duplicate connection to the same bank and lose nothing but cost " +
+                    "everything.\n\n" +
                     "When the user says they are done, call sync — that is what pulls their " +
                     "transaction history in, and it is also how you find out which banks were " +
                     "actually connected. The first sync after linking backfills up to two years " +
@@ -422,6 +432,126 @@ export class CostinglyMcpServer {
                                 }`,
                             },
                         ],
+                        isError: true,
+                    };
+                }
+            },
+        )
+    }
+
+    private async _registerRelinkBankTool(): Promise<void> {
+        this._server.registerTool(
+            'relink_bank',
+            {
+                title: "Reconnect a Bank Whose Login Expired",
+                description:
+                    "Repair a bank connection that has stopped working — usually because the " +
+                    "user changed their password, or the bank expired the authorisation. Returns " +
+                    "a URL for the user to open, where they sign in to that bank again.\n\n" +
+                    "Use this, NOT link_bank, whenever a bank already exists in v_items. It " +
+                    "repairs the existing connection in place: same accounts, transaction " +
+                    "history kept, nothing re-downloaded, no second connection billed. Removing " +
+                    "and re-adding the bank would lose the history and create a duplicate.\n\n" +
+                    "The signal that a bank needs this is v_items.status = 'login_required', " +
+                    "which sync sets when a bank stops answering. A sync that reports one bank " +
+                    "failing while others succeed is usually this.\n\n" +
+                    "Takes an item_id from v_items. After the user says they have signed in, " +
+                    "call sync to catch up on anything missed while the connection was down.",
+                inputSchema: {
+                    item_id: z
+                        .string()
+                        .min(1)
+                        .describe(
+                            "The Plaid item id of the bank to reconnect, exactly as it appears " +
+                            "in v_items.item_id.",
+                        ),
+                },
+                annotations: {
+                    // Clears the item's login_required status once repaired.
+                    readOnlyHint: false,
+                    // Repairs; never removes anything.
+                    destructiveHint: false,
+                    // Calling twice just re-opens the same page.
+                    idempotentHint: true,
+                    // Plaid, the user's bank, and a browser.
+                    openWorldHint: true,
+                },
+            },
+            async ({ item_id }) => {
+                if (!credentialsPresent()) {
+                    return { content: [{ type: "text", text: MISSING_CREDENTIALS }], isError: true };
+                }
+
+                try {
+                    // Listed without decrypting: naming a bank needs no credential,
+                    // and an item whose token no longer decrypts is exactly the kind
+                    // that might need repairing.
+                    const { rows: items } = await query<{
+                        item_id: string;
+                        institution_name: string | null;
+                        status: string;
+                    }>(
+                        `SELECT item_id, institution_name, status FROM items
+                          ORDER BY institution_name NULLS LAST, created_at`,
+                    );
+                    const item = items.find((i) => i.item_id === item_id);
+
+                    if (item === undefined) {
+                        const known =
+                            items.length === 0
+                                ? "No banks are connected. Use link_bank to add one."
+                                : "Connected banks:\n" +
+                                  items
+                                      .map(
+                                          (i) =>
+                                              `  ${i.item_id}  ${i.institution_name ?? "(unknown bank)"}` +
+                                              `  [${i.status}]`,
+                                      )
+                                      .join("\n");
+                        return {
+                            content: [
+                                { type: "text", text: `No bank has item_id "${item_id}".\n\n${known}` },
+                            ],
+                            isError: true,
+                        };
+                    }
+
+                    const { url } = await startLinkServer();
+                    const name = item.institution_name ?? item.item_id;
+
+                    // A repair finishes in the browser long after this returned, so
+                    // a repeat call is the natural place to report it — same reason
+                    // link_bank reports completed links.
+                    const repaired = takeRecentRepairs();
+                    const already =
+                        repaired.length === 0
+                            ? ""
+                            : "Since we last spoke, these connections were repaired:\n" +
+                              repaired
+                                  .map((r) => `  ${r.institutionName ?? r.itemId}`)
+                                  .join("\n") +
+                              "\n\nCall sync to catch up on what they missed.\n\n";
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text:
+                                    already +
+                                    `Ask the user to open this page and sign in to ${name} again:\n\n` +
+                                    `  ${url}/?repair=${encodeURIComponent(item_id)}\n\n` +
+                                    `This repairs the existing connection — their transaction ` +
+                                    `history is kept and nothing is re-downloaded. The page is ` +
+                                    `served from their own machine and shuts down by itself after ` +
+                                    `ten minutes of inactivity.\n\n` +
+                                    `When they say they have signed in, call sync to catch up on ` +
+                                    `anything missed while the connection was down.`,
+                            },
+                        ],
+                    };
+                } catch (error) {
+                    return {
+                        content: [{ type: "text", text: explainDbError(error) }],
                         isError: true,
                     };
                 }

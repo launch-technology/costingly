@@ -96,7 +96,6 @@ export {
 export {
   createLinkToken,
   exchangePublicToken,
-  type CreateLinkTokenOptions,
   type LinkedItem,
 } from "./plaid/link.js";
 export {

@@ -34,7 +34,13 @@ import type { Request, Response } from "express";
 import type { Server } from "node:http";
 
 import { get } from "../config.js";
-import { createLinkToken, exchangePublicToken, type LinkedItem } from "../plaid/link.js";
+import {
+  createLinkToken,
+  createRepairLinkToken,
+  exchangePublicToken,
+  markItemRepaired,
+  type LinkedItem,
+} from "../plaid/link.js";
 import { describeError } from "../plaid/client.js";
 
 /** Close the server after this long with no requests. */
@@ -79,6 +85,17 @@ export function takeRecentLinks(): LinkedItem[] {
   return recentLinks.splice(0, recentLinks.length);
 }
 
+/** Connections repaired since the process started. Reported the same way. */
+export interface RepairedItem {
+  itemId: string;
+  institutionName: string | null;
+}
+const recentRepairs: RepairedItem[] = [];
+
+export function takeRecentRepairs(): RepairedItem[] {
+  return recentRepairs.splice(0, recentRepairs.length);
+}
+
 /** stderr, never stdout. See the header. */
 function log(message: string): void {
   console.error(`[link] ${message}`);
@@ -101,14 +118,46 @@ function buildApp(publicDir: string, touch: () => void): express.Express {
     res.json({ env: get("plaidEnv") });
   });
 
-  app.post("/api/create_link_token", async (req: Request, res: Response) => {
+  // Repairing an existing connection, not adding a new one. Takes an item id —
+  // never a token. Plaid access tokens are decrypted only inside this process.
+  app.post("/api/repair_link_token", async (req: Request, res: Response) => {
     try {
-      // An access_token may be supplied to re-authenticate an existing Item
-      // (Link "update mode"), e.g. after its status went to 'login_required'.
-      const body = req.body as { access_token?: unknown } | undefined;
-      const accessToken = typeof body?.access_token === "string" ? body.access_token : undefined;
+      const body = req.body as { item_id?: unknown } | undefined;
+      if (typeof body?.item_id !== "string" || body.item_id === "") {
+        res.status(400).json({ error: "item_id is required" });
+        return;
+      }
+      res.json({ link_token: await createRepairLinkToken(body.item_id) });
+    } catch (error) {
+      const message = describeError(error);
+      log(`repair_link_token failed: ${message}`);
+      res.status(500).json({ error: message });
+    }
+  });
 
-      const linkToken = await createLinkToken(accessToken === undefined ? {} : { accessToken });
+  // Update mode finishes here, NOT at exchange_public_token. Exchanging would
+  // create a second Item for the same bank, which is what this flow avoids.
+  app.post("/api/repair_complete", async (req: Request, res: Response) => {
+    try {
+      const body = req.body as { item_id?: unknown } | undefined;
+      if (typeof body?.item_id !== "string" || body.item_id === "") {
+        res.status(400).json({ error: "item_id is required" });
+        return;
+      }
+      const { institutionName } = await markItemRepaired(body.item_id);
+      recentRepairs.push({ itemId: body.item_id, institutionName });
+      log(`repaired ${institutionName ?? "(unknown institution)"} — item ${body.item_id}`);
+      res.json({ itemId: body.item_id, institutionName });
+    } catch (error) {
+      const message = describeError(error);
+      log(`repair_complete failed: ${message}`);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/create_link_token", async (_req: Request, res: Response) => {
+    try {
+      const linkToken = await createLinkToken();
       res.json({ link_token: linkToken });
     } catch (error) {
       const message = describeError(error);

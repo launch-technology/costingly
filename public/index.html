@@ -85,8 +85,8 @@
   <body>
     <main>
       <div class="env" id="env">checking environment…</div>
-      <h1>Connect a bank</h1>
-      <p class="sub">
+      <h1 id="heading">Connect a bank</h1>
+      <p class="sub" id="subheading">
         Credentials are entered inside Plaid's own window and never reach this
         app. On success the access token is encrypted and stored in Postgres.
       </p>
@@ -149,17 +149,65 @@
           envEl.textContent = "unknown environment";
         });
 
+      /*
+       * Two modes, decided by the URL.
+       *
+       *   /              connect a NEW bank
+       *   /?repair=<id>  re-authenticate an EXISTING one ("update mode")
+       *
+       * The repair id comes from the relink_bank tool. The page only ever sees
+       * an item id — the Plaid access token stays inside the server process.
+       */
+      const repairItemId = new URLSearchParams(location.search).get("repair");
+
+      if (repairItemId) {
+        document.getElementById("heading").textContent = "Reconnect a bank";
+        document.getElementById("subheading").textContent =
+          "This bank's login has expired. Signing in again repairs the existing " +
+          "connection — your transaction history is kept and nothing is re-downloaded.";
+      }
+
       async function openLink() {
         connectButton.disabled = true;
         connectButton.textContent = "Opening Plaid…";
 
         try {
-          const { link_token } = await postJson("/api/create_link_token");
+          const { link_token } = repairItemId
+            ? await postJson("/api/repair_link_token", { item_id: repairItemId })
+            : await postJson("/api/create_link_token");
 
           const handler = Plaid.create({
             token: link_token,
             onSuccess: async function (publicToken) {
               connectButton.textContent = "Saving…";
+
+              /*
+               * Update mode hands back a public token too, and exchanging it
+               * would create a SECOND connection to the same bank — duplicate
+               * accounts, duplicate transactions, duplicate billing. So the
+               * repair path deliberately ignores it and only clears the item's
+               * login_required status.
+               */
+              if (repairItemId) {
+                try {
+                  const repaired = await postJson("/api/repair_complete", {
+                    item_id: repairItemId,
+                  });
+                  message(
+                    "Reconnected " +
+                      (repaired.institutionName || "the bank") +
+                      ". You can close this page — ask Claude to sync to catch up on " +
+                      "anything missed while it was disconnected.",
+                    "ok"
+                  );
+                } catch (error) {
+                  message("Could not finish reconnecting: " + error.message, "err");
+                } finally {
+                  resetButton();
+                }
+                return;
+              }
+
               try {
                 const item = await postJson("/api/exchange_public_token", {
                   public_token: publicToken,
@@ -207,7 +255,7 @@
 
       function resetButton() {
         connectButton.disabled = false;
-        connectButton.textContent = "Connect a bank";
+        connectButton.textContent = repairItemId ? "Reconnect this bank" : "Connect a bank";
       }
 
       connectButton.addEventListener("click", openLink);

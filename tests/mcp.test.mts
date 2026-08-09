@@ -78,8 +78,8 @@ const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
-eq(tools.map((t) => t.name).sort(), ["describe_database", "link_bank", "query", "sync", "unlink_bank"],
-   "all five tools are advertised");
+eq(tools.map((t) => t.name).sort(), ["describe_database", "link_bank", "query", "relink_bank", "sync", "unlink_bank"],
+   "all six tools are advertised");
 
 // The server-level instructions are the only place the relationship between the
 // two tools is stated, and the only place the injection warning lives.
@@ -236,6 +236,48 @@ ok(hostile.includes("attacker@example.com"),
 
 await query(`DELETE FROM transactions WHERE account_id = 'inj'`);
 await query(`DELETE FROM accounts WHERE account_id = 'inj'`);
+
+// --- relink_bank ------------------------------------------------------------
+// Repairs an existing connection instead of replacing it. The distinction is the
+// whole point: removing and re-adding a bank loses the transaction history and
+// creates a second connection that Plaid bills for.
+const relinkTool = tools.find((t) => t.name === "relink_bank")!;
+eq(relinkTool.annotations?.["destructiveHint"], false, "relink_bank destroys nothing");
+eq(relinkTool.annotations?.["idempotentHint"], true, "and re-opening the page changes nothing");
+eq(Object.keys(relinkTool.inputSchema.properties ?? {}), ["item_id"], "it takes an item_id");
+ok(/NOT link_bank/.test(relinkTool.description ?? ""),
+   "and says explicitly to use it INSTEAD of link_bank for an existing bank");
+ok(/login_required/.test(relinkTool.description ?? ""),
+   "naming the status that signals a bank needs it");
+
+// link_bank must point at it, or a model repairing a broken bank will reach for
+// the wrong tool and silently create a duplicate.
+ok(/relink_bank/.test(tools.find((t) => t.name === "link_bank")?.description ?? ""),
+   "AND link_bank REDIRECTS to it rather than creating a duplicate connection");
+
+// relink_bank refuses without Plaid credentials, like link_bank. Set them for
+// this block only — the link_bank tests below deliberately run without any.
+process.env["PLAID_CLIENT_ID"] = "fake-client-id";
+process.env["PLAID_SECRET"] = "fake-secret";
+const { setPublicDir: setDir } = await import("../src/link/server.js");
+const { publicDir: pubDir } = await import("../cli/paths.js");
+setDir(pubDir);
+
+const relinkUnknown = await client.callTool({
+  name: "relink_bank", arguments: { item_id: "not-a-bank" },
+});
+eq(relinkUnknown.isError, true, "an unknown item_id is an error");
+ok(/i1/.test(text(relinkUnknown)), "and the real banks are listed with their status");
+
+const relinkOk = await client.callTool({ name: "relink_bank", arguments: { item_id: "i1" } });
+eq(relinkOk.isError, undefined, "repairing a real bank returns a page to open");
+const relinkText = text(relinkOk);
+ok(/\?repair=i1/.test(relinkText), "THE URL CARRIES THE ITEM ID, so the page opens in update mode");
+ok(/history is kept/.test(relinkText), "and reassures that nothing is re-downloaded");
+ok(/call sync/i.test(relinkText), "and says what to do afterwards");
+
+delete process.env["PLAID_CLIENT_ID"];
+delete process.env["PLAID_SECRET"];
 
 // --- unlink_bank ------------------------------------------------------------
 // The only tool that genuinely destroys. Everything else reads, or reconciles
@@ -425,9 +467,7 @@ process.env["PLAID_SECRET"] = "fake-secret";
 
 // cli/index.ts registers this; an in-process test has to do it too, for the same
 // reason it registers the migration loader.
-const { setPublicDir, linkServerStatus } = await import("../src/link/server.js");
-const { publicDir } = await import("../cli/paths.js");
-setPublicDir(publicDir);
+const { linkServerStatus } = await import("../src/link/server.js");
 const started = await client.callTool({ name: "link_bank", arguments: {} });
 eq(started.isError, undefined, "with credentials present, link_bank starts the page");
 const startedText = text(started);
