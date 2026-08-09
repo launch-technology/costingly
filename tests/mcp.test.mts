@@ -78,8 +78,8 @@ const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
-eq(tools.map((t) => t.name).sort(), ["describe_database", "link_bank", "query", "sync"],
-   "all four tools are advertised");
+eq(tools.map((t) => t.name).sort(), ["describe_database", "link_bank", "query", "sync", "unlink_bank"],
+   "all five tools are advertised");
 
 // The server-level instructions are the only place the relationship between the
 // two tools is stated, and the only place the injection warning lives.
@@ -236,6 +236,57 @@ ok(hostile.includes("attacker@example.com"),
 
 await query(`DELETE FROM transactions WHERE account_id = 'inj'`);
 await query(`DELETE FROM accounts WHERE account_id = 'inj'`);
+
+// --- unlink_bank ------------------------------------------------------------
+// The only tool that genuinely destroys. Everything else reads, or reconciles
+// with a source of truth that can hand the data back.
+const unlinkTool = tools.find((t) => t.name === "unlink_bank")!;
+eq(unlinkTool.annotations?.["destructiveHint"], true,
+   "unlink_bank is the ONE tool that declares itself destructive");
+eq(unlinkTool.annotations?.["idempotentHint"], false,
+   "and not idempotent — a second call finds nothing to delete");
+eq(Object.keys(unlinkTool.inputSchema.properties ?? {}), ["item_id"],
+   "it takes an item_id, not a bank name");
+ok(/CANNOT BE UNDONE/.test(unlinkTool.description ?? ""),
+   "and its description says so in terms a model will repeat");
+ok(/Confirm with the user/i.test(unlinkTool.description ?? ""),
+   "and tells the model to confirm by name and by number first");
+
+// A wrong id must not guess. It lists what exists instead.
+const wrongId = await client.callTool({ name: "unlink_bank", arguments: { item_id: "nope" } });
+eq(wrongId.isError, true, "an unknown item_id is an error, never a near-match");
+ok(/i1/.test(text(wrongId)), "and the real item ids are listed back");
+
+// Seed a second bank with data of its own, so the delete has something to cascade
+// through and the first bank can be checked for collateral damage.
+const { encrypt } = await import("../src/crypto.js");
+await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
+             VALUES ('doomed', 'Doomed Bank', $1, 'active')`, [encrypt("fake-access-token")]);
+await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+             VALUES ('d1', 'doomed', 'Checking', '1111', 'depository', 'checking', 'USD', 5)`);
+await query(`INSERT INTO transactions (transaction_id, account_id, item_id, amount,
+                                       iso_currency_code, date, name, pending, raw)
+             VALUES ('dt1','d1','doomed', 1,'USD','2026-03-01','ONE',false,'{}'::jsonb),
+                    ('dt2','d1','doomed', 2,'USD','2026-03-02','TWO',false,'{}'::jsonb)`);
+
+const gone = await client.callTool({ name: "unlink_bank", arguments: { item_id: "doomed" } });
+eq(gone.isError, undefined, "removing a real bank succeeds");
+const goneText = text(gone);
+ok(/Doomed Bank/.test(goneText), "the result names the bank");
+ok(/1 account\(s\)/.test(goneText), "and counts the accounts deleted");
+ok(/2 transaction\(s\)/.test(goneText), "AND THE TRANSACTIONS — counted before the delete");
+
+// THE ASSERTION THAT MATTERS: the cascade actually ran.
+const left = await query<{ i: string; a: string; t: string }>(
+  `SELECT (SELECT COUNT(*) FROM items        WHERE item_id='doomed')::text AS i,
+          (SELECT COUNT(*) FROM accounts     WHERE item_id='doomed')::text AS a,
+          (SELECT COUNT(*) FROM transactions WHERE item_id='doomed')::text AS t`);
+eq(left.rows[0], { i: "0", a: "0", t: "0" },
+   "ITEM, ACCOUNTS AND TRANSACTIONS ARE ALL GONE — the cascade did its job");
+
+const survivors = await query<{ n: string }>(
+  `SELECT COUNT(*)::text n FROM items WHERE item_id = 'i1'`);
+eq(survivors.rows[0]?.n, "1", "and the other bank is untouched");
 
 // --- the sync tool ----------------------------------------------------------
 // Every annotation is stated rather than defaulted, on purpose: the defaults are

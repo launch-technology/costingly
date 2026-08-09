@@ -6,6 +6,9 @@ import { query } from "../db/client.js";
 import { queryReadOnly } from "../db/readonly.js";
 import { explainDbError } from "../db/errors.js";
 import { syncAllItems } from "../plaid/sync.js";
+import { getItem } from "../plaid/items.js";
+import { revokeAtPlaid } from "../plaid/remove.js";
+import { describeError } from "../plaid/client.js";
 import { startLinkServer, stopLinkServer, takeRecentLinks } from "../link/server.js";
 import { get, getSecretIfSet } from "../config.js";
 import { formatRows, formatSyncSummary } from "./format.js";
@@ -51,7 +54,7 @@ function credentialsPresent(): boolean {
  * Returned in the initialize result, above any individual tool.
  *
  * This is the only place to say what the *server* is for. Without it a client
- * sees a thing called "costingly" exposing four tools and has to infer the rest
+ * sees a thing called "costingly" exposing five tools and has to infer the rest
  * from their names. It is also where the relationship between the tools belongs
  * — no tool's own description is the right place to explain the others.
  */
@@ -63,7 +66,8 @@ const INSTRUCTIONS =
     "  1. describe_database — the views, their columns, and what each one means\n" +
     "  2. query — run a read-only SELECT and get the rows back\n" +
     "  3. sync — refresh from the banks\n" +
-    "  4. link_bank — connect a bank, when none are connected yet\n\n" +
+    "  4. link_bank — connect a bank, when none are connected yet\n" +
+    "  5. unlink_bank — disconnect one and delete its data. Destructive.\n\n" +
     "Call describe_database first in a conversation. Its column comments carry " +
     "conventions that are wrong if guessed — most importantly that a POSITIVE " +
     "amount means money leaving the account.\n\n" +
@@ -117,6 +121,7 @@ export class CostinglyMcpServer {
         await this._registerQueryTool()
         await this._registerSyncTool()
         await this._registerLinkBankTool()
+        await this._registerUnlinkBankTool()
     }
 
     /**
@@ -417,6 +422,137 @@ export class CostinglyMcpServer {
                                 }`,
                             },
                         ],
+                        isError: true,
+                    };
+                }
+            },
+        )
+    }
+
+    private async _registerUnlinkBankTool(): Promise<void> {
+        this._server.registerTool(
+            'unlink_bank',
+            {
+                title: "Disconnect a Bank and Delete Its Data",
+                description:
+                    "Disconnect one bank and permanently delete everything costingly holds for " +
+                    "it — its accounts, every transaction, and the stored connection.\n\n" +
+                    "THIS DESTROYS DATA AND CANNOT BE UNDONE. Confirm with the user, by name and " +
+                    "by number, before calling it: say which bank, how many accounts and how many " +
+                    "transactions will be deleted. Query v_items and v_transactions first if you " +
+                    "do not already know. Re-linking later is possible, but it means logging in " +
+                    "to the bank again, and only whatever history the bank still offers comes " +
+                    "back.\n\n" +
+                    "Takes an item_id, not a bank name — get it from v_items. Deliberately not " +
+                    "name-matching: two banks can have similar names and the cost of picking the " +
+                    "wrong one is unrecoverable. If the id does not exist, the connected banks " +
+                    "are listed back to you.\n\n" +
+                    "Also revokes the connection at Plaid, so it stops counting against the " +
+                    "user's account there.",
+                inputSchema: {
+                    item_id: z
+                        .string()
+                        .min(1)
+                        .describe(
+                            "The Plaid item id of the bank to disconnect, exactly as it appears " +
+                            "in v_items.item_id. One bank login, which may cover several accounts.",
+                        ),
+                },
+                annotations: {
+                    readOnlyHint: false,
+                    // The one tool here that genuinely destroys. Everything else
+                    // either reads, or reconciles with a source of truth that can
+                    // hand the data back.
+                    destructiveHint: true,
+                    // Calling it twice is not the same as calling it once: the second
+                    // call finds nothing to delete and says so.
+                    idempotentHint: false,
+                    // Revokes the token at Plaid.
+                    openWorldHint: true,
+                },
+            },
+            async ({ item_id }) => {
+                try {
+                    // Deliberately NOT listAllItems(): that decrypts every stored
+                    // token, so a single item whose token no longer decrypts — a
+                    // rotated or lost encryption key — would throw here and make it
+                    // impossible to remove ANY bank. That is precisely the situation
+                    // in which someone most wants to clean up.
+                    const { rows: items } = await query<{
+                        item_id: string;
+                        institution_name: string | null;
+                    }>(
+                        `SELECT item_id, institution_name FROM items
+                          ORDER BY institution_name NULLS LAST, created_at`,
+                    );
+                    const item = items.find((i) => i.item_id === item_id);
+
+                    if (item === undefined) {
+                        const known =
+                            items.length === 0
+                                ? "No banks are connected, so there is nothing to disconnect."
+                                : "Connected banks:\n" +
+                                  items
+                                      .map(
+                                          (i) =>
+                                              `  ${i.item_id}  ${i.institution_name ?? "(unknown bank)"}`,
+                                      )
+                                      .join("\n");
+                        return {
+                            content: [
+                                { type: "text", text: `No bank has item_id "${item_id}".\n\n${known}` },
+                            ],
+                            isError: true,
+                        };
+                    }
+
+                    // Counted before the delete, because afterwards there is nothing
+                    // left to count and the user deserves to be told what went.
+                    const { rows } = await query<{ accounts: string; transactions: string }>(
+                        `SELECT (SELECT COUNT(*) FROM accounts     WHERE item_id = $1)::text AS accounts,
+                                (SELECT COUNT(*) FROM transactions WHERE item_id = $1)::text AS transactions`,
+                        [item_id],
+                    );
+                    const accounts = Number(rows[0]?.accounts ?? 0);
+                    const transactions = Number(rows[0]?.transactions ?? 0);
+
+                    // Revoking needs the decrypted token, and reading it can fail
+                    // independently of the delete. A token we cannot decrypt, or a
+                    // Plaid outage, must not leave the user unable to remove the
+                    // row — so this is attempted, reported, and never fatal.
+                    let revoked = false;
+                    let revokeError: string | undefined;
+                    try {
+                        const stored = await getItem(item_id);
+                        if (stored !== null) {
+                            await revokeAtPlaid(stored.accessToken);
+                            revoked = true;
+                        }
+                    } catch (error) {
+                        revokeError = describeError(error);
+                    }
+
+                    // Accounts and transactions go with it: both foreign keys are
+                    // ON DELETE CASCADE. See migrations/0001-initial.sql.
+                    await query(`DELETE FROM items WHERE item_id = $1`, [item_id]);
+
+                    const name = item.institution_name ?? item.item_id;
+                    const lines = [
+                        `Disconnected ${name} and deleted its data:`,
+                        `  ${accounts} account(s)`,
+                        `  ${transactions} transaction(s)`,
+                        "",
+                        revoked
+                            ? "The connection was also revoked at Plaid."
+                            : `The local data is gone, but revoking at Plaid failed: ${
+                                  revokeError ?? "unknown error"
+                              }\nThe user may want to remove it from their Plaid dashboard.`,
+                    ];
+
+                    return { content: [{ type: "text", text: lines.join("\n") }] };
+                } catch (error) {
+                    return {
+                        content: [{ type: "text", text: explainDbError(error) }],
                         isError: true,
                     };
                 }
