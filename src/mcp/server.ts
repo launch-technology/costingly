@@ -16,7 +16,8 @@ import {
     takeRecentRepairs,
 } from "../link/server.js";
 import { get, getSecretIfSet } from "../config.js";
-import { formatRows, formatSyncSummary } from "./format.js";
+import { formatRows, formatSyncSummary, formatHealth } from "./format.js";
+import { checkDatabase, restartDatabase } from "../db/health.js";
 
 /**
  * What to say when Plaid credentials are missing.
@@ -59,7 +60,7 @@ function credentialsPresent(): boolean {
  * Returned in the initialize result, above any individual tool.
  *
  * This is the only place to say what the *server* is for. Without it a client
- * sees a thing called "costingly" exposing six tools and has to infer the rest
+ * sees a thing called "costingly" exposing eight tools and has to infer the rest
  * from their names. It is also where the relationship between the tools belongs
  * — no tool's own description is the right place to explain the others.
  */
@@ -74,6 +75,15 @@ const INSTRUCTIONS =
     "  4. link_bank — connect a bank, when none are connected yet\n" +
     "  5. relink_bank — repair a connection whose login expired\n" +
     "  6. unlink_bank — disconnect one and delete its data. Destructive.\n\n" +
+    "When something is wrong rather than being asked:\n" +
+    "  7. check_database — is the database working, and which profile is it\n" +
+    "  8. restart_database — stop the local database server and bring it back\n\n" +
+    "If any tool above fails with a connection or database error, call " +
+    "check_database. It is built to answer when the database is down, and it names " +
+    "which profile is in use — costingly supports several, and the user may be " +
+    "looking at a different one than they think. restart_database clears most " +
+    "connection failures; nothing else is worth trying twice. Neither reports any " +
+    "financial data — that is what query is for.\n\n" +
     "Call describe_database first in a conversation. Its column comments carry " +
     "conventions that are wrong if guessed — most importantly that a POSITIVE " +
     "amount means money leaving the account.\n\n" +
@@ -129,6 +139,149 @@ export class CostinglyMcpServer {
         await this._registerLinkBankTool()
         await this._registerRelinkBankTool()
         await this._registerUnlinkBankTool()
+        await this._registerCheckDatabaseTool()
+        await this._registerRestartDatabaseTool()
+    }
+
+    /**
+     * Is it working, and which profile is this?
+     *
+     * Registered because a bundled install has no terminal. Everything this
+     * reports was previously only reachable through `costingly doctor` and
+     * `costingly status`, which is fine for a developer and useless for someone
+     * whose only interface is a chat window.
+     */
+    private async _registerCheckDatabaseTool(): Promise<void> {
+        this._server.registerTool(
+            'check_database',
+            {
+                title: "Check the Costingly Database",
+                description:
+                    "Whether costingly's database is working: which profile directory is in " +
+                    "use, whether the local PostgreSQL server is running, whether a query " +
+                    "round trip succeeds and how long it takes, how long the server has been " +
+                    "up, and which schema migrations are applied.\n\n" +
+                    "Call this when another costingly tool fails with a connection or " +
+                    "database error, or when the user says costingly is broken or not " +
+                    "responding. It is designed to work when the database is down — that is " +
+                    "the case it exists for — so it answers even when nothing else does.\n\n" +
+                    "It reports on the DATABASE, not on the data inside it. It returns no " +
+                    "transactions, balances, totals or dates: for anything about the user's " +
+                    "money use query, and for the views and columns needed to write one use " +
+                    "describe_database.\n\n" +
+                    "The profile line is worth reading even when everything works. Costingly " +
+                    "supports several profiles and only one is active, so it is also the " +
+                    "answer to \"why is costingly showing me different data than I expect\".",
+                inputSchema: {},
+                annotations: {
+                    readOnlyHint: true,
+                    destructiveHint: false,
+                    idempotentHint: true,
+                    // Reads only this machine's own files and database.
+                    openWorldHint: false,
+                },
+            },
+            async () => {
+                // checkDatabase() is documented never to throw; a try/catch here
+                // anyway, because a health tool that fails is a contradiction and
+                // the guarantee is worth belt and braces.
+                try {
+                    return { content: [{ type: "text", text: formatHealth(await checkDatabase()) }] };
+                } catch (error) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text:
+                                    `The health check itself failed: ${
+                                        error instanceof Error ? error.message : String(error)
+                                    }\n\n` +
+                                    `That should not be possible. Try restart_database.`,
+                            },
+                        ],
+                        isError: true,
+                    };
+                }
+            },
+        )
+    }
+
+    /**
+     * Stop the database and bring it back.
+     *
+     * Deliberately a restart rather than a stop. Stopping is never the goal —
+     * it is a step towards connecting again, and costingly starts the server on
+     * the next connection anyway. A stop tool would leave the model to guess
+     * what to do next; this completes the round trip and reports whether the
+     * database actually came back.
+     */
+    private async _registerRestartDatabaseTool(): Promise<void> {
+        this._server.registerTool(
+            'restart_database',
+            {
+                title: "Restart the Costingly Database",
+                description:
+                    "Stop costingly's local PostgreSQL server and start it again, then confirm " +
+                    "it is reachable. This clears most connection failures — a server left in " +
+                    "a bad state, a stale connection after the machine slept, or two copies of " +
+                    "costingly having competed for the same database.\n\n" +
+                    "Use it when check_database reports the database is not working, or when " +
+                    "tools keep failing with connection errors. If check_database says the " +
+                    "database is fine, this will not help — the problem is elsewhere.\n\n" +
+                    "No data is lost: the database is on disk and is not touched. A sync that " +
+                    "happens to be running is interrupted, and resumes where it left off the " +
+                    "next time it runs. Takes a few seconds.",
+                inputSchema: {},
+                annotations: {
+                    // Stops and starts a server process.
+                    readOnlyHint: false,
+                    // Nothing stored is altered or deleted. The only casualty is an
+                    // in-flight sync, which resumes from its cursor.
+                    destructiveHint: false,
+                    // Restarting twice leaves the same state as restarting once.
+                    idempotentHint: true,
+                    // Local process only.
+                    openWorldHint: false,
+                },
+            },
+            async () => {
+                const outcome = await restartDatabase();
+
+                const what = outcome.wasRunning
+                    ? "Stopped the database server and started it again"
+                    : "The database server was not running; started it";
+
+                if (outcome.ok) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text:
+                                    `${what}. It is responding — took ${outcome.elapsedMs}ms.\n\n` +
+                                    `Retry whatever failed before.`,
+                            },
+                        ],
+                    };
+                }
+
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text:
+                                `${what}, but it is still not responding after ` +
+                                `${outcome.elapsedMs}ms.\n\n` +
+                                `${outcome.error ?? "No further detail."}\n\n` +
+                                `Call check_database for where the profile and cluster are. If ` +
+                                `two copies of costingly are installed — an extension and a ` +
+                                `manually configured server — they may be competing for the ` +
+                                `same database, and one should be disabled.`,
+                        },
+                    ],
+                    isError: true,
+                };
+            },
+        )
     }
 
     /**
