@@ -300,6 +300,13 @@ ok(/setup step, not a problem with the request/i.test(credsText),
 ok(/retrying will not help/i.test(credsText), "AND TELLS THE MODEL NOT TO RETRY");
 ok(/Claude Desktop's settings/.test(credsText),
    "and names where a bundled user actually enters them");
+// "may need to be restarted" cost a real debugging cycle: the keys were entered,
+// the same refusal came back, and the hedge read as optional. Environment
+// variables are fixed at spawn, so it is a certainty.
+ok(/Cmd-Q/.test(credsText) && /required, not optional/.test(credsText),
+   "AND STATES THE RESTART AS A REQUIREMENT, naming the actual keystroke");
+ok(/BOTH the Plaid client ID and the secret/.test(credsText),
+   "and that half-filled credentials are the same as none");
 ok(!/costingly init/.test(credsText),
    "and does NOT send a bundled user to a terminal command they do not have");
 

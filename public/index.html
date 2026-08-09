@@ -96,9 +96,15 @@
       <div id="status"></div>
       <ul class="linked" id="linked"></ul>
 
+      <!--
+        Deliberately says nothing about Ctrl-C or terminal commands. This page is
+        opened two ways — from `costingly link` and from the link_bank MCP tool —
+        and most people arriving here now came from a chat window with no terminal
+        anywhere in sight.
+      -->
       <footer>
-        Link as many banks as you like, then stop this server with
-        <code>Ctrl-C</code> and run <code>costingly sync</code>.
+        Connect as many banks as you like. When you are finished you can close
+        this page — the next sync brings their transactions in.
       </footer>
     </main>
 
@@ -171,7 +177,7 @@
                 message(
                   "Linked " +
                     (item.institutionName || "bank") +
-                    ". Link another, or run `costingly sync`.",
+                    ". Connect another, or close this page when you are done.",
                   "ok"
                 );
               } catch (error) {
