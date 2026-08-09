@@ -13,6 +13,9 @@ node_modules/
 
 # Build output
 dist/
+
+# The packed .mcpb and its staging directory — ~317 MB, never committed.
+build/
 .next/
 .vercel/
 
