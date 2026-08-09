@@ -78,8 +78,8 @@ const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
-eq(tools.map((t) => t.name).sort(), ["describe_database", "query", "sync"],
-   "all three tools are advertised");
+eq(tools.map((t) => t.name).sort(), ["describe_database", "link_bank", "query", "sync"],
+   "all four tools are advertised");
 
 // The server-level instructions are the only place the relationship between the
 // two tools is stated, and the only place the injection warning lives.
@@ -281,6 +281,28 @@ const badArgs = await client.callTool({ name: "query", arguments: { sqll: "SELEC
 eq(badArgs.isError, true, "a wrong argument name is rejected by the input schema");
 ok(/sql/i.test(text(badArgs)), "and the message names the argument at fault");
 
+// --- link_bank --------------------------------------------------------------
+// The only tool that cannot finish its own job: Plaid's login screen runs in a
+// real browser, and for most large banks it navigates to the bank's own site.
+// So the tool's whole contract is "hand back a URL and say what happens next".
+const linkTool = tools.find((t) => t.name === "link_bank")!;
+eq(linkTool.annotations?.["readOnlyHint"], false, "link_bank declares that it writes");
+eq(linkTool.annotations?.["destructiveHint"], false, "and that it destroys nothing");
+eq(linkTool.annotations?.["openWorldHint"], true, "and that it leaves the machine");
+
+// No credentials are configured in this profile, which is the state a brand-new
+// install is in — and the message has to name the fix rather than the symptom.
+const noCreds = await client.callTool({ name: "link_bank", arguments: {} });
+eq(noCreds.isError, true, "without Plaid credentials it is an error");
+const credsText = text(noCreds);
+ok(/setup step, not a problem with the request/i.test(credsText),
+   "it says this is setup rather than a failed request");
+ok(/retrying will not help/i.test(credsText), "AND TELLS THE MODEL NOT TO RETRY");
+ok(/Claude Desktop's settings/.test(credsText),
+   "and names where a bundled user actually enters them");
+ok(!/costingly init/.test(credsText),
+   "and does NOT send a bundled user to a terminal command they do not have");
+
 // --- the sync summary format ------------------------------------------------
 // A real multi-bank sync needs Plaid credentials, so the formatter is exercised
 // directly. This is where the design lives: the output is read by a model that
@@ -336,8 +358,34 @@ ok(/still preparing/.test(notReady),
 ok(/Sync again shortly/.test(notReady), "and says what to do about it");
 
 // --- shutdown ---------------------------------------------------------------
+// Start the link server first, so shutdown has something to clean up. A
+// listening socket refs the event loop: if run() does not close it, the process
+// outlives its client by however long the link server's idle timer runs.
+// Measured before this was fixed: five minutes and counting.
+process.env["PLAID_CLIENT_ID"] = "fake-client-id";
+process.env["PLAID_SECRET"] = "fake-secret";
+
+// cli/index.ts registers this; an in-process test has to do it too, for the same
+// reason it registers the migration loader.
+const { setPublicDir, linkServerStatus } = await import("../src/link/server.js");
+const { publicDir } = await import("../cli/paths.js");
+setPublicDir(publicDir);
+const started = await client.callTool({ name: "link_bank", arguments: {} });
+eq(started.isError, undefined, "with credentials present, link_bank starts the page");
+const startedText = text(started);
+ok(/http:\/\/127\.0\.0\.1:\d+/.test(startedText), "and returns a loopback URL to open");
+ok(/call sync/i.test(startedText), "and tells the model what to do once the user is done");
+
+eq(linkServerStatus().running, true, "the link server is listening");
+
 await client.close();
 await serving;
+
+eq(linkServerStatus().running, false,
+   "AND run() SHUTS IT DOWN ON DISCONNECT — otherwise the process cannot exit");
+
+delete process.env["PLAID_CLIENT_ID"];
+delete process.env["PLAID_SECRET"];
 out.push("  ok    run() RESOLVES WHEN THE CLIENT DISCONNECTS (no hang on shutdown)");
 
 await closeDb();

@@ -13,11 +13,12 @@
 
 import { Command } from "commander";
 import { closeDb, setMigrationSource } from "../src/db/client.js";
+import { setPublicDir } from "../src/link/server.js";
 import { isMissingSchema, MISSING_SCHEMA_CLI } from "../src/db/errors.js";
 import { ignoreEpipe } from "./format.js";
 import { environmentBanner } from "./banner.js";
 import { CliError } from "./errors.js";
-import { packageVersion } from "./paths.js";
+import { packageVersion, publicDir } from "./paths.js";
 import { loadMigrations } from "./migrations.js";
 
 import { registerInitCommand } from "./init.js";
@@ -38,6 +39,7 @@ import { registerMcpCommand } from "./mcp.js";
 // itself on first connection, so nobody has to run `costingly migrate`. That
 // matters most where there is no terminal to run it in: a bundled install.
 setMigrationSource(loadMigrations);
+setPublicDir(publicDir);
 
 /**
  * Build the command tree without parsing.

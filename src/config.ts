@@ -111,10 +111,32 @@ function readStored(): Partial<StoredConfig> {
   }
 }
 
+/**
+ * A `${user_config.whatever}` token that was never filled in.
+ *
+ * Claude Desktop substitutes these into the environment from the extension's
+ * settings form — and when a field is left blank it passes the **literal
+ * placeholder** rather than an empty string or nothing at all. Measured from a
+ * running install:
+ *
+ *     PLAID_CLIENT_ID=${user_config.plaid_client_id}
+ *
+ * Which is a non-empty string, so without this check it reads as a configured
+ * value, and the first symptom is Plaid rejecting it: "client_id must be a
+ * properly formatted, non-empty string". Treating it as absent is what turns
+ * that into "go and enter your keys".
+ *
+ * Deliberately narrow: only a value that is *entirely* one `${...}` token. No
+ * real credential looks like that.
+ */
+function isUnfilledPlaceholder(value: string): boolean {
+  return /^\$\{[^}]*\}$/.test(value.trim());
+}
+
 /** The raw resolved value for a key, before validation. */
 function resolve(key: keyof StoredConfig): { value: string | number | undefined; source: ValueSource } {
   const fromEnv = process.env[ENV_NAMES[key]];
-  if (fromEnv !== undefined && fromEnv.trim() !== "") {
+  if (fromEnv !== undefined && fromEnv.trim() !== "" && !isUnfilledPlaceholder(fromEnv)) {
     return { value: fromEnv.trim(), source: "environment" };
   }
 

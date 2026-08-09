@@ -100,6 +100,20 @@ for (const entry of SHIPPED) {
 }
 say("payload", SHIPPED.join(", "));
 
+// One version, one place. `npm version` bumps package.json and knows nothing
+// about manifest.json — and it is the manifest that Claude Desktop displays. Let
+// them drift once and you get a bundle called 1.1.0 that reports itself as 1.0.0,
+// which is worse than no version at all because it is confidently wrong.
+const manifest = JSON.parse(await readFile(join(STAGING, "manifest.json"), "utf8")) as Record<
+  string,
+  unknown
+>;
+if (manifest["version"] !== version) {
+  say("version", `manifest ${String(manifest["version"])} -> ${version}`);
+  manifest["version"] = version;
+}
+await writeFile(join(STAGING, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
 // Now that npm has finished with it, drop the development dependencies and the
 // lockfile. They describe how this was built; the bundle only needs to describe
 // what it is.

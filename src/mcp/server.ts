@@ -6,15 +6,47 @@ import { query } from "../db/client.js";
 import { queryReadOnly } from "../db/readonly.js";
 import { explainDbError } from "../db/errors.js";
 import { syncAllItems } from "../plaid/sync.js";
+import { startLinkServer, stopLinkServer, takeRecentLinks } from "../link/server.js";
+import { get, getSecretIfSet } from "../config.js";
 import { formatRows, formatSyncSummary } from "./format.js";
+
+/**
+ * What to say when Plaid credentials are missing.
+ *
+ * Tier 2: the model cannot fix this and must not retry. A bundled install has no
+ * terminal, so the only place a user can supply these is the extension's own
+ * settings — naming that screen is the entire value of this message.
+ */
+const MISSING_CREDENTIALS =
+    "costingly has no Plaid credentials, so it cannot connect to a bank yet. This is " +
+    "a setup step, not a problem with the request — retrying will not help.\n\n" +
+    "Tell the user to open Claude Desktop's settings, find the costingly extension, " +
+    "and enter the Plaid client ID and secret from their Plaid dashboard " +
+    "(dashboard.plaid.com). Those are stored on their machine and are never sent to " +
+    "you. Claude Desktop may need to be restarted afterwards.";
+
+/**
+ * Are both Plaid credentials available from anywhere?
+ *
+ * `get()` throws when a value is unset — which is right for a command that
+ * cannot continue, and wrong here, where absence is a normal state with a
+ * specific answer.
+ */
+function credentialsPresent(): boolean {
+    try {
+        return get("plaidClientId").trim() !== "" && getSecretIfSet("plaidSecret") !== undefined;
+    } catch {
+        return false;
+    }
+}
 
 /**
  * Returned in the initialize result, above any individual tool.
  *
  * This is the only place to say what the *server* is for. Without it a client
- * sees a thing called "costingly" exposing three tools and has to infer the rest
+ * sees a thing called "costingly" exposing four tools and has to infer the rest
  * from their names. It is also where the relationship between the tools belongs
- * — no tool's own description is the right place to explain the other two.
+ * — no tool's own description is the right place to explain the others.
  */
 const INSTRUCTIONS =
     "costingly is a local PostgreSQL database holding this user's own bank and " +
@@ -23,7 +55,8 @@ const INSTRUCTIONS =
     "Answer questions about spending, income, balances and accounts by querying it:\n" +
     "  1. describe_database — the views, their columns, and what each one means\n" +
     "  2. query — run a read-only SELECT and get the rows back\n" +
-    "  3. sync — refresh from the banks; the only tool that changes anything\n\n" +
+    "  3. sync — refresh from the banks\n" +
+    "  4. link_bank — connect a bank, when none are connected yet\n\n" +
     "Call describe_database first in a conversation. Its column comments carry " +
     "conventions that are wrong if guessed — most importantly that a POSITIVE " +
     "amount means money leaving the account.\n\n" +
@@ -76,6 +109,7 @@ export class CostinglyMcpServer {
         await this._registerDescribeDatabaseTool()
         await this._registerQueryTool()
         await this._registerSyncTool()
+        await this._registerLinkBankTool()
     }
 
     /**
@@ -97,6 +131,13 @@ export class CostinglyMcpServer {
 
         // Nothing past this line runs until the client closes the connection.
         await closed;
+
+        // The link server, if one was started, holds a listening socket — which
+        // refs the event loop and stops this process exiting. Measured: without
+        // this the process outlived its client by minutes, waiting on the link
+        // server's own ten-minute idle timer, exactly the zombie behaviour the
+        // stdin EOF handling exists to prevent.
+        await stopLinkServer();
     }
 
     /**
@@ -275,6 +316,100 @@ export class CostinglyMcpServer {
                 } catch (error) {
                     return {
                         content: [{ type: "text", text: explainDbError(error) }],
+                        isError: true,
+                    };
+                }
+            },
+        )
+    }
+
+    private async _registerLinkBankTool(): Promise<void> {
+        this._server.registerTool(
+            'link_bank',
+            {
+                title: "Connect a Bank",
+                description:
+                    "Start connecting a bank or credit card. Returns a URL the user must open " +
+                    "in their browser — give it to them and ask them to say when they have " +
+                    "finished.\n\n" +
+                    "This cannot be completed for them. Plaid's login screen only runs in a real " +
+                    "browser, and for most large banks it sends the user to their bank's own " +
+                    "website to authenticate. Their credentials are typed into Plaid's window " +
+                    "and never reach costingly or this conversation.\n\n" +
+                    "Call this when no banks are connected, when the user asks to add one, or " +
+                    "when a bank's status is login_required and its connection needs repairing. " +
+                    "They can connect several in one visit.\n\n" +
+                    "When the user says they are done, call sync — that is what pulls their " +
+                    "transaction history in, and it is also how you find out which banks were " +
+                    "actually connected. The first sync after linking backfills up to two years " +
+                    "and takes noticeably longer than later ones.",
+                annotations: {
+                    // The tool starts a local web server; completing the flow in the
+                    // browser writes an item and its accounts.
+                    readOnlyHint: false,
+                    // Only ever adds a bank. Nothing existing is touched.
+                    destructiveHint: false,
+                    // Calling twice returns the same URL for the same server.
+                    idempotentHint: true,
+                    // Plaid, the user's bank, and a browser.
+                    openWorldHint: true,
+                },
+            },
+            async () => {
+                // Credentials first. Without them Plaid rejects the token request
+                // with an error that says nothing about what the user must do, and
+                // in a bundled install there is no terminal to fix it from.
+                if (!credentialsPresent()) {
+                    return {
+                        content: [{ type: "text", text: MISSING_CREDENTIALS }],
+                        isError: true,
+                    };
+                }
+
+                try {
+                    const { url } = await startLinkServer();
+                    const linked = takeRecentLinks();
+
+                    // A link completes in the browser long after this tool returned,
+                    // so a repeat call is the natural moment to report what happened
+                    // in between.
+                    const already =
+                        linked.length === 0
+                            ? ""
+                            : `Since we last spoke, these were connected:\n` +
+                              linked
+                                  .map(
+                                      (i) =>
+                                          `  ${i.institutionName ?? "(unknown bank)"} — ` +
+                                          `${i.accountCount} account(s)`,
+                                  )
+                                  .join("\n") +
+                              `\n\nCall sync to pull their transactions.\n\n`;
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text:
+                                    already +
+                                    `Ask the user to open this page in their browser:\n\n  ${url}\n\n` +
+                                    `They can connect as many banks as they like from it. The page is ` +
+                                    `served from their own machine and is not reachable from the ` +
+                                    `network; it shuts down by itself after ten minutes of inactivity.\n\n` +
+                                    `When they say they are finished, call sync.`,
+                            },
+                        ],
+                    };
+                } catch (error) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Could not start the link page: ${
+                                    error instanceof Error ? error.message : String(error)
+                                }`,
+                            },
+                        ],
                         isError: true,
                     };
                 }

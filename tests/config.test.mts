@@ -142,6 +142,42 @@ eq(cfg.readConfigFile(), {}, "a different profile sees a different (empty) confi
 eq(cfg.readConfigFile().plaidClientId, undefined, "PROFILES ARE FULLY ISOLATED");
 
 // ---------------------------------------------------------------------------
+// Unfilled ${user_config.*} placeholders
+// ---------------------------------------------------------------------------
+// Claude Desktop substitutes extension settings into the environment, and when a
+// field is left blank it passes the LITERAL placeholder rather than an empty
+// string. Taken from a running install:
+//
+//     PLAID_CLIENT_ID=${user_config.plaid_client_id}
+//
+// Non-empty, so it reads as configured, and the first symptom is Plaid rejecting
+// it several steps later with a message about formatting. Absent is the truth.
+
+const phDir = await mkdtemp(join(tmpdir(), "costingly-ph-"));
+process.env["COSTINGLY_HOME"] = phDir;
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "PORT"]) {
+  delete process.env[name];
+}
+
+process.env["PLAID_CLIENT_ID"] = "${user_config.plaid_client_id}";
+process.env["PLAID_SECRET"] = "${user_config.plaid_secret}";
+
+eq(cfg.getSecretIfSet("plaidSecret"), undefined,
+   "AN UNFILLED ${user_config.*} PLACEHOLDER IS TREATED AS ABSENT");
+await throwsWith(() => cfg.get("plaidClientId"), "PLAID_CLIENT_ID is not set",
+   "and a public value reports itself missing rather than returning the token");
+
+// The narrowness matters: a real value that merely contains a brace is fine.
+process.env["PLAID_CLIENT_ID"] = "abc${def";
+eq(cfg.get("plaidClientId"), "abc${def", "a value that is not entirely a placeholder is kept");
+
+process.env["PLAID_SECRET"] = "  ${user_config.plaid_secret}  ";
+eq(cfg.getSecretIfSet("plaidSecret"), undefined, "surrounding whitespace does not hide it");
+
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET"]) delete process.env[name];
+await rm(phDir, { recursive: true, force: true });
+
+// ---------------------------------------------------------------------------
 // updateConfigSync, and the encryption key creating itself
 // ---------------------------------------------------------------------------
 // A bundled install has no terminal, so there is no `costingly init` to generate
