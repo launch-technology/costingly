@@ -118,7 +118,8 @@ const stored = enc.rows[0]!.access_token_enc;
 eq(stored.split(".").length, 3, "access token stored as iv.tag.ciphertext");
 ok(!stored.startsWith("access-"), "plaintext token is NOT in the database");
 const items = await listAllItems();
-ok(items[0]!.accessToken.startsWith("access-"), "token decrypts back out correctly");
+eq(items[0]!.source, "plaid", "a linked bank is recorded as source 'plaid'");
+ok(items[0]!.accessToken?.startsWith("access-") === true, "token decrypts back out correctly");
 
 // sync #1 — the backfill. Plaid pulls sandbox history asynchronously, so the
 // first call can legitimately return NOT_READY with nothing; retry like a user

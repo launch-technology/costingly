@@ -650,11 +650,16 @@ export class CostinglyMcpServer {
                     // independently of the delete. A token we cannot decrypt, or a
                     // Plaid outage, must not leave the user unable to remove the
                     // row — so this is attempted, reported, and never fatal.
+                    //
+                    // A seeded bank has no token and no Plaid Item, so there is
+                    // nothing to revoke — it just gets deleted locally like
+                    // everything else. One tool, one path, no second concept for
+                    // the model to choose between.
                     let revoked = false;
                     let revokeError: string | undefined;
                     try {
                         const stored = await getItem(item_id);
-                        if (stored !== null) {
+                        if (stored !== null && stored.accessToken !== null) {
                             await revokeAtPlaid(stored.accessToken);
                             revoked = true;
                         }

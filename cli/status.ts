@@ -19,6 +19,7 @@ type Row = {
   status: string;
   last_synced_at: Date | null;
   never_synced: boolean;
+  source: string;
   account_id: string | null;
   account_name: string | null;
   mask: string | null;
@@ -31,8 +32,15 @@ type Row = {
   last_date: string | null;
 };
 
-/** Flag the states that need the user to do something. */
-function statusNote(status: string, neverSynced: boolean): string {
+/**
+ * Flag the states that need the user to do something.
+ *
+ * Seeded banks are checked first and always return early. They have no cursor,
+ * so every other branch here would tell the user to run a sync that will never
+ * touch them — the one instruction guaranteed to be wrong.
+ */
+function statusNote(status: string, neverSynced: boolean, source: string): string {
+  if (source === "seed") return "  ·  sample data — not a real bank, never synced";
   if (status === "login_required") return "  ⚠  NEEDS RE-LINK — run `costingly link`";
   if (status !== "active") return `  ⚠  status: ${status}`;
   if (neverSynced) return "  ·  never synced — run `costingly sync` for the backfill";
@@ -54,8 +62,12 @@ function emitJson(byItem: Map<string, Row[]>): void {
       institutionName: head.institution_name,
       status: head.status,
       neverSynced: head.never_synced,
+      source: head.source,
       lastSyncedAt: head.last_synced_at?.toISOString() ?? null,
-      needsAttention: head.status !== "active" || head.never_synced,
+      // Seeded banks are never actionable: there is nothing to re-link and
+      // nothing to sync, so alerting on them would be permanent noise.
+      needsAttention:
+        head.source !== "seed" && (head.status !== "active" || head.never_synced),
       accounts: accounts.map((row) => ({
         accountId: row.account_id,
         name: row.account_name,
@@ -130,6 +142,7 @@ export async function runStatus(options: StatusOptions): Promise<void> {
            i.status,
            i.last_synced_at,
            i.cursor IS NULL           AS never_synced,
+           i.source,
            a.account_id,
            a.name                     AS account_name,
            a.mask,
@@ -187,7 +200,7 @@ export async function runStatus(options: StatusOptions): Promise<void> {
     const head = itemRows[0]!;
     const name = head.institution_name ?? "(unknown institution)";
 
-    console.log(`${name}${statusNote(head.status, head.never_synced)}`);
+    console.log(`${name}${statusNote(head.status, head.never_synced, head.source)}`);
     console.log(`  item ${head.item_id}  ·  last synced: ${ago(head.last_synced_at)}`);
 
     for (const row of itemRows) {

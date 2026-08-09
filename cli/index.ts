@@ -32,6 +32,7 @@ import { registerResetCommand } from "./reset.js";
 import { registerStopCommand } from "./stop.js";
 import { registerDoctorCommand } from "./doctor.js";
 import { registerMcpCommand } from "./mcp.js";
+import { registerSeedCommand } from "./seed.js";
 
 // Reading migrations/ means resolving a path from import.meta.url, which src/
 // does not do (see the header of paths.ts). Registering the loader here — at the
@@ -73,6 +74,7 @@ Per-command flags:  costingly <command> --help
   registerTransactionsCommand(program);
   registerStopCommand(program);
   registerDoctorCommand(program);
+  registerSeedCommand(program);
   registerUnlinkCommand(program);
   registerResetCommand(program);
 

@@ -14,7 +14,7 @@
 import { CountryCode, Products } from "plaid";
 import type { LinkTokenCreateRequest } from "plaid";
 import { getPlaidClient, describeError } from "./client.js";
-import { getItem, saveItem, setItemStatus, upsertAccounts } from "./items.js";
+import { getItem, saveItem, setItemStatus, upsertAccounts, type StoredItem } from "./items.js";
 import { withTransaction } from "../db/client.js";
 
 /**
@@ -56,8 +56,7 @@ const CLIENT_USER_ID = "local-user";
  * leaves this process.
  */
 export async function createRepairLinkToken(itemId: string): Promise<string> {
-  const item = await getItem(itemId);
-  if (item === null) throw new Error(`No linked bank has item_id "${itemId}".`);
+  const item = await requirePlaidItem(itemId);
 
   const response = await getPlaidClient().linkTokenCreate({
     client_name: "Costingly",
@@ -85,11 +84,30 @@ export async function createRepairLinkToken(itemId: string): Promise<string> {
  * will set it straight back.
  */
 export async function markItemRepaired(itemId: string): Promise<{ institutionName: string | null }> {
-  const item = await getItem(itemId);
-  if (item === null) throw new Error(`No linked bank has item_id "${itemId}".`);
+  const item = await requirePlaidItem(itemId);
 
   await setItemStatus(itemId, "active");
   return { institutionName: item.institutionName };
+}
+
+/**
+ * Look up an Item that must be a real bank login.
+ *
+ * Both repair paths are meaningless for anything else: there is no bank to
+ * re-authenticate with and no credential to replace. Saying so plainly beats
+ * letting Plaid reject a null access_token with something unreadable.
+ */
+async function requirePlaidItem(itemId: string): Promise<StoredItem & { accessToken: string }> {
+  const item = await getItem(itemId);
+  if (item === null) throw new Error(`No linked bank has item_id "${itemId}".`);
+  if (item.source !== "plaid" || item.accessToken === null) {
+    throw new Error(
+      `"${item.institutionName ?? itemId}" is sample data created by \`costingly seed\`, ` +
+        `not a real bank connection. There is nothing to reconnect. ` +
+        `Use unlink to remove it.`,
+    );
+  }
+  return { ...item, accessToken: item.accessToken };
 }
 
 /** A token for one fresh Plaid Link session, connecting a new bank. */
@@ -135,7 +153,7 @@ export async function exchangePublicToken(publicToken: string): Promise<LinkedIt
   // Store the Item before fetching accounts: if the accounts call fails we
   // still hold the access_token, so nothing is orphaned and a re-run repairs
   // the rest. (Losing an access_token would mean re-linking the bank.)
-  await saveItem({ itemId, institutionId, institutionName, accessToken });
+  await saveItem({ itemId, institutionId, institutionName, accessToken, source: "plaid" });
 
   const accounts = await plaid.accountsGet({ access_token: accessToken });
   await withTransaction(async (client) => {

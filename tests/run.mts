@@ -34,6 +34,7 @@ const ORDER = [
   "confirm",
   "schema",
   "views",
+  "seed",
   "readonly",
   "mcp",
   "init-flow",

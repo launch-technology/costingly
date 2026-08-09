@@ -70,8 +70,13 @@ setMigrationSource(loadMigrations);
 // whether the server is up.
 await query(`SELECT 1`);
 eq(await serverStatus(), "running", "server is running");
+// Compared against what is actually in migrations/, not a hardcoded list: the
+// claim being tested is "the first connection applied ALL of them by itself",
+// and a literal here would turn every new migration into a failing test that
+// says nothing about concurrency.
 eq((await query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`)).rows.map((r) => r.id),
-   ["0001-initial"], "and the migrations ran themselves, with no migrate step");
+   (await loadMigrations()).map((m) => m.id),
+   "and the migrations ran themselves, with no migrate step");
 
 // --- 1. DATE still comes back as a plain YYYY-MM-DD string ----------------
 // A regression here silently shifts every transaction by a calendar day.
