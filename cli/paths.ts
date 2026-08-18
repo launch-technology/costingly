@@ -40,7 +40,8 @@ function findPackageRoot(): string {
 /** Root of the installed package — the directory holding package.json. */
 export const packageRoot = findPackageRoot();
 
-export const schemaPath = join(packageRoot, "schema.sql");
+/** Directory of numbered .sql migrations, applied in filename order. */
+export const migrationsDir = join(packageRoot, "migrations");
 export const publicDir = join(packageRoot, "public");
 
 /** Version from package.json, for `--version`. Never throws. */

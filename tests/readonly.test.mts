@@ -28,7 +28,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 // their real database.
 if (HOME !== "/tmp/costingly-readonly") throw new Error("refusing to run against a real profile");
 
-const { query, execScript, closeDb, stopServer } = await import("../src/index.js");
+const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
 const { queryReadOnly } = await import("../src/db/readonly.js");
 
 const out: string[] = [];
@@ -60,7 +60,10 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-await execScript(await readFile(`${P}/schema.sql`, "utf8"));
+// Register the migration loader the way cli/index.ts does, then let the first
+// query build the database. Tests take the same path a real install takes.
+const { loadMigrations } = await import("../cli/migrations.js");
+setMigrationSource(loadMigrations);
 
 await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);

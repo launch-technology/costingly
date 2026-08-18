@@ -34,7 +34,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 // SAFETY: everything below wipes HOME. Refuse to run against anything else.
 if (HOME !== "/tmp/costingly-mcp") throw new Error("refusing to run against a real profile");
 
-const { execScript, query, closeDb, stopServer } = await import("../src/index.js");
+const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
 const { CostinglyMcpServer } = await import("../src/mcp/server.js");
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
@@ -56,7 +56,10 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-await execScript(await readFile(`${P}/schema.sql`, "utf8"));
+// Register the migration loader the way cli/index.ts does, then let the first
+// query build the database. Tests take the same path a real install takes.
+const { loadMigrations } = await import("../cli/migrations.js");
+setMigrationSource(loadMigrations);
 await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
 
@@ -75,8 +78,10 @@ const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
-eq(tools.map((t) => t.name).sort(), ["describe_database", "query", "sync"],
-   "all three tools are advertised");
+eq(tools.map((t) => t.name).sort(),
+   ["check_database", "describe_database", "link_bank", "query", "relink_bank",
+    "restart_database", "sync", "unlink_bank"],
+   "all eight tools are advertised");
 
 // The server-level instructions are the only place the relationship between the
 // two tools is stated, and the only place the injection warning lives.
@@ -234,6 +239,99 @@ ok(hostile.includes("attacker@example.com"),
 await query(`DELETE FROM transactions WHERE account_id = 'inj'`);
 await query(`DELETE FROM accounts WHERE account_id = 'inj'`);
 
+// --- relink_bank ------------------------------------------------------------
+// Repairs an existing connection instead of replacing it. The distinction is the
+// whole point: removing and re-adding a bank loses the transaction history and
+// creates a second connection that Plaid bills for.
+const relinkTool = tools.find((t) => t.name === "relink_bank")!;
+eq(relinkTool.annotations?.["destructiveHint"], false, "relink_bank destroys nothing");
+eq(relinkTool.annotations?.["idempotentHint"], true, "and re-opening the page changes nothing");
+eq(Object.keys(relinkTool.inputSchema.properties ?? {}), ["item_id"], "it takes an item_id");
+ok(/NOT link_bank/.test(relinkTool.description ?? ""),
+   "and says explicitly to use it INSTEAD of link_bank for an existing bank");
+ok(/login_required/.test(relinkTool.description ?? ""),
+   "naming the status that signals a bank needs it");
+
+// link_bank must point at it, or a model repairing a broken bank will reach for
+// the wrong tool and silently create a duplicate.
+ok(/relink_bank/.test(tools.find((t) => t.name === "link_bank")?.description ?? ""),
+   "AND link_bank REDIRECTS to it rather than creating a duplicate connection");
+
+// relink_bank refuses without Plaid credentials, like link_bank. Set them for
+// this block only — the link_bank tests below deliberately run without any.
+process.env["PLAID_CLIENT_ID"] = "fake-client-id";
+process.env["PLAID_SECRET"] = "fake-secret";
+const { setPublicDir: setDir } = await import("../src/link/server.js");
+const { publicDir: pubDir } = await import("../cli/paths.js");
+setDir(pubDir);
+
+const relinkUnknown = await client.callTool({
+  name: "relink_bank", arguments: { item_id: "not-a-bank" },
+});
+eq(relinkUnknown.isError, true, "an unknown item_id is an error");
+ok(/i1/.test(text(relinkUnknown)), "and the real banks are listed with their status");
+
+const relinkOk = await client.callTool({ name: "relink_bank", arguments: { item_id: "i1" } });
+eq(relinkOk.isError, undefined, "repairing a real bank returns a page to open");
+const relinkText = text(relinkOk);
+ok(/\?repair=i1/.test(relinkText), "THE URL CARRIES THE ITEM ID, so the page opens in update mode");
+ok(/history is kept/.test(relinkText), "and reassures that nothing is re-downloaded");
+ok(/call sync/i.test(relinkText), "and says what to do afterwards");
+
+delete process.env["PLAID_CLIENT_ID"];
+delete process.env["PLAID_SECRET"];
+
+// --- unlink_bank ------------------------------------------------------------
+// The only tool that genuinely destroys. Everything else reads, or reconciles
+// with a source of truth that can hand the data back.
+const unlinkTool = tools.find((t) => t.name === "unlink_bank")!;
+eq(unlinkTool.annotations?.["destructiveHint"], true,
+   "unlink_bank is the ONE tool that declares itself destructive");
+eq(unlinkTool.annotations?.["idempotentHint"], false,
+   "and not idempotent — a second call finds nothing to delete");
+eq(Object.keys(unlinkTool.inputSchema.properties ?? {}), ["item_id"],
+   "it takes an item_id, not a bank name");
+ok(/CANNOT BE UNDONE/.test(unlinkTool.description ?? ""),
+   "and its description says so in terms a model will repeat");
+ok(/Confirm with the user/i.test(unlinkTool.description ?? ""),
+   "and tells the model to confirm by name and by number first");
+
+// A wrong id must not guess. It lists what exists instead.
+const wrongId = await client.callTool({ name: "unlink_bank", arguments: { item_id: "nope" } });
+eq(wrongId.isError, true, "an unknown item_id is an error, never a near-match");
+ok(/i1/.test(text(wrongId)), "and the real item ids are listed back");
+
+// Seed a second bank with data of its own, so the delete has something to cascade
+// through and the first bank can be checked for collateral damage.
+const { encrypt } = await import("../src/crypto.js");
+await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
+             VALUES ('doomed', 'Doomed Bank', $1, 'active')`, [encrypt("fake-access-token")]);
+await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+             VALUES ('d1', 'doomed', 'Checking', '1111', 'depository', 'checking', 'USD', 5)`);
+await query(`INSERT INTO transactions (transaction_id, account_id, item_id, amount,
+                                       iso_currency_code, date, name, pending, raw)
+             VALUES ('dt1','d1','doomed', 1,'USD','2026-03-01','ONE',false,'{}'::jsonb),
+                    ('dt2','d1','doomed', 2,'USD','2026-03-02','TWO',false,'{}'::jsonb)`);
+
+const gone = await client.callTool({ name: "unlink_bank", arguments: { item_id: "doomed" } });
+eq(gone.isError, undefined, "removing a real bank succeeds");
+const goneText = text(gone);
+ok(/Doomed Bank/.test(goneText), "the result names the bank");
+ok(/1 account\(s\)/.test(goneText), "and counts the accounts deleted");
+ok(/2 transaction\(s\)/.test(goneText), "AND THE TRANSACTIONS — counted before the delete");
+
+// THE ASSERTION THAT MATTERS: the cascade actually ran.
+const left = await query<{ i: string; a: string; t: string }>(
+  `SELECT (SELECT COUNT(*) FROM items        WHERE item_id='doomed')::text AS i,
+          (SELECT COUNT(*) FROM accounts     WHERE item_id='doomed')::text AS a,
+          (SELECT COUNT(*) FROM transactions WHERE item_id='doomed')::text AS t`);
+eq(left.rows[0], { i: "0", a: "0", t: "0" },
+   "ITEM, ACCOUNTS AND TRANSACTIONS ARE ALL GONE — the cascade did its job");
+
+const survivors = await query<{ n: string }>(
+  `SELECT COUNT(*)::text n FROM items WHERE item_id = 'i1'`);
+eq(survivors.rows[0]?.n, "1", "and the other bank is untouched");
+
 // --- the sync tool ----------------------------------------------------------
 // Every annotation is stated rather than defaulted, on purpose: the defaults are
 // destructiveHint TRUE and idempotentHint false, so silence would advertise sync
@@ -277,6 +375,35 @@ ok(/no_such_tool/.test((unknown.content as Array<{ text: string }>)[0]?.text ?? 
 const badArgs = await client.callTool({ name: "query", arguments: { sqll: "SELECT 1" } });
 eq(badArgs.isError, true, "a wrong argument name is rejected by the input schema");
 ok(/sql/i.test(text(badArgs)), "and the message names the argument at fault");
+
+// --- link_bank --------------------------------------------------------------
+// The only tool that cannot finish its own job: Plaid's login screen runs in a
+// real browser, and for most large banks it navigates to the bank's own site.
+// So the tool's whole contract is "hand back a URL and say what happens next".
+const linkTool = tools.find((t) => t.name === "link_bank")!;
+eq(linkTool.annotations?.["readOnlyHint"], false, "link_bank declares that it writes");
+eq(linkTool.annotations?.["destructiveHint"], false, "and that it destroys nothing");
+eq(linkTool.annotations?.["openWorldHint"], true, "and that it leaves the machine");
+
+// No credentials are configured in this profile, which is the state a brand-new
+// install is in — and the message has to name the fix rather than the symptom.
+const noCreds = await client.callTool({ name: "link_bank", arguments: {} });
+eq(noCreds.isError, true, "without Plaid credentials it is an error");
+const credsText = text(noCreds);
+ok(/setup step, not a problem with the request/i.test(credsText),
+   "it says this is setup rather than a failed request");
+ok(/retrying will not help/i.test(credsText), "AND TELLS THE MODEL NOT TO RETRY");
+ok(/Claude Desktop's settings/.test(credsText),
+   "and names where a bundled user actually enters them");
+// "may need to be restarted" cost a real debugging cycle: the keys were entered,
+// the same refusal came back, and the hedge read as optional. Environment
+// variables are fixed at spawn, so it is a certainty.
+ok(/Cmd-Q/.test(credsText) && /required, not optional/.test(credsText),
+   "AND STATES THE RESTART AS A REQUIREMENT, naming the actual keystroke");
+ok(/BOTH the Plaid client ID and the secret/.test(credsText),
+   "and that half-filled credentials are the same as none");
+ok(!/costingly init/.test(credsText),
+   "and does NOT send a bundled user to a terminal command they do not have");
 
 // --- the sync summary format ------------------------------------------------
 // A real multi-bank sync needs Plaid credentials, so the formatter is exercised
@@ -333,8 +460,32 @@ ok(/still preparing/.test(notReady),
 ok(/Sync again shortly/.test(notReady), "and says what to do about it");
 
 // --- shutdown ---------------------------------------------------------------
+// Start the link server first, so shutdown has something to clean up. A
+// listening socket refs the event loop: if run() does not close it, the process
+// outlives its client by however long the link server's idle timer runs.
+// Measured before this was fixed: five minutes and counting.
+process.env["PLAID_CLIENT_ID"] = "fake-client-id";
+process.env["PLAID_SECRET"] = "fake-secret";
+
+// cli/index.ts registers this; an in-process test has to do it too, for the same
+// reason it registers the migration loader.
+const { linkServerStatus } = await import("../src/link/server.js");
+const started = await client.callTool({ name: "link_bank", arguments: {} });
+eq(started.isError, undefined, "with credentials present, link_bank starts the page");
+const startedText = text(started);
+ok(/http:\/\/127\.0\.0\.1:\d+/.test(startedText), "and returns a loopback URL to open");
+ok(/call sync/i.test(startedText), "and tells the model what to do once the user is done");
+
+eq(linkServerStatus().running, true, "the link server is listening");
+
 await client.close();
 await serving;
+
+eq(linkServerStatus().running, false,
+   "AND run() SHUTS IT DOWN ON DISCONNECT — otherwise the process cannot exit");
+
+delete process.env["PLAID_CLIENT_ID"];
+delete process.env["PLAID_SECRET"];
 out.push("  ok    run() RESOLVES WHEN THE CLIENT DISCONNECTS (no hang on shutdown)");
 
 await closeDb();

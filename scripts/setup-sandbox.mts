@@ -13,7 +13,7 @@
  * environment and the throwaway encryption key differ.
  *
  * Lives in scripts/ rather than cli/ so it is not part of the published package
- * — `files` in package.json ships dist/, schema.sql and public/ only.
+ * — `files` in package.json ships dist/, migrations/ and public/ only.
  */
 
 import { intro, outro, text, password, isCancel, cancel, log } from "@clack/prompts";

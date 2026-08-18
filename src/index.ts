@@ -49,14 +49,19 @@ export {
 } from "./db/dictionary.js";
 export {
   query,
-  execScript,
   withTransaction,
+  setMigrationSource,
   closeDb,
   describeDriver,
   type DbClient,
   type DbResult,
   type DbRow,
 } from "./db/client.js";
+export {
+  runMigrations,
+  pendingMigrations,
+  type Migration,
+} from "./db/migrate.js";
 export {
   queryReadOnly,
   type ReadOnlyOptions,
@@ -91,7 +96,6 @@ export {
 export {
   createLinkToken,
   exchangePublicToken,
-  type CreateLinkTokenOptions,
   type LinkedItem,
 } from "./plaid/link.js";
 export {

@@ -14,7 +14,7 @@
 import { CountryCode, Products } from "plaid";
 import type { LinkTokenCreateRequest } from "plaid";
 import { getPlaidClient, describeError } from "./client.js";
-import { saveItem, upsertAccounts } from "./items.js";
+import { getItem, saveItem, setItemStatus, upsertAccounts, type StoredItem } from "./items.js";
 import { withTransaction } from "../db/client.js";
 
 /**
@@ -34,39 +34,94 @@ const COUNTRY_CODES: CountryCode[] = [CountryCode.Us];
  */
 const DAYS_REQUESTED = 730;
 
-export interface CreateLinkTokenOptions {
-  /**
-   * Stable per-user id. Single-user local setup has exactly one, so it
-   * defaults to a constant; pass a real user id if this ever goes multi-user.
-   */
-  clientUserId?: string;
-  /**
-   * Pass an existing Item's access_token to open Link in "update mode" and
-   * repair an item whose status went to 'login_required'.
-   */
-  accessToken?: string;
+/**
+ * Plaid wants a stable per-user id. This install serves exactly one person, so
+ * it is a constant.
+ */
+const CLIENT_USER_ID = "local-user";
+
+/**
+ * A token for repairing an existing Item, rather than connecting a new one.
+ *
+ * Plaid calls this "update mode". Link opens straight into that bank's
+ * re-authentication with no institution picker, and the Item is repaired in
+ * place — same item id, same accounts, no second connection and no re-download
+ * of two years of history.
+ *
+ * `products` must be omitted: Plaid rejects it here, because the Item's products
+ * were fixed when it was first created and this call is only about credentials.
+ *
+ * The caller passes an item id, never a token. Decrypting happens here so that a
+ * Plaid access_token — a permanent bearer credential for someone's bank — never
+ * leaves this process.
+ */
+export async function createRepairLinkToken(itemId: string): Promise<string> {
+  const item = await requirePlaidItem(itemId);
+
+  const response = await getPlaidClient().linkTokenCreate({
+    client_name: "Costingly",
+    language: "en",
+    country_codes: COUNTRY_CODES,
+    user: { client_user_id: CLIENT_USER_ID },
+    access_token: item.accessToken,
+  });
+  return response.data.link_token;
 }
 
-export async function createLinkToken(options: CreateLinkTokenOptions = {}): Promise<string> {
-  const { clientUserId = "local-user", accessToken } = options;
+/**
+ * Record that an Item's credentials were repaired.
+ *
+ * Deliberately does NOT exchange a public token. Update mode hands one back on
+ * success, and exchanging it would create a SECOND Item for the same bank —
+ * duplicate billing, duplicate accounts, duplicate transactions — which is the
+ * entire thing this flow exists to avoid. There is nothing to store: Plaid
+ * repaired the credentials behind the existing access_token, which we already
+ * hold.
+ *
+ * All that changes locally is the status. `sync` set it to 'login_required' when
+ * the bank stopped answering; putting it back to 'active' is what returns the
+ * Item to the syncable set. If the repair did not really take, the next sync
+ * will set it straight back.
+ */
+export async function markItemRepaired(itemId: string): Promise<{ institutionName: string | null }> {
+  const item = await requirePlaidItem(itemId);
 
+  await setItemStatus(itemId, "active");
+  return { institutionName: item.institutionName };
+}
+
+/**
+ * Look up an Item that must be a real bank login.
+ *
+ * Both repair paths are meaningless for anything else: there is no bank to
+ * re-authenticate with and no credential to replace. Saying so plainly beats
+ * letting Plaid reject a null access_token with something unreadable.
+ */
+async function requirePlaidItem(itemId: string): Promise<StoredItem & { accessToken: string }> {
+  const item = await getItem(itemId);
+  if (item === null) throw new Error(`No linked bank has item_id "${itemId}".`);
+  if (item.source !== "plaid" || item.accessToken === null) {
+    throw new Error(
+      `"${item.institutionName ?? itemId}" is sample data created by \`costingly seed\`, ` +
+        `not a real bank connection. There is nothing to reconnect. ` +
+        `Use unlink to remove it.`,
+    );
+  }
+  return { ...item, accessToken: item.accessToken };
+}
+
+/** A token for one fresh Plaid Link session, connecting a new bank. */
+export async function createLinkToken(): Promise<string> {
   const request: LinkTokenCreateRequest = {
     client_name: "Costingly",
     language: "en",
     country_codes: COUNTRY_CODES,
-    user: { client_user_id: clientUserId },
-  };
-
-  if (accessToken !== undefined && accessToken !== "") {
-    // Update mode. Plaid rejects `products` here — the Item's products are
-    // already fixed and it only wants the token being repaired.
-    request.access_token = accessToken;
-  } else {
-    request.products = PRODUCTS;
+    user: { client_user_id: CLIENT_USER_ID },
+    products: PRODUCTS,
     // Must be set at Link time: /transactions/sync cannot widen the history
     // window afterwards.
-    request.transactions = { days_requested: DAYS_REQUESTED };
-  }
+    transactions: { days_requested: DAYS_REQUESTED },
+  };
 
   const response = await getPlaidClient().linkTokenCreate(request);
   return response.data.link_token;
@@ -98,7 +153,7 @@ export async function exchangePublicToken(publicToken: string): Promise<LinkedIt
   // Store the Item before fetching accounts: if the accounts call fails we
   // still hold the access_token, so nothing is orphaned and a re-run repairs
   // the rest. (Losing an access_token would mean re-linking the bank.)
-  await saveItem({ itemId, institutionId, institutionName, accessToken });
+  await saveItem({ itemId, institutionId, institutionName, accessToken, source: "plaid" });
 
   const accounts = await plaid.accountsGet({ access_token: accessToken });
   await withTransaction(async (client) => {

@@ -75,7 +75,10 @@ export async function removeItem(
     revoked: false,
   };
 
-  if (options.revoke) {
+  // Nothing to revoke for an Item that was never a bank login. Seeded data is
+  // deleted exactly like anything else — it just skips the Plaid call, so
+  // `unlink` needs no branch of its own and the model needs no second tool.
+  if (options.revoke && item.accessToken !== null) {
     try {
       await revokeAtPlaid(item.accessToken);
       outcome.revoked = true;

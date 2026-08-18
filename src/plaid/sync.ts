@@ -30,7 +30,7 @@ import {
   setItemCursor,
   setItemStatus,
   upsertAccounts,
-  type StoredItem,
+  type SyncableItem,
 } from "./items.js";
 import {
   describeError,
@@ -334,8 +334,14 @@ function dedupeTransactions(...lists: ReadonlyArray<readonly Transaction[]>): Tr
 // Orchestration
 // ---------------------------------------------------------------------------
 
-/** Sync a single Item. Never throws — failures come back as `ok: false`. */
-export async function syncItem(item: StoredItem): Promise<ItemSyncResult> {
+/**
+ * Sync a single Item. Never throws — failures come back as `ok: false`.
+ *
+ * Takes a SyncableItem, not a StoredItem: an Item with no bank behind it
+ * (source 'seed') has nothing to sync, and the type says so rather than a guard
+ * having to notice at runtime.
+ */
+export async function syncItem(item: SyncableItem): Promise<ItemSyncResult> {
   const initialBackfill = item.cursor === null;
 
   const base = {

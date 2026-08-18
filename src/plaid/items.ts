@@ -11,17 +11,41 @@ import type { DbClient } from "../db/client.js";
 import { query } from "../db/client.js";
 import { encrypt, decrypt } from "../crypto.js";
 
+/**
+ * Where an Item's data came from. See migrations/0002-item-source.sql.
+ *
+ *   plaid  a real bank login, with an access_token behind it
+ *   seed   fabricated sample data from `costingly seed` — no bank, no token
+ */
+export type ItemSource = "plaid" | "seed";
+
 /** An Item as the rest of the app sees it: access token already decrypted. */
 export interface StoredItem {
   itemId: string;
   institutionId: string | null;
   institutionName: string | null;
-  /** Decrypted Plaid access_token. Never log this. */
-  accessToken: string;
+  /**
+   * Decrypted Plaid access_token. Never log this.
+   *
+   * `null` when there is no bank connection at all — `source: "seed"`. The
+   * database enforces that a 'plaid' Item always has one, so a null here is
+   * always the seeded case and never a corrupt row.
+   */
+  accessToken: string | null;
   /** `null` means never synced — Plaid will return the full history backfill. */
   cursor: string | null;
   status: string;
+  source: ItemSource;
   lastSyncedAt: Date | null;
+}
+
+/**
+ * An Item that can actually be talked to: source 'plaid', so `accessToken` is
+ * present. Narrowing it here means sync and revoke never carry a null check for
+ * a case their query already excluded.
+ */
+export interface SyncableItem extends Omit<StoredItem, "accessToken"> {
+  accessToken: string;
 }
 
 // Row shapes are `type` aliases, not `interface`s, on purpose: node-postgres'
@@ -31,9 +55,10 @@ type ItemRow = {
   item_id: string;
   institution_id: string | null;
   institution_name: string | null;
-  access_token_enc: string;
+  access_token_enc: string | null;
   cursor: string | null;
   status: string;
+  source: string;
   last_synced_at: Date | null;
 };
 
@@ -42,24 +67,30 @@ function toStoredItem(row: ItemRow): StoredItem {
     itemId: row.item_id,
     institutionId: row.institution_id,
     institutionName: row.institution_name,
-    accessToken: decrypt(row.access_token_enc),
+    accessToken: row.access_token_enc === null ? null : decrypt(row.access_token_enc),
     cursor: row.cursor,
     status: row.status,
+    source: row.source === "seed" ? "seed" : "plaid",
     lastSyncedAt: row.last_synced_at,
   };
 }
 
 const ITEM_COLUMNS = `
   item_id, institution_id, institution_name, access_token_enc,
-  cursor, status, last_synced_at
+  cursor, status, source, last_synced_at
 `;
 
 export interface SaveItemParams {
   itemId: string;
   institutionId: string | null;
   institutionName: string | null;
-  /** Plaintext access_token; encrypted before it touches the database. */
-  accessToken: string;
+  source: ItemSource;
+  /**
+   * Plaintext access_token; encrypted before it touches the database. `null`
+   * only for sources that have no credential — the database rejects a 'plaid'
+   * row without one.
+   */
+  accessToken: string | null;
 }
 
 /**
@@ -72,12 +103,13 @@ export interface SaveItemParams {
 export async function saveItem(params: SaveItemParams): Promise<void> {
   await query(
     `
-    INSERT INTO items (item_id, institution_id, institution_name, access_token_enc, status, updated_at)
-    VALUES ($1, $2, $3, $4, 'active', now())
+    INSERT INTO items (item_id, institution_id, institution_name, access_token_enc, source, status, updated_at)
+    VALUES ($1, $2, $3, $4, $5, 'active', now())
     ON CONFLICT (item_id) DO UPDATE SET
       institution_id   = EXCLUDED.institution_id,
       institution_name = EXCLUDED.institution_name,
       access_token_enc = EXCLUDED.access_token_enc,
+      source           = EXCLUDED.source,
       status           = 'active',
       updated_at       = now()
     `,
@@ -85,17 +117,39 @@ export async function saveItem(params: SaveItemParams): Promise<void> {
       params.itemId,
       params.institutionId,
       params.institutionName,
-      encrypt(params.accessToken),
+      params.accessToken === null ? null : encrypt(params.accessToken),
+      params.source,
     ],
   );
 }
 
-/** Every Item the nightly sync should attempt, oldest-synced first. */
-export async function listSyncableItems(): Promise<StoredItem[]> {
+/**
+ * Every Item the nightly sync should attempt, oldest-synced first.
+ *
+ * `source = 'plaid'` is the filter that keeps seeded data out of sync — not the
+ * token being null. Those coincide today, but a second provider would have a
+ * token and still not belong in a Plaid sync, and this query would then be
+ * wrong in a way that is expensive to notice.
+ */
+export async function listSyncableItems(): Promise<SyncableItem[]> {
   const result = await query<ItemRow>(
-    `SELECT ${ITEM_COLUMNS} FROM items WHERE status = 'active' ORDER BY last_synced_at ASC NULLS FIRST, created_at ASC`,
+    `SELECT ${ITEM_COLUMNS} FROM items
+      WHERE status = 'active' AND source = 'plaid'
+      ORDER BY last_synced_at ASC NULLS FIRST, created_at ASC`,
   );
-  return result.rows.map(toStoredItem);
+  return result.rows.map(toStoredItem).filter(isSyncable);
+}
+
+/**
+ * Narrow a StoredItem to one that can be synced.
+ *
+ * The `source = 'plaid'` filter plus the items_plaid_needs_token constraint
+ * already guarantee this, so the predicate should never reject anything. It
+ * exists so the guarantee is expressed in the type system rather than in a
+ * comment and a cast.
+ */
+function isSyncable(item: StoredItem): item is SyncableItem {
+  return item.source === "plaid" && item.accessToken !== null;
 }
 
 /**

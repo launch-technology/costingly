@@ -1,9 +1,11 @@
 {
   "name": "costingly",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "Daily sync of bank and credit-card transactions from Plaid into Postgres.",
+  "license": "MIT",
+  "author": "Jonathan Komorek",
   "engines": {
     "node": ">=20"
   },
@@ -12,7 +14,7 @@
   },
   "files": [
     "dist",
-    "schema.sql",
+    "migrations",
     "public"
   ],
   "scripts": {
@@ -22,7 +24,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "cli": "tsx cli/index.ts",
     "setup:sandbox": "tsx scripts/setup-sandbox.mts",
-    "test": "tsx tests/run.mts"
+    "test": "tsx tests/run.mts",
+    "build:bundle": "tsx scripts/build-bundle.mts"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
@@ -35,6 +38,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
     "@types/express": "^5.0.6",
     "@types/node": "^24.3.0",
     "@types/pg": "^8.20.3",

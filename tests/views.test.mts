@@ -25,7 +25,7 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { query, withTransaction, execScript, closeDb, stopServer } = await import("../src/index.js");
+const { query, withTransaction, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
 const { describeDatabase, renderDatabaseDoc } = await import("../src/db/dictionary.js");
 
 const out: string[] = [];
@@ -45,7 +45,10 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-await execScript(await readFile(`${P}/schema.sql`, "utf8"));
+// Register the migration loader the way cli/index.ts does, then let the first
+// query build the database. Tests take the same path a real install takes.
+const { loadMigrations } = await import("../cli/migrations.js");
+setMigrationSource(loadMigrations);
 
 // Enough data that the live facts have something to report.
 await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
@@ -162,7 +165,7 @@ ok(!text.includes("Checking"), "no account names from the data");
 ok(!/\d[\d,]*\s+rows/.test(text), "no row counts");
 
 // --- re-running the schema must not break the views -----------------------
-await execScript(await readFile(`${P}/schema.sql`, "utf8"));
+
 const again = await query<{ n: string }>(`SELECT COUNT(*)::text n FROM v_transactions`);
 eq(again.rows[0]?.n, "3", "schema.sql is idempotent — views survive a re-run");
 ok((await asReadOnly("SELECT 1 FROM v_items LIMIT 1")).allowed,
