@@ -251,14 +251,35 @@ costingly status
 ```
 
 ```
-Bank of America
-  item pQ5VXlxgB3Fva…  ·  last synced: 2h ago
-    Everyday Checking ••4021       depository/checking         $1,234.56    847 txns  2024-08-04 → 2026-08-03
-    Sapphire Card ••8899           credit/credit card          $2,104.11    612 txns  2024-08-04 → 2026-08-02
+Northlake Credit Union  ·  sample data — not a real bank, never synced
+  item seed-item-northlake  ·  last synced: never
+    Everyday Checking ••4471       depository/checking         $7,842.16    335 txns  2024-08-03 → 2026-08-03
+    Rainy Day Savings ••8820       depository/savings         $21,460.88     49 txns  2024-08-03 → 2026-08-03
 
-1 bank(s), 2 account(s), 1459 transaction(s)
+Cardinal Bank Card Services  ·  sample data — not a real bank, never synced
+  item seed-item-cardinal  ·  last synced: never
+    Cash Rewards Card ••3092       credit/credit card          $1,919.50   1240 txns  2024-08-03 → 2026-08-03
+
+Vantage One Financial  ·  sample data — not a real bank, never synced
+  item seed-item-vantage  ·  last synced: never
+    Travel Signature Card ••7715   credit/credit card             $36.04     95 txns  2024-08-31 → 2026-07-31
+
+3 bank(s), 4 account(s), 1719 transaction(s)
 PostgreSQL 18 running at ~/Library/Application Support/costingly/pg18
 ```
+
+The `status`, account-picker and transaction samples in this section come from a
+seeded demo profile rather than a real bank, so you can reproduce them — `--seed`
+and `--end-date` pin the generator, which is otherwise anchored to today:
+
+```bash
+COSTINGLY_HOME=~/costingly-demo costingly seed --seed 20260101 --end-date 2026-08-03
+COSTINGLY_HOME=~/costingly-demo costingly status
+COSTINGLY_HOME=~/costingly-demo costingly txns "cash rewards"
+```
+
+`--days` windows are measured from today, so the transaction sample shows the
+seven days ending at that pinned `--end-date`.
 
 It flags anything needing attention — an item that has never synced, or one whose
 login expired and needs re-linking. It never decrypts an access token.
@@ -279,9 +300,11 @@ Run it bare and it asks two questions, both arrow-key driven:
 
 ```
 ◆  Select an account
-│  ● Plaid 401k ••6666         $23,631.98      0 txns
-│  ○ Plaid Checking ••0000        $110.00    145 txns
-│  ○ All accounts           2 accounts combined
+│  ● Everyday Checking ••4471          $7,842.16    335 txns
+│  ○ Rainy Day Savings ••8820         $21,460.88     49 txns
+│  ○ Cash Rewards Card ••3092          $1,919.50   1240 txns
+│  ○ Travel Signature Card ••7715         $36.04     95 txns
+│  ○ All accounts                  4 accounts combined
 └
 ◆  How far back?
 │  ● Last 7 days
@@ -309,14 +332,25 @@ In a non-interactive shell (a pipe, a CI job) there is nobody to answer the prom
 so it prints the candidates and exits instead of hanging.
 
 ```
-Bank of America · Plaid Checking ••0000 (depository/checking)
-Last 30 day(s) · balance $110.00
+Cardinal Bank Card Services · Cash Rewards Card ••3092 (credit/credit card)
+Last 7 day(s) · balance $1,919.50
 
-  2026-07-26  Uber                                          -$6.33  TRANSPORTATION
-  2026-07-11  United Airlines                              $500.00  TRAVEL
-  2026-07-10  Starbucks                                     -$4.33  FOOD_AND_DRINK
+  2026-08-03  QUEENS BAR 86 E GRAND RIVER AVE DETROIT…       -$85.69  FOOD_AND_DRINK
+  2026-08-03  Amazon                                        -$205.94  GENERAL_MERCHANDISE  PENDING
+  2026-08-02  Wegmans                                       -$175.32  FOOD_AND_DRINK
+  2026-08-02  DoorDash                                       -$22.20  FOOD_AND_DRINK       PENDING
+  2026-08-02  Amazon                                        -$160.33  GENERAL_MERCHANDISE
+  2026-07-31  SQ *BAKED & WIRED                              -$25.66  FOOD_AND_DRINK
+  2026-07-31  Amazon                                        -$144.85  GENERAL_MERCHANDISE
+  2026-07-30  SQ *BLUE BOTTLE COFFEE                         -$22.46  FOOD_AND_DRINK
+  2026-07-30  Starbucks                                      -$17.05  FOOD_AND_DRINK
+  2026-07-29  QUEENS BAR 16 E GRAND RIVER AVE DETROIT…       -$73.07  FOOD_AND_DRINK
+  2026-07-28  AMC ONLINE 160743                              -$63.68  ENTERTAINMENT
+  2026-07-27  Chipotle                                       -$32.81  FOOD_AND_DRINK
+  2026-07-27  QUEENS BAR 91 E GRAND RIVER AVE DETROIT…       -$62.69  FOOD_AND_DRINK
 
-  6 transaction(s) · in $500.00 · out $117.46 · net $382.54
+  13 transaction(s)
+    USD: in $0.00 · out $1,091.75 · net -$1,091.75
 ```
 
 Note the sign: this view flips Plaid's convention so it reads like a bank
