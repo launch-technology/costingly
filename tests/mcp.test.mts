@@ -283,18 +283,19 @@ delete process.env["PLAID_SECRET"];
 
 // --- unlink_bank ------------------------------------------------------------
 // The only tool that genuinely destroys. Everything else reads, or reconciles
-// with a source of truth that can hand the data back.
+// with a source of truth that can hand the data back. Because it destroys, it
+// is two-phase: the first call reports and mints a token, the second spends it.
 const unlinkTool = tools.find((t) => t.name === "unlink_bank")!;
 eq(unlinkTool.annotations?.["destructiveHint"], true,
    "unlink_bank is the ONE tool that declares itself destructive");
 eq(unlinkTool.annotations?.["idempotentHint"], false,
    "and not idempotent — a second call finds nothing to delete");
-eq(Object.keys(unlinkTool.inputSchema.properties ?? {}), ["item_id"],
-   "it takes an item_id, not a bank name");
+eq(Object.keys(unlinkTool.inputSchema.properties ?? {}), ["item_id", "confirmation_token"],
+   "it takes an item_id, not a bank name — plus the token that arms the delete");
 ok(/CANNOT BE UNDONE/.test(unlinkTool.description ?? ""),
    "and its description says so in terms a model will repeat");
-ok(/Confirm with the user/i.test(unlinkTool.description ?? ""),
-   "and tells the model to confirm by name and by number first");
+ok(/two calls/i.test(unlinkTool.description ?? ""),
+   "and tells the model the delete takes two calls, not one");
 
 // A wrong id must not guess. It lists what exists instead.
 const wrongId = await client.callTool({ name: "unlink_bank", arguments: { item_id: "nope" } });
@@ -313,8 +314,44 @@ await query(`INSERT INTO transactions (transaction_id, account_id, item_id, amou
              VALUES ('dt1','d1','doomed', 1,'USD','2026-03-01','ONE',false,'{}'::jsonb),
                     ('dt2','d1','doomed', 2,'USD','2026-03-02','TWO',false,'{}'::jsonb)`);
 
-const gone = await client.callTool({ name: "unlink_bank", arguments: { item_id: "doomed" } });
-eq(gone.isError, undefined, "removing a real bank succeeds");
+const stillThere = async (id: string): Promise<string> =>
+  (await query<{ n: string }>(
+    `SELECT COUNT(*)::text n FROM items WHERE item_id = $1`, [id])).rows[0]?.n ?? "?";
+
+// PHASE ONE. The call a prompt injection would produce: item_id and nothing else.
+// It must report, not delete.
+const preview = await client.callTool({ name: "unlink_bank", arguments: { item_id: "doomed" } });
+eq(preview.isError, undefined, "the first call is not an error — it is a preview");
+const previewText = text(preview);
+ok(/NOTHING HAS BEEN DELETED YET/.test(previewText),
+   "and says so unmissably, at the top");
+ok(/Doomed Bank/.test(previewText), "it names the bank");
+ok(/1 account\(s\)/.test(previewText), "counts the accounts that would go");
+ok(/2 transaction\(s\)/.test(previewText), "AND THE TRANSACTIONS — the number that makes a user stop");
+eq(await stillThere("doomed"), "1",
+   "THE ASSERTION THAT MATTERS: a single unconfirmed call DELETED NOTHING");
+
+const unlinkToken = /confirmation_token:\s*(\S+)/.exec(previewText)?.[1] ?? "";
+ok(unlinkToken.length > 0, "and it hands back a token to spend");
+
+// A made-up token must not work. Guessing is not a path to deletion.
+const badToken = await client.callTool({
+  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: "not-a-real-token" } });
+eq(badToken.isError, true, "an invented token is rejected");
+eq(await stillThere("doomed"), "1", "and the bank is still there");
+
+// A real token issued for one bank must not delete a different one.
+const other = await client.callTool({ name: "unlink_bank", arguments: { item_id: "i1" } });
+const otherToken = /confirmation_token:\s*(\S+)/.exec(text(other))?.[1] ?? "";
+const crossed = await client.callTool({
+  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: otherToken } });
+eq(crossed.isError, true, "a token is bound to the item it was issued for");
+eq(await stillThere("doomed"), "1", "so it cannot be redirected at another bank");
+
+// PHASE TWO. The right token, for the right bank.
+const gone = await client.callTool({
+  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: unlinkToken } });
+eq(gone.isError, undefined, "removing a real bank succeeds once confirmed");
 const goneText = text(gone);
 ok(/Doomed Bank/.test(goneText), "the result names the bank");
 ok(/1 account\(s\)/.test(goneText), "and counts the accounts deleted");
@@ -327,6 +364,11 @@ const left = await query<{ i: string; a: string; t: string }>(
           (SELECT COUNT(*) FROM transactions WHERE item_id='doomed')::text AS t`);
 eq(left.rows[0], { i: "0", a: "0", t: "0" },
    "ITEM, ACCOUNTS AND TRANSACTIONS ARE ALL GONE — the cascade did its job");
+
+// A spent token is spent. Replaying it must not delete anything else.
+const replay = await client.callTool({
+  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: unlinkToken } });
+eq(replay.isError, true, "a token works exactly once");
 
 const survivors = await query<{ n: string }>(
   `SELECT COUNT(*)::text n FROM items WHERE item_id = 'i1'`);
