@@ -245,6 +245,23 @@ export async function serverStatus(): Promise<ServerState> {
  * Peer authentication on the socket and no TCP listener at all: the user's OS
  * identity is the credential, so there is no password anywhere in the system.
  */
+
+/**
+ * Quote a value for a postgresql.conf string setting.
+ *
+ * The config parser processes escape sequences inside single-quoted values, so a
+ * raw Windows path is destroyed before Postgres ever looks for it: the `\t` of
+ * `C:\tmp\...` becomes a literal tab and unrecognised escapes lose their
+ * backslash, leaving a directory that cannot exist. Doubling the backslashes
+ * gets the original path back out the other side.
+ *
+ * Not Windows-only. A backslash or an apostrophe is a legal character in a unix
+ * filename too, and either would corrupt the file the same way.
+ */
+function quoteConfigValue(value: string): string {
+  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
+}
+
 async function initialiseCluster(): Promise<void> {
   const { initdb } = await binaries();
   const directory = clusterDir();
@@ -284,7 +301,7 @@ async function initialiseCluster(): Promise<void> {
       `# No TCP listener: this database is reachable only through the unix socket\n` +
       `# below, in a directory only this user can read.\n` +
       `listen_addresses = ''\n` +
-      `unix_socket_directories = '${socketDir()}'\n` +
+      `unix_socket_directories = ${quoteConfigValue(socketDir())}\n` +
       `unix_socket_permissions = 0700\n`,
   );
 }
