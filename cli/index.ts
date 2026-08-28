@@ -12,7 +12,7 @@
  */
 
 import { Command } from "commander";
-import { closeDb, setMigrationSource } from "../src/db/client.js";
+import { closeDb, setMigrationSource } from "../src/db/bootstrap.js";
 import { setPublicDir } from "../src/link/server.js";
 import { isMissingSchema, MISSING_SCHEMA_CLI } from "../src/db/errors.js";
 import { ignoreEpipe } from "./format.js";

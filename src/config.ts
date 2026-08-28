@@ -40,14 +40,25 @@ export interface StoredConfig {
   plaidSecret: string;
   encryptionKey: string;
   plaidEnv: PlaidEnvName;
-
 }
 
 /**
  * The file on disk. A superset of `StoredConfig`: the scalar keys above, plus
  * sections that are stored but never resolved from the environment.
  */
+export interface DatabaseLogin {
+  user: string;
+  password: string;
+}
+
+/** The database roles costingly created, and how to authenticate as them. */
+export interface DatabaseLogins {
+  superuser: DatabaseLogin;
+  app: DatabaseLogin;
+}
+
 export interface ConfigFile extends Partial<StoredConfig> {
+  database?: DatabaseLogins;
   ports?: Record<string, number>;
 }
 
@@ -60,14 +71,11 @@ const ENV_NAMES: Record<keyof StoredConfig, string> = {
   plaidSecret: "PLAID_SECRET",
   encryptionKey: "ENCRYPTION_KEY",
   plaidEnv: "PLAID_ENV",
-
 };
 
 const DEFAULTS = {
   /** Users are always on production. Only the sandbox test profile sets this. */
   plaidEnv: "production" as PlaidEnvName,
-  /** The local Plaid Link web server, not the database — that uses a socket. */
-
 };
 
 export type ValueSource = "environment" | "config file" | "default" | "missing";
@@ -108,7 +116,7 @@ function readStored(): ConfigFile {
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("expected a JSON object");
     }
-    return parsed as Partial<StoredConfig>;
+    return parsed as ConfigFile;
   } catch (error) {
     throw new Error(
       `Could not read ${displayPath(path)}:\n  ${error instanceof Error ? error.message : String(error)}\n\n` +
@@ -339,4 +347,43 @@ export function readPorts(): Record<string, number> {
 /** Merges, so it can never drop a port belonging to another service. */
 export function writePorts(ports: Record<string, number>): void {
   updateConfigSync({ ports });
+}
+
+// ---------------------------------------------------------------------------
+// Database logins
+// ---------------------------------------------------------------------------
+
+/**
+ * The database credentials, or undefined if the cluster has not been created.
+ *
+ * Outside `StoredConfig` for the same reason as `ports`: every key there exists
+ * because the value arrives from outside — Plaid's credentials, the encryption
+ * key — and so needs an environment override. These are generated here and
+ * supplied by nobody, so there is nothing to override.
+ *
+ * The USERNAME is stored beside the password rather than hardcoded. It records
+ * what the cluster actually has: renaming a role in a later version would
+ * otherwise leave existing clusters unreachable by a name that no longer exists.
+ */
+export function readDatabaseLogins(): DatabaseLogins | undefined {
+  const raw = readStored().database;
+  if (raw === undefined || typeof raw !== "object") return undefined;
+
+  const ok = (l: unknown): l is DatabaseLogin =>
+    typeof l === "object" &&
+    l !== null &&
+    typeof (l as DatabaseLogin).user === "string" &&
+    typeof (l as DatabaseLogin).password === "string" &&
+    (l as DatabaseLogin).user !== "" &&
+    (l as DatabaseLogin).password !== "";
+
+  // Partial credentials are worse than none: they would produce an opaque
+  // authentication failure several steps later instead of a clear "not set up".
+  if (!ok(raw.superuser) || !ok(raw.app)) return undefined;
+  return { superuser: raw.superuser, app: raw.app };
+}
+
+/** Merges, so it cannot disturb the Plaid credentials or the encryption key. */
+export function writeDatabaseLogins(database: DatabaseLogins): void {
+  updateConfigSync({ database });
 }

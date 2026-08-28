@@ -32,8 +32,8 @@
  * "which am I looking at?" is the first question in every confused session.
  */
 
-import { query } from "./client.js";
-import { clusterDir, serverStatus, socketDir } from "./server.js";
+import { query } from "./queries.js";
+import { clusterDir, databaseCredentials, serverStatus } from "./server.js";
 import { profileDir, profileSource, displayPath } from "../profile.js";
 import { stat } from "node:fs/promises";
 
@@ -52,7 +52,8 @@ export interface DatabaseHealth {
     exists: boolean;
     /** "running" | "stopped" | "uninitialised" | "unknown". */
     state: string;
-    socketPath: string;
+    /** Where the postmaster listens, as host:port. */
+    listenAddress: string;
     /** Set when `pg_ctl status` itself failed. */
     error?: string;
     /** When the postmaster started. Null until a connection succeeds. */
@@ -109,6 +110,7 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 }
 
 export async function checkDatabase(): Promise<DatabaseHealth> {
+  const { host, port } = await databaseCredentials();
   const health: DatabaseHealth = {
     profile: {
       path: displayPath(profileDir()),
@@ -119,7 +121,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
       path: displayPath(clusterDir()),
       exists: await exists(clusterDir()),
       state: "unknown",
-      socketPath: `${socketDir()}/.s.PGSQL.5432`,
+      listenAddress: `${host}:${port}`,
       startedAt: null,
       uptimeSeconds: null,
     },
@@ -197,7 +199,7 @@ export interface RestartOutcome {
  * stored cursor on the next run.
  */
 export async function restartDatabase(): Promise<RestartOutcome> {
-  const { closeDb } = await import("./client.js");
+  const { closeDb } = await import("./bootstrap.js");
   const { stopServer } = await import("./server.js");
 
   const started = Date.now();

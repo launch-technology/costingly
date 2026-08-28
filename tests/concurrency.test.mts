@@ -37,7 +37,7 @@ const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 // From dist/, not src/: the CLI child processes below run the built code, and
 // both sides must agree on which build they are talking to.
-const { query, withTransaction, closeDb, serverStatus, stopServer, clusterDir } =
+const { query, withTransaction, closeDb, serverStatus, stopServer, clusterDir, withConnection } =
   (await import(new URL("../dist/src/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 
 /** Run the CLI as a separate OS process. */
@@ -80,7 +80,13 @@ eq((await query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`))
 
 // --- 1. DATE still comes back as a plain YYYY-MM-DD string ----------------
 // A regression here silently shifts every transaction by a calendar day.
-await query(`CREATE TABLE IF NOT EXISTS _probe (d DATE, n NUMERIC(20,4))`);
+// As the superuser: u_app deliberately has no DDL, so the app identity cannot
+// create this and should not be able to. Creating it here is the test arranging
+// its own fixture, not a capability the application has.
+await withConnection("superuser", "costingly", async (c) => {
+  await c.query(`CREATE TABLE IF NOT EXISTS _probe (d DATE, n NUMERIC(20,4))`);
+  await c.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON _probe TO u_app`);
+});
 await query(`DELETE FROM _probe`);
 await query(`INSERT INTO _probe (d, n) VALUES ($1, $2)`, ["2024-03-11", "42.1000"]);
 const probe = await query<{ d: unknown; n: unknown }>(`SELECT d, n FROM _probe`);
@@ -152,7 +158,11 @@ ok(/not running/i.test(again.stdout), "`costingly stop` twice is not an error");
 const survived = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM _probe`);
 eq(survived.rows[0]!.c, "2", "data survived repeated stop/start cycles");
 
-await query(`DROP TABLE _probe`);
+// Dropped by the identity that created it: u_app can write the rows but does
+// not own the table, which is the no-DDL boundary working as intended.
+await withConnection("superuser", "costingly", async (c) => {
+  await c.query(`DROP TABLE _probe`);
+});
 await closeDb();
 await stopServer().catch(() => {});
 const { rm } = await import("node:fs/promises");

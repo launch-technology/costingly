@@ -15,7 +15,7 @@
 import type { Command } from "commander";
 import { stat } from "node:fs/promises";
 import { describeConfig } from "../src/config.js";
-import { clusterDir, serverLogPath, serverStatus, socketDir } from "../src/db/server.js";
+import { clusterDir, databaseCredentials, serverLogPath, serverStatus } from "../src/db/server.js";
 import { configPath, displayPath, profileDir, profileSource } from "../src/profile.js";
 import { packageVersion } from "./paths.js";
 
@@ -92,13 +92,11 @@ export async function runDoctor(): Promise<void> {
   );
   line("server", state);
 
-  // --- socket ---------------------------------------------------------------
-  // sockaddr_un caps at 104 bytes on macOS, 108 on Linux, and blowing it fails
-  // deep inside the postmaster log rather than anywhere obvious.
-  const socketFile = `${socketDir()}/.s.PGSQL.5432`;
-  const used = Buffer.byteLength(socketFile);
-  const limit = process.platform === "darwin" ? 104 : 108;
-  line("socket", `pg18-run/  ${used} of ${limit} bytes`, used < limit ? OK : NO);
+  // --- listener -------------------------------------------------------------
+  // The port is allocated rather than configured, so printing it is the only way
+  // a user can point psql or a GUI client at the right database.
+  const { host, port } = await databaseCredentials();
+  line("listener", `${host}:${port}`, OK);
 
   // --- log ------------------------------------------------------------------
   const logFile = await describePath(serverLogPath());

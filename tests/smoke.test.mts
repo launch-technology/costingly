@@ -48,7 +48,7 @@ function throws(fn: () => unknown, fragment: string): void {
 }
 
 // --- module loading -------------------------------------------------------
-const db = await import("../src/db/client.js");
+const db = await import("../src/db/queries.js");
 const crypto = await import("../src/crypto.js");
 const configMod = await import("../src/config.js");
 const index = await import("../src/index.js");

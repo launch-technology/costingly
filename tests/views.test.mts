@@ -3,7 +3,7 @@
  *
  * Two assertions here matter more than the rest:
  *
- *   1. `costingly_ro` cannot reach the base tables. That is what makes
+ *   1. `role_readonly` cannot reach the base tables. That is what makes
  *      `access_token_enc` genuinely unreachable rather than merely absent from
  *      a view definition.
  *   2. Every view column carries a comment, or is on an explicit list of
@@ -97,7 +97,7 @@ async function asReadOnly(sql: string): Promise<{ allowed: boolean; message: str
   try {
     await withTransaction(async (c) => {
       await c.query("SET LOCAL TRANSACTION READ ONLY");
-      await c.query("SET LOCAL ROLE costingly_ro");
+      await c.query("SET LOCAL ROLE role_readonly");
       await c.query(sql);
     });
     return { allowed: true, message: "" };
@@ -106,18 +106,18 @@ async function asReadOnly(sql: string): Promise<{ allowed: boolean; message: str
   }
 }
 
-ok((await asReadOnly("SELECT 1 FROM v_transactions LIMIT 1")).allowed, "costingly_ro CAN read the views");
+ok((await asReadOnly("SELECT 1 FROM v_transactions LIMIT 1")).allowed, "role_readonly CAN read the views");
 ok(!(await asReadOnly("SELECT 1 FROM items LIMIT 1")).allowed,
-   "costingly_ro CANNOT reach the items table");
+   "role_readonly CANNOT reach the items table");
 ok(!(await asReadOnly("SELECT access_token_enc FROM items LIMIT 1")).allowed,
-   "costingly_ro CANNOT READ ACCESS TOKENS");
+   "role_readonly CANNOT READ ACCESS TOKENS");
 ok(!(await asReadOnly("SELECT raw FROM transactions LIMIT 1")).allowed,
-   "costingly_ro cannot reach the raw payloads");
-ok(!(await asReadOnly("UPDATE v_items SET status='x'")).allowed, "costingly_ro cannot write through a view");
-ok(!(await asReadOnly("DELETE FROM transactions WHERE false")).allowed, "costingly_ro cannot delete");
-ok(!(await asReadOnly("CREATE TABLE _x (a int)")).allowed, "costingly_ro cannot create objects");
+   "role_readonly cannot reach the raw payloads");
+ok(!(await asReadOnly("UPDATE v_items SET status='x'")).allowed, "role_readonly cannot write through a view");
+ok(!(await asReadOnly("DELETE FROM transactions WHERE false")).allowed, "role_readonly cannot delete");
+ok(!(await asReadOnly("CREATE TABLE _x (a int)")).allowed, "role_readonly cannot create objects");
 ok(!(await asReadOnly("SELECT 1 FROM pg_authid LIMIT 1")).allowed,
-   "costingly_ro cannot read Postgres' own credential table");
+   "role_readonly cannot read Postgres' own credential table");
 
 // --- comments: the thing that rots silently -------------------------------
 // Self-evident columns that need no prose. Anything else must be commented, so

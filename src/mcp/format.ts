@@ -23,8 +23,8 @@
  *             difference.
  */
 
-import type { DbRow } from "../db/client.js";
-import type { ReadOnlyResult } from "../db/readonly.js";
+import type { DbRow } from "../db/queries.js";
+import type { ReadOnlyResult } from "../db/queries.js";
 import type { SyncSummary } from "../plaid/sync.js";
 import type { DatabaseHealth } from "../db/health.js";
 

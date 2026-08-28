@@ -11,7 +11,7 @@
  * without a comment shows up here immediately, and the test suite fails on it.
  *
  * Deliberately describes the VIEWS, never the base tables. The views are the
- * read surface, they are what `costingly_ro` can reach, and they are where the
+ * read surface, they are what `role_readonly` can reach, and they are where the
  * comments live — Postgres does not propagate a table's comments to a view.
  *
  * DELIBERATELY EXCLUDES anything that changes when a sync runs: no row counts,
@@ -30,7 +30,7 @@
  * v_transactions` costs one query and only happens when it matters.
  */
 
-import { query } from "./client.js";
+import { query } from "./queries.js";
 
 /** The views that make up the read surface, in the order they are documented. */
 const VIEWS = ["v_transactions", "v_accounts", "v_items"] as const;

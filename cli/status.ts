@@ -9,7 +9,7 @@
  */
 
 import type { Command } from "commander";
-import { query } from "../src/db/client.js";
+import { query } from "../src/db/queries.js";
 import { describeServer } from "../src/db/server.js";
 import { money, ago } from "./format.js";
 

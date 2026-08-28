@@ -50,10 +50,12 @@ export interface ClusterConfig {
   databaseName: string;
   /** Postmaster log. `pg_ctl start` redirects the server's output here. */
   logPath: string;
-  /** Directory for the unix socket. A sibling of `dataDir`, never inside it. */
-  socketDir: string;
-  /** OS user the cluster is owned by and authenticated as, via `peer`. */
-  user: string;
+  /** Address the postmaster listens on. Loopback only — never 0.0.0.0. */
+  host: string;
+  /** TCP port. Allocated by the caller; the cluster is told, never chooses. */
+  port: number;
+  /** The bootstrap superuser initdb creates, and its password. */
+  superuser: { user: string; password: string };
 }
 
 export interface RunResult {
@@ -203,10 +205,32 @@ async function run(file: string, args: readonly string[]): Promise<RunResult> {
 export class PostgresCluster {
   constructor(private readonly config: ClusterConfig) {}
 
-  /** Connection string. A path-valued `host` is what selects the unix socket. */
+  /** Superuser connection string. The only identity this class knows about. */
   connectionString(database = this.config.databaseName): string {
-    const user = encodeURIComponent(this.config.user);
-    return `postgresql://${user}@/${database}?host=${encodeURIComponent(this.config.socketDir)}`;
+    const { user, password } = this.config.superuser;
+    return (
+      `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}` +
+      `@${encodeURIComponent(this.config.host)}:${this.config.port}/${encodeURIComponent(database)}`
+    );
+  }
+
+  /**
+   * The port a running postmaster is actually listening on, or undefined.
+   *
+   * Read from postmaster.pid, which the server writes itself — the only
+   * authoritative answer. Config records what was *allocated*, which can differ:
+   * two processes starting at once both allocate before either has bound, and
+   * the loser would otherwise dial a port nothing is listening on.
+   */
+  async runningPort(): Promise<number | undefined> {
+    try {
+      const pid = await readFile(join(this.config.dataDir, "postmaster.pid"), "utf8");
+      // Line 4. Documented layout: pid, data directory, start time, port.
+      const port = Number(pid.split(/\r?\n/)[3]?.trim());
+      return Number.isInteger(port) && port > 0 ? port : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   async status(): Promise<ServerState> {
@@ -237,9 +261,6 @@ export class PostgresCluster {
         if ((await this.status()) === "uninitialised") throw error;
       }
     }
-
-    // The socket directory is ours to create — Postgres will not make it.
-    await mkdir(this.config.socketDir, { recursive: true, mode: 0o700 });
 
     const { pg_ctl } = await binaries();
     const result = await run(pg_ctl, [
@@ -293,57 +314,49 @@ export class PostgresCluster {
     return true;
   }
 
-  /**
-   * Create the database inside the cluster if it is missing.
-   *
-   * Returns true when it created one. Connects to the always-present `postgres`
-   * database to do it, since you cannot create a database from inside itself.
-   */
-  async ensureDatabase(): Promise<boolean> {
-    const pgPkg = (await import("pg")).default;
-    const client = new pgPkg.Client({ connectionString: this.connectionString("postgres") });
-
-    await client.connect();
-    try {
-      const existing = await client.query("SELECT 1 FROM pg_database WHERE datname = $1", [
-        this.config.databaseName,
-      ]);
-      if (existing.rowCount === 1) return false;
-
-      // No parameters possible in CREATE DATABASE. The name is our own constant,
-      // not user input, but quote it properly regardless.
-      await client.query(`CREATE DATABASE "${this.config.databaseName.replace(/"/g, '""')}"`);
-      return true;
-    } finally {
-      await client.end();
-    }
-  }
 
   /**
    * Create the cluster.
    *
-   * Peer authentication on the socket and no TCP listener at all: the user's OS
-   * identity is the credential, so there is no password anywhere in the system.
+   * Listens on loopback TCP with scram-sha-256. Peer authentication is not an
+   * option: it needs a unix socket, and node-postgres only treats a host as a
+   * socket path when it starts with "/" — which a Windows path never does. One
+   * transport on every platform is what keeps Windows from being the untested
+   * path.
    */
   private async initialise(): Promise<void> {
     const { initdb } = await binaries();
 
-    assertSocketPathFits(this.config.socketDir);
     await mkdir(this.config.dataDir, { recursive: true });
 
-    const result = await run(initdb, [
-      `--pgdata=${this.config.dataDir}`,
-      `--username=${this.config.user}`,
-      "--auth-local=peer",
-      // Belt and braces: nothing listens on TCP, but if that ever changed by
-      // accident, host connections are refused rather than trusted.
-      "--auth-host=reject",
-      "--encoding=UTF8",
-      // Explicit and machine-independent. Inheriting the user's locale makes
-      // sort order differ between machines and can fail outright on an unusual
-      // LANG, neither of which is worth the nicer collation.
-      "--locale=C",
-    ]);
+    // initdb takes the superuser password from a file rather than a flag, so it
+    // never appears in the process list. Written beside the data directory — in
+    // the profile, which is already 0700 — rather than the system temp
+    // directory, which is world-readable on unix.
+    //
+    // Removed in a `finally`: a failed initdb must not leave a plaintext
+    // password on disk, and that is exactly the path where it would.
+    const passwordFile = join(this.config.dataDir, "..", `.initdb-${randomUUID()}`);
+    let result: RunResult;
+    try {
+      await writeFile(passwordFile, `${this.config.superuser.password}\n`, { mode: 0o600 });
+
+      result = await run(initdb, [
+        `--pgdata=${this.config.dataDir}`,
+        `--username=${this.config.superuser.user}`,
+        `--pwfile=${passwordFile}`,
+        // Both transports authenticate. Nothing is trusted for being local.
+        "--auth-local=scram-sha-256",
+        "--auth-host=scram-sha-256",
+        "--encoding=UTF8",
+        // Explicit and machine-independent. Inheriting the user's locale makes
+        // sort order differ between machines and can fail outright on an unusual
+        // LANG, neither of which is worth the nicer collation.
+        "--locale=C",
+      ]);
+    } finally {
+      await unlink(passwordFile).catch(() => {});
+    }
 
     if (result.code !== 0) {
       throw new Error(
@@ -359,11 +372,28 @@ export class PostgresCluster {
       configPath,
       `${existing}\n` +
         `# --- managed ------------------------------------------------------------\n` +
-        `# No TCP listener: this database is reachable only through the unix socket\n` +
-        `# below, in a directory only this user can read.\n` +
-        `listen_addresses = ''\n` +
-        `unix_socket_directories = ${quoteConfigValue(this.config.socketDir)}\n` +
-        `unix_socket_permissions = 0700\n`,
+        `# Loopback only. Binding anything else would put bank data on the network.\n` +
+        `listen_addresses = ${quoteConfigValue(this.config.host)}\n` +
+        `port = ${this.config.port}\n` +
+        `# No unix socket at all. Left unset, Postgres falls back to a compiled\n` +
+        `# default — /tmp on most unix builds — which is world-writable and would\n` +
+        `# make the platforms diverge again. Nothing connects over a socket:\n` +
+        `# node-postgres cannot use one on Windows, which is why we are on TCP.\n` +
+        `unix_socket_directories = ''\n`,
+    );
+
+    // Replaced wholesale rather than appended: the FIRST matching line in
+    // pg_hba wins, so a rule added at the end can never override a permissive
+    // default written above it.
+    await writeFile(
+      join(this.config.dataDir, "pg_hba.conf"),
+      `# Managed by costingly. First match wins, so the rejections come last.\n` +
+        `local   all   all                  scram-sha-256\n` +
+        `host    all   all   127.0.0.1/32   scram-sha-256\n` +
+        `host    all   all   ::1/128        scram-sha-256\n` +
+        `# Not loopback: refused outright, whatever listen_addresses happens to say.\n` +
+        `host    all   all   0.0.0.0/0      reject\n` +
+        `host    all   all   ::/0           reject\n`,
     );
   }
 }
@@ -388,21 +418,3 @@ export function quoteConfigValue(value: string): string {
   return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
 }
 
-/**
- * Guard against a socket path too long for the platform's `sockaddr_un`.
- *
- * macOS allows 104 bytes and Linux 108, for the *full* path including the
- * `.s.PGSQL.5432` suffix Postgres appends. Blowing that limit produces a bind
- * failure buried in the postmaster log, which is a miserable thing to debug —
- * so check up front and say exactly what to do about it.
- */
-export function assertSocketPathFits(directory: string): void {
-  const full = join(directory, ".s.PGSQL.5432");
-  const limit = 100;
-  if (Buffer.byteLength(full) > limit) {
-    throw new Error(
-      `The database socket path is too long for this platform:\n  ${full}\n\n` +
-        `Unix sockets are limited to about ${limit} characters. Move the cluster somewhere shorter.`,
-    );
-  }
-}

@@ -29,7 +29,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 if (HOME !== "/tmp/costingly-readonly") throw new Error("refusing to run against a real profile");
 
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { queryReadOnly } = await import("../src/db/readonly.js");
+const { queryReadOnly } = await import("../src/db/queries.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -160,7 +160,7 @@ eq(setting.rows[0]?.["t"], "10s", "the default timeout is 10s");
 let leaked = "";
 for (let i = 0; i < 30; i++) {
   const who = await query<{ u: string }>("SELECT current_user AS u");
-  if (who.rows[0]?.u === "costingly_ro") leaked = "role";
+  if (who.rows[0]?.u === "role_readonly") leaked = "role";
   const ro = await query<{ ro: string }>("SELECT current_setting('transaction_read_only') AS ro");
   if (ro.rows[0]?.ro === "on") leaked = leaked ? `${leaked}+read_only` : "read_only";
 }

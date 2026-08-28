@@ -37,7 +37,7 @@
  * embedding this module rather than running the CLI.
  */
 
-import type { DbClient } from "./client.js";
+import type { DbClient } from "./queries.js";
 
 export interface Migration {
   /** Filename without extension — "0001-initial". The ledger key. */

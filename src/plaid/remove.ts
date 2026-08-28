@@ -16,7 +16,7 @@
  */
 
 import type { ItemRemoveRequest } from "plaid";
-import { query, withTransaction } from "../db/client.js";
+import { query, withTransaction } from "../db/queries.js";
 import { listAllItems, type StoredItem } from "./items.js";
 import { getPlaidClient, describeError } from "./client.js";
 

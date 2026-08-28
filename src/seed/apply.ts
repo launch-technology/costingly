@@ -12,7 +12,7 @@
  * --force: the correct move is a different profile, which costs nothing.
  */
 
-import { withTransaction, query, type DbClient } from "../db/client.js";
+import { withTransaction, query, type DbClient } from "../db/queries.js";
 import { saveItem } from "../plaid/items.js";
 import type { SeedDataset, SeedTransaction } from "./generate.js";
 

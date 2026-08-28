@@ -71,6 +71,17 @@ export class PortService {
   }
 
   /**
+   * The port last recorded for this service, if any.
+   *
+   * Deliberately does not probe or allocate. A caller whose service is already
+   * running needs the port it is running on, and asking for a free one would
+   * step over it and start a second copy.
+   */
+  async recorded(service: string): Promise<number | undefined> {
+    return (await this.store.read())[service];
+  }
+
+  /**
    * A port this service can bind, recorded for next time.
    *
    * Starts from whatever worked last, falling back to the default, and walks

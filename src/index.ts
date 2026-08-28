@@ -31,12 +31,9 @@ export {
   ensureServerRunning,
   stopServer,
   serverStatus,
-  ensureDatabaseExists,
   describeServer,
   clusterDir,
-  socketDir,
   serverLogPath,
-  connectionString,
   DATABASE_NAME,
   type ServerState,
 } from "./db/server.js";
@@ -50,23 +47,23 @@ export {
 export {
   query,
   withTransaction,
-  setMigrationSource,
-  closeDb,
   describeDriver,
   type DbClient,
   type DbResult,
   type DbRow,
-} from "./db/client.js";
+} from "./db/queries.js";
+export { setMigrationSource, closeDb, ensureDatabaseExists } from "./db/bootstrap.js";
+export { withConnection } from "./db/connections.js";
 export {
   runMigrations,
   pendingMigrations,
   type Migration,
-} from "./db/migrate.js";
+} from "./db/migrations.js";
 export {
   queryReadOnly,
   type ReadOnlyOptions,
   type ReadOnlyResult,
-} from "./db/readonly.js";
+} from "./db/queries.js";
 export {
   isMissingSchema,
   explainDbError,

@@ -49,7 +49,8 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { query, closeDb, describeDriver, setMigrationSource } = await import("../src/db/client.js");
+const { query, describeDriver } = await import("../src/db/queries.js");
+const { closeDb, setMigrationSource } = await import("../src/db/bootstrap.js");
 const { getPlaidClient } = await import("../src/plaid/client.js");
 const { exchangePublicToken } = await import("../src/plaid/link.js");
 const { syncAllItems } = await import("../src/plaid/sync.js");
@@ -94,7 +95,7 @@ out.push(`  --    driver: ${await describeDriver()}`);
 const t = await query<{ table_name: string }>(
   `SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY 1`);
 // schema_migrations is the ledger of which numbered files have run — internal
-// bookkeeping, never granted to costingly_ro and absent from every view.
+// bookkeeping, never granted to role_readonly and absent from every view.
 eq(t.rows.map(r => r.table_name), ["accounts", "items", "schema_migrations", "transactions"],
    "the migrations ran themselves, with no migrate step");
 
@@ -174,8 +175,9 @@ await closeDb();
 // module instance — which is the point of the assertion below. TypeScript
 // cannot resolve a specifier with a query string, so the type comes from the
 // plain path and the specifier is built at runtime.
-const REOPEN = "../src/db/client.js?reopen=1";
-const { query: q2, closeDb: close2 } = (await import(REOPEN)) as typeof import("../src/db/client.js");
+const REOPEN = "../src/db/queries.js?reopen=1";
+const { query: q2 } = (await import(REOPEN)) as typeof import("../src/db/queries.js");
+const { closeDb: close2 } = await import("../src/db/bootstrap.js");
 const persisted = await q2<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
 eq(persisted.rows[0]!.c, after.rows[0]!.c, "data survives close/reopen");
 await close2();

@@ -9,7 +9,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Migration } from "../src/db/migrate.js";
+import type { Migration } from "../src/db/migrations.js";
 import { migrationsDir } from "./paths.js";
 
 /**

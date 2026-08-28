@@ -15,7 +15,7 @@ import { CountryCode, Products } from "plaid";
 import type { LinkTokenCreateRequest } from "plaid";
 import { getPlaidClient, describeError } from "./client.js";
 import { getItem, saveItem, setItemStatus, upsertAccounts, type StoredItem } from "./items.js";
-import { withTransaction } from "../db/client.js";
+import { withTransaction } from "../db/queries.js";
 
 /**
  * Only `transactions` is requested. That is what keeps this integration

@@ -8,8 +8,8 @@
  */
 
 import type { Command } from "commander";
-import { withTransaction } from "../src/db/client.js";
-import { runMigrations } from "../src/db/migrate.js";
+import { withTransaction } from "../src/db/queries.js";
+import { runMigrations } from "../src/db/migrations.js";
 import { loadMigrations } from "./migrations.js";
 import { CliError } from "./errors.js";
 

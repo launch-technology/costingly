@@ -23,8 +23,8 @@ import type {
   TransactionsSyncRequest,
   TransactionsUpdateStatus,
 } from "plaid";
-import type { DbClient } from "../db/client.js";
-import { withTransaction } from "../db/client.js";
+import type { DbClient } from "../db/queries.js";
+import { withTransaction } from "../db/queries.js";
 import {
   listSyncableItems,
   setItemCursor,

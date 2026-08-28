@@ -1,6 +1,58 @@
 /**
- * Running SQL that somebody else wrote.
+ * Running work against the database.
  *
+ * Two ways in, and the difference is who wrote the SQL:
+ *
+ *   query / withTransaction   statements this codebase wrote, run as u_app
+ *   queryReadOnly             statements a language model wrote, run under
+ *                             every guard in the second half of this file
+ *
+ * They live together because they are the same concern — executing SQL on a
+ * connection — differing only in the privileges the statement runs under.
+ */
+
+import { getDriver } from "./bootstrap.js";
+import { ROLE_READONLY } from "./credentials.js";
+import type { DbClient, DbResult, DbRow } from "./connections.js";
+
+export type { DbClient, DbResult, DbRow } from "./connections.js";
+
+// ---------------------------------------------------------------------------
+// SQL we wrote
+// ---------------------------------------------------------------------------
+
+/** Run a one-off query. */
+export async function query<T extends DbRow = DbRow>(
+  text: string,
+  params?: readonly unknown[],
+): Promise<DbResult<T>> {
+  const driver = await getDriver();
+  return driver.query<T>(text, params);
+}
+
+/**
+ * Run `fn` inside a single transaction.
+ *
+ * Every write for a given Plaid Item goes through here, so a run either applies
+ * all of that item's changes *and* advances its cursor, or applies none of
+ * them. There is no state where the cursor has moved past changes that were
+ * never written — which is what makes the sync safely re-runnable.
+ */
+export async function withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T> {
+  const driver = await getDriver();
+  return driver.transaction(fn);
+}
+
+/** Human-readable description of where data is going. For status output. */
+export async function describeDriver(): Promise<string> {
+  const driver = await getDriver();
+  return driver.describe();
+}
+
+// ---------------------------------------------------------------------------
+// SQL somebody else wrote
+// ---------------------------------------------------------------------------
+/**
  * This exists so a language model can be handed the keys to a database holding
  * encrypted bank credentials without that being a bad idea. The whole design
  * rests on one decision: **the SQL is never inspected.**
@@ -35,10 +87,8 @@
  * suite proves the reversion.
  */
 
-import { withTransaction, type DbRow } from "./client.js";
 
-/** The role granted SELECT on the v_ views and nothing else. See schema.sql. */
-const READ_ROLE = "costingly_ro";
+const READ_ROLE = ROLE_READONLY;
 
 /** Rows returned before truncating. A model has to read whatever comes back. */
 const DEFAULT_ROW_CAP = 1000;

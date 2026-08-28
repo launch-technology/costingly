@@ -7,8 +7,8 @@
  */
 
 import type { AccountBase } from "plaid";
-import type { DbClient } from "../db/client.js";
-import { query } from "../db/client.js";
+import type { DbClient } from "../db/queries.js";
+import { query } from "../db/queries.js";
 import { encrypt, decrypt } from "../crypto.js";
 
 /**
