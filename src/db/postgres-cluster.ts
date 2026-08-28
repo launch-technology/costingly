@@ -173,6 +173,12 @@ async function run(file: string, args: readonly string[]): Promise<RunResult> {
       // output under an exotic locale. Pin it.
       env: { ...process.env, LC_ALL: "C", LANG: "C" },
       stdio: ["ignore", out.fd, err.fd],
+      // initdb and pg_ctl are console applications. A parent that HAS a console
+      // lends it to them and nothing appears — which is every test run, from a
+      // terminal. Claude Desktop is a GUI process with no console, so Windows
+      // creates one per child: a console window flashes for every tool call,
+      // stealing focus. Ignored on unix.
+      windowsHide: true,
     });
 
     // `error` matters as much as `exit`: a missing binary emits the former and
