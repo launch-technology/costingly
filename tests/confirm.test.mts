@@ -14,6 +14,11 @@ process.env.PLAID_ENV = "production";
 import { PassThrough } from "node:stream";
 
 const { describeDatabase } = await import("../cli/confirm.js");
+const { displayPath } = await import("../src/profile.js");
+const { join, resolve } = await import("node:path");
+
+/** The cluster path as describeDatabase renders it: resolved, then shortened. */
+const expectedCluster = (home: string): string => displayPath(join(resolve(home), "pg18"));
 
 const results: string[] = [];
 let failures = 0;
@@ -30,17 +35,17 @@ function eq(actual: unknown, expected: unknown, what: string): void {
 // about to be emptied is the whole job of this line.
 process.env["COSTINGLY_HOME"] = "/tmp/confirm-profile";
 const described = describeDatabase();
-eq(described.includes("/tmp/confirm-profile/pg18"), true, "names the cluster about to be modified");
+eq(described.includes(expectedCluster("/tmp/confirm-profile")), true, "names the cluster about to be modified");
 eq(described.includes("on this machine"), true, "says it is local");
 
 process.env["COSTINGLY_HOME"] = "/tmp/other-profile";
-eq(describeDatabase().includes("/tmp/other-profile/pg18"), true,
+eq(describeDatabase().includes(expectedCluster("/tmp/other-profile")), true,
    "follows the profile, so it cannot name the wrong database");
 delete process.env["COSTINGLY_HOME"];
 
 // --- the typed-phrase gate ------------------------------------------------
 // Drive clack's text prompt directly, the same way the picker tests do.
-const { text, isCancel } = await import(`${P}/node_modules/@clack/prompts/dist/index.mjs`);
+const { text, isCancel } = await import(new URL("../node_modules/@clack/prompts/dist/index.mjs", import.meta.url).href);
 
 async function askWith(keystrokes: string[]): Promise<unknown> {
   const input = new PassThrough();

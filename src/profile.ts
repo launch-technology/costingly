@@ -24,7 +24,7 @@
 
 import envPaths from "env-paths";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 /** Used for the profile directory name. One place to change on a rename. */
 export const APP_NAME = "costingly";
@@ -81,5 +81,5 @@ export function configPath(): string {
  */
 export function displayPath(path: string): string {
   const home = homedir();
-  return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+  return path === home || path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
 }

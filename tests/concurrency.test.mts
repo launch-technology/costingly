@@ -38,7 +38,7 @@ const ok = (c: boolean, what: string): void => eq(c, true, what);
 // From dist/, not src/: the CLI child processes below run the built code, and
 // both sides must agree on which build they are talking to.
 const { query, withTransaction, closeDb, serverStatus, stopServer, clusterDir } =
-  (await import(`${P}/dist/src/index.js`)) as typeof import("../src/index.js");
+  (await import(new URL("../dist/src/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 
 /** Run the CLI as a separate OS process. */
 async function cli(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -60,9 +60,9 @@ async function cli(...args: string[]): Promise<{ code: number; stdout: string; s
 // processes run the built code and both sides must agree on which build they are
 // talking to.
 const { setMigrationSource } =
-  (await import(`${P}/dist/src/index.js`)) as typeof import("../src/index.js");
+  (await import(new URL("../dist/src/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 const { loadMigrations } =
-  (await import(`${P}/dist/cli/migrations.js`)) as typeof import("../cli/migrations.js");
+  (await import(new URL("../dist/cli/migrations.js", import.meta.url).href)) as typeof import("../cli/migrations.js");
 setMigrationSource(loadMigrations);
 
 // The first connection is what creates the cluster, starts it, creates the
@@ -156,7 +156,9 @@ await query(`DROP TABLE _probe`);
 await closeDb();
 await stopServer().catch(() => {});
 const { rm } = await import("node:fs/promises");
-await rm(HOME, { recursive: true, force: true });
+// maxRetries: Windows can still hold handles on the cluster directory for a
+// moment after the postmaster exits, which unlink-while-open unix does not.
+await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 
 console.log(out.join("\n"));
 console.log(`\ncluster: ${clusterDir()}`);

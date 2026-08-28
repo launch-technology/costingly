@@ -15,9 +15,17 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
 const cfg = await import("../src/config.js");
-const { configPath } = await import("../src/profile.js");
+const { configPath, displayPath } = await import("../src/profile.js");
 const { mkdtemp, readdir, readFile, rm, stat, writeFile, mkdir } = await import("node:fs/promises");
-const { tmpdir } = await import("node:os");
+const { tmpdir, platform } = await import("node:os");
+
+/**
+ * Windows has no POSIX file modes. chmod there only toggles a read-only bit and
+ * the mode always reads back 0666, so the 0600 assertions below cannot hold.
+ * The file is protected by the ACL it inherits from the profile directory
+ * instead — a different guarantee, not a weaker place to write the secret.
+ */
+const posixModes = platform() !== "win32";
 const { join } = await import("node:path");
 
 const out: string[] = [];
@@ -60,7 +68,7 @@ const SAMPLE = {
 eq(cfg.readConfigFile(), {}, "a missing config file reads as empty, not an error");
 await throwsWith(() => cfg.getSecret("plaidSecret"), "costingly init",
   "a missing secret points at the fix");
-await throwsWith(() => cfg.getSecret("plaidSecret"), dir,
+await throwsWith(() => cfg.getSecret("plaidSecret"), displayPath(dir),
   "and names the profile it checked");
 
 // Defaults still resolve with no file at all — help and doctor must work.
@@ -69,7 +77,7 @@ eq(cfg.get("port"), 4000, "port defaults to 4000");
 
 // --- writing ---------------------------------------------------------------
 await cfg.writeConfig(SAMPLE);
-eq((await stat(configPath())).mode & 0o777, 0o600, "config.json is written owner-only (0600)");
+if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "config.json is written owner-only (0600)");
 eq(cfg.readConfigFile(), SAMPLE, "round-trips every key");
 eq(cfg.get("plaidClientId"), "client-abc", "get() reads a public value");
 eq(cfg.getSecret("plaidSecret"), "secret-xyz", "getSecret() reads a secret");
@@ -98,7 +106,7 @@ eq(cfg.get("port"), 4100, "a rewrite updates the key it changed");
 eq(cfg.getSecret("encryptionKey"), SAMPLE.encryptionKey,
    "A REWRITE DOES NOT DISTURB THE ENCRYPTION KEY");
 eq(cfg.readConfigFile().plaidClientId, "client-abc", "and leaves other keys alone");
-eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
+if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
 
 // --- validation ------------------------------------------------------------
 process.env["PORT"] = "not-a-number";
@@ -193,7 +201,7 @@ for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_
 // A pre-existing file whose other values must survive the merge.
 await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc", port: 4321 }), "utf8");
 
-const crypto = await import(`${P}/src/crypto.js?key-test`);
+const crypto = await import(new URL("../src/crypto.js?key-test", import.meta.url).href);
 
 eq(cfg.getSecretIfSet("encryptionKey"), undefined, "no encryption key to begin with");
 
@@ -214,7 +222,7 @@ const after = JSON.parse(await readFile(configPath(), "utf8")) as Record<string,
 eq(after["encryptionKey"], firstKey, "A SECOND CALL REUSES THE KEY, never regenerates it");
 
 const keyMode = await stat(configPath());
-eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfigSync is still 0600");
+if (posixModes) eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfigSync is still 0600");
 
 // An environment value is a per-invocation override, not state. Persisting one
 // would silently turn a temporary setting into a permanent one.

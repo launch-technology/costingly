@@ -12,10 +12,10 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
 const { profileDir, profileSource, configPath, displayPath, APP_NAME } = await import(
-  `${P}/src/profile.js`
+  new URL("../src/profile.js", import.meta.url).href
 );
 const { homedir, platform } = await import("node:os");
-const { join } = await import("node:path");
+const { join, resolve, isAbsolute, sep } = await import("node:path");
 
 const out: string[] = [];
 let fail = 0;
@@ -55,13 +55,13 @@ ok(Buffer.byteLength(socketPath) < limit,
 
 // --- COSTINGLY_HOME moves EVERYTHING --------------------------------------
 process.env["COSTINGLY_HOME"] = "/tmp/profile-unit";
-eq(profileDir(), "/tmp/profile-unit", "COSTINGLY_HOME overrides the platform default");
+eq(profileDir(), resolve("/tmp/profile-unit"), "COSTINGLY_HOME overrides the platform default");
 eq(profileSource(), "COSTINGLY_HOME", "reports COSTINGLY_HOME as the source");
-eq(configPath(), "/tmp/profile-unit/config.json", "config.json lives inside the profile");
+eq(configPath(), join(resolve("/tmp/profile-unit"), "config.json"), "config.json lives inside the profile");
 
 // A relative value must not follow the process around.
 process.env["COSTINGLY_HOME"] = "./.dev";
-ok(profileDir().startsWith("/"), `relative COSTINGLY_HOME is made absolute: ${profileDir()}`);
+ok(isAbsolute(profileDir()), `relative COSTINGLY_HOME is made absolute: ${profileDir()}`);
 eq(profileDir(), join(process.cwd(), ".dev"), "resolved against the current directory");
 
 // Whitespace-only is treated as unset, not as a path.
@@ -72,10 +72,10 @@ delete process.env["COSTINGLY_HOME"];
 
 // --- nothing is created on disk -------------------------------------------
 const { existsSync } = await import("node:fs");
-ok(!existsSync("/tmp/profile-unit"), "resolving a profile does NOT create it");
+ok(!existsSync(resolve("/tmp/profile-unit")), "resolving a profile does NOT create it");
 
 // --- display helper --------------------------------------------------------
-eq(displayPath(join(homedir(), "x")), "~/x", "home directory is shortened for display");
+eq(displayPath(join(homedir(), "x")), `~${sep}x`, "home directory is shortened for display");
 eq(displayPath("/opt/elsewhere"), "/opt/elsewhere", "other paths are left alone");
 
 if (saved === undefined) delete process.env["COSTINGLY_HOME"];

@@ -56,7 +56,9 @@ const blocked = async (sql: string, what: string): Promise<void> =>
 
 async function wipe(): Promise<void> {
   await stopServer().catch(() => {});
-  await rm(HOME, { recursive: true, force: true });
+  // maxRetries: Windows can still hold handles on the cluster directory for a
+  // moment after the postmaster exits, which unlink-while-open unix does not.
+  await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 await wipe();
 
