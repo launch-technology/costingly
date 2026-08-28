@@ -40,11 +40,11 @@ export interface StoredConfig {
   plaidSecret: string;
   encryptionKey: string;
   plaidEnv: PlaidEnvName;
-  port: number;
+  linkPort: number;
 }
 
 export type SecretName = "plaidSecret" | "encryptionKey";
-export type PublicName = "plaidClientId" | "plaidEnv" | "port";
+export type PublicName = "plaidClientId" | "plaidEnv" | "linkPort";
 
 /** The environment variable that overrides each key. */
 const ENV_NAMES: Record<keyof StoredConfig, string> = {
@@ -52,14 +52,14 @@ const ENV_NAMES: Record<keyof StoredConfig, string> = {
   plaidSecret: "PLAID_SECRET",
   encryptionKey: "ENCRYPTION_KEY",
   plaidEnv: "PLAID_ENV",
-  port: "PORT",
+  linkPort: "LINK_PORT",
 };
 
 const DEFAULTS = {
   /** Users are always on production. Only the sandbox test profile sets this. */
   plaidEnv: "production" as PlaidEnvName,
   /** The local Plaid Link web server, not the database — that uses a socket. */
-  port: 4000,
+  linkPort: 4000,
 };
 
 export type ValueSource = "environment" | "config file" | "default" | "missing";
@@ -169,7 +169,7 @@ export function get<K extends PublicName>(key: K): StoredConfig[K] {
   const { value } = resolve(key);
   if (value === undefined) throw missing(key);
 
-  if (key === "port") {
+  if (key === "linkPort") {
     const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
     if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
       throw new Error(`Invalid port: "${String(value)}". Must be between 1 and 65535.`);

@@ -230,7 +230,7 @@ export async function startLinkServer(publicDir = publicDirectory): Promise<Runn
   }
 
   const app = buildApp(publicDir, bumpIdle);
-  const preferred = get("port");
+  const preferred = get("linkPort");
 
   let server: Server;
   try {
