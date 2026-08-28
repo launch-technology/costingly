@@ -52,7 +52,7 @@ async function throwsWith(fn: () => unknown, fragment: string, what: string): Pr
 
 const dir = await mkdtemp(join(tmpdir(), "costingly-config-"));
 process.env["COSTINGLY_HOME"] = dir;
-for (const k of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "LINK_PORT"]) {
+for (const k of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
   delete process.env[k];
 }
 
@@ -61,7 +61,6 @@ const SAMPLE = {
   plaidSecret: "secret-xyz",
   encryptionKey: Buffer.alloc(32, 7).toString("base64"),
   plaidEnv: "production" as const,
-  linkPort: 4000,
 };
 
 // --- nothing set up --------------------------------------------------------
@@ -73,7 +72,6 @@ await throwsWith(() => cfg.getSecret("plaidSecret"), displayPath(dir),
 
 // Defaults still resolve with no file at all — help and doctor must work.
 eq(cfg.get("plaidEnv"), "production", "plaidEnv defaults to production");
-eq(cfg.get("linkPort"), 4000, "port defaults to 4000");
 
 // --- writing ---------------------------------------------------------------
 await cfg.writeConfig(SAMPLE);
@@ -101,19 +99,25 @@ delete process.env["PLAID_SECRET"];
 
 // --- rewriting preserves everything else -----------------------------------
 // `init` re-runs through writeConfig, so a rewrite must not disturb the key.
-await cfg.writeConfig({ ...SAMPLE, linkPort: 4100 });
-eq(cfg.get("linkPort"), 4100, "a rewrite updates the key it changed");
+await cfg.writeConfig({ ...SAMPLE, plaidClientId: "client-abc" });
 eq(cfg.getSecret("encryptionKey"), SAMPLE.encryptionKey,
    "A REWRITE DOES NOT DISTURB THE ENCRYPTION KEY");
 eq(cfg.readConfigFile().plaidClientId, "client-abc", "and leaves other keys alone");
+
+// --- the ports section survives a rewrite -----------------------------------
+// `init` goes through writeConfig, which does not know ports exist. If it wrote
+// wholesale it would drop them and every service would re-allocate on next run.
+cfg.writePorts({ link: 4100, database: 54321 });
+await cfg.writeConfig(SAMPLE);
+eq(cfg.readPorts(), { link: 4100, database: 54321 },
+   "WRITECONFIG PRESERVES THE PORTS SECTION it knows nothing about");
+
+// A malformed entry is dropped rather than taking the whole file down.
+cfg.updateConfigSync({ ports: { link: 4100, bad: -1 } as Record<string, number> });
+eq(cfg.readPorts(), { link: 4100 }, "an out-of-range stored port is ignored, not fatal");
 if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
 
 // --- validation ------------------------------------------------------------
-process.env["LINK_PORT"] = "not-a-number";
-await throwsWith(() => cfg.get("linkPort"), "Invalid port", "a non-numeric port is rejected");
-process.env["LINK_PORT"] = "70000";
-await throwsWith(() => cfg.get("linkPort"), "Invalid port", "an out-of-range port is rejected");
-delete process.env["LINK_PORT"];
 
 process.env["PLAID_ENV"] = "development";
 await throwsWith(() => cfg.get("plaidEnv"), "sandbox", "a retired plaidEnv is rejected by name");
@@ -163,7 +167,7 @@ eq(cfg.readConfigFile().plaidClientId, undefined, "PROFILES ARE FULLY ISOLATED")
 
 const phDir = await mkdtemp(join(tmpdir(), "costingly-ph-"));
 process.env["COSTINGLY_HOME"] = phDir;
-for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "LINK_PORT"]) {
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
   delete process.env[name];
 }
 
@@ -194,12 +198,12 @@ await rm(phDir, { recursive: true, force: true });
 
 const keyDir = await mkdtemp(join(tmpdir(), "costingly-key-"));
 process.env["COSTINGLY_HOME"] = keyDir;
-for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "LINK_PORT"]) {
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
   delete process.env[name];
 }
 
 // A pre-existing file whose other values must survive the merge.
-await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc", linkPort: 4321 }), "utf8");
+await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc" }), "utf8");
 
 const crypto = await import(new URL("../src/crypto.js?key-test", import.meta.url).href);
 
@@ -211,7 +215,6 @@ const stored = JSON.parse(await readFile(configPath(), "utf8")) as Record<string
 ok(typeof stored["encryptionKey"] === "string", "ENCRYPTING WITHOUT A KEY CREATES ONE");
 eq(Buffer.from(String(stored["encryptionKey"]), "base64").length, 32, "and it is 32 bytes");
 eq(stored["plaidClientId"], "abc", "the merge preserves other values in the file");
-eq(stored["linkPort"], 4321, "including non-secrets");
 eq(crypto.decrypt(sealed), "a-plaid-access-token", "and the value round-trips");
 
 // The property that matters: stable across calls. A key regenerated on the

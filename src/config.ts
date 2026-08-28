@@ -40,11 +40,19 @@ export interface StoredConfig {
   plaidSecret: string;
   encryptionKey: string;
   plaidEnv: PlaidEnvName;
-  linkPort: number;
+
+}
+
+/**
+ * The file on disk. A superset of `StoredConfig`: the scalar keys above, plus
+ * sections that are stored but never resolved from the environment.
+ */
+export interface ConfigFile extends Partial<StoredConfig> {
+  ports?: Record<string, number>;
 }
 
 export type SecretName = "plaidSecret" | "encryptionKey";
-export type PublicName = "plaidClientId" | "plaidEnv" | "linkPort";
+export type PublicName = "plaidClientId" | "plaidEnv";
 
 /** The environment variable that overrides each key. */
 const ENV_NAMES: Record<keyof StoredConfig, string> = {
@@ -52,14 +60,14 @@ const ENV_NAMES: Record<keyof StoredConfig, string> = {
   plaidSecret: "PLAID_SECRET",
   encryptionKey: "ENCRYPTION_KEY",
   plaidEnv: "PLAID_ENV",
-  linkPort: "LINK_PORT",
+
 };
 
 const DEFAULTS = {
   /** Users are always on production. Only the sandbox test profile sets this. */
   plaidEnv: "production" as PlaidEnvName,
   /** The local Plaid Link web server, not the database — that uses a socket. */
-  linkPort: 4000,
+
 };
 
 export type ValueSource = "environment" | "config file" | "default" | "missing";
@@ -86,7 +94,7 @@ export interface ResolvedValue {
  * corrupt JSON as "no config" would send the user to `costingly init` and have
  * them overwrite a file that might hold the only copy of their encryption key.
  */
-function readStored(): Partial<StoredConfig> {
+function readStored(): ConfigFile {
   const path = configPath();
   let text: string;
   try {
@@ -169,13 +177,6 @@ export function get<K extends PublicName>(key: K): StoredConfig[K] {
   const { value } = resolve(key);
   if (value === undefined) throw missing(key);
 
-  if (key === "linkPort") {
-    const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
-    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
-      throw new Error(`Invalid port: "${String(value)}". Must be between 1 and 65535.`);
-    }
-    return parsed as StoredConfig[K];
-  }
 
   if (key === "plaidEnv") {
     const raw = String(value).trim().toLowerCase();
@@ -234,7 +235,10 @@ export async function writeConfig(values: StoredConfig): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
 
   const temp = join(dirname(path), `.config.${process.pid}.tmp`);
-  const body = `${JSON.stringify(values, null, 2)}\n`;
+  // Merged, not replaced. The file also holds sections this function knows
+  // nothing about — the ports the allocator recorded — and `init` re-runs
+  // through here. A wholesale write would discard them silently.
+  const body = `${JSON.stringify({ ...readStored(), ...values }, null, 2)}\n`;
   try {
     await writeFile(temp, body, { mode: FILE_MODE });
     await chmod(temp, FILE_MODE);
@@ -246,7 +250,7 @@ export async function writeConfig(values: StoredConfig): Promise<void> {
 }
 
 /** Read the file as-is. For `init`, which needs to know what already exists. */
-export function readConfigFile(): Partial<StoredConfig> {
+export function readConfigFile(): ConfigFile {
   return readStored();
 }
 
@@ -275,7 +279,7 @@ export function getSecretIfSet(key: SecretName): string | undefined {
  * per-invocation override, and persisting one would silently turn a temporary
  * setting into permanent state.
  */
-export function updateConfigSync(patch: Partial<StoredConfig>): void {
+export function updateConfigSync(patch: Partial<ConfigFile>): void {
   const path = configPath();
   // readStored() throws on unparseable JSON rather than treating it as empty.
   // That matters more here than anywhere else: silently starting from {} would
@@ -298,3 +302,41 @@ export function updateConfigSync(patch: Partial<StoredConfig>): void {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Ports
+// ---------------------------------------------------------------------------
+
+/**
+ * Ports live in their own section, deliberately outside `StoredConfig`.
+ *
+ * Every scalar key above exists because the value must come from OUTSIDE — the
+ * Plaid credentials and the encryption key arrive through Claude Desktop's
+ * settings, and PLAID_ENV is how the sandbox profile flips environments. Each
+ * therefore needs an environment override and a place in `resolve()`.
+ *
+ * A port is the opposite: the allocator's whole job is to invent one. There is
+ * nothing to override and no default to keep here — the defaults belong to the
+ * service that hands ports out. So this is a plain stored blob, read and written
+ * by that service and by nothing else.
+ */
+export function readPorts(): Record<string, number> {
+  const raw = readStored().ports;
+  if (raw === undefined || typeof raw !== "object") return {};
+
+  const clean: Record<string, number> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    // A hand-edited or corrupted entry should not take the whole file down: the
+    // allocator can always find another port, and refusing to start because a
+    // remembered number is malformed helps nobody.
+    if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
+      clean[name] = value;
+    }
+  }
+  return clean;
+}
+
+/** Merges, so it can never drop a port belonging to another service. */
+export function writePorts(ports: Record<string, number>): void {
+  updateConfigSync({ ports });
+}

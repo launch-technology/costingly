@@ -115,7 +115,6 @@ await writeConfig({
   plaidSecret: secret,
   encryptionKey,
   plaidEnv: "sandbox",
-  linkPort: 4000,
 });
 
 log.success(`Wrote ${displayPath(configPath())}  (mode 0600, git-ignored)`);

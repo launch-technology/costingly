@@ -34,6 +34,7 @@ import type { Request, Response } from "express";
 import type { Server } from "node:http";
 
 import { get } from "../config.js";
+import { ports } from "../ports.js";
 import {
   createLinkToken,
   createRepairLinkToken,
@@ -230,7 +231,9 @@ export async function startLinkServer(publicDir = publicDirectory): Promise<Runn
   }
 
   const app = buildApp(publicDir, bumpIdle);
-  const preferred = get("linkPort");
+  // Allocated, not configured: the service remembers what worked last time, so a
+  // machine where 4000 is permanently taken stops paying for it on every start.
+  const preferred = await ports().allocate("link");
 
   let server: Server;
   try {

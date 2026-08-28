@@ -168,7 +168,6 @@ export async function runInit(io: PromptIO = {}): Promise<void> {
     plaidSecret: resolvedSecret,
     encryptionKey,
     plaidEnv: existing.plaidEnv ?? "production",
-    linkPort: existing.linkPort ?? 4000,
   };
   await writeConfig(values);
   log.success(`Wrote ${displayPath(path)}`, io);
