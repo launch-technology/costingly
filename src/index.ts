@@ -17,7 +17,7 @@ export {
   type PlaidEnvName,
   type StoredConfig,
   type ResolvedValue,
-} from "./config.js";
+} from "./core/config.js";
 export {
   profileDir,
   profileSource,
@@ -25,8 +25,8 @@ export {
   displayPath,
   APP_NAME,
   type ProfileSource,
-} from "./profile.js";
-export { encrypt, decrypt, generateEncryptionKey } from "./crypto.js";
+} from "./core/profile.js";
+export { encrypt, decrypt, generateEncryptionKey } from "./core/crypto.js";
 export {
   ensureServerRunning,
   stopServer,
@@ -36,14 +36,14 @@ export {
   serverLogPath,
   DATABASE_NAME,
   type ServerState,
-} from "./db/server.js";
+} from "./data/db/server.js";
 export {
   describeDatabase,
   renderDatabaseDoc,
   type DatabaseDoc,
   type ViewDoc,
   type ColumnDoc,
-} from "./db/dictionary.js";
+} from "./data/db/dictionary.js";
 export {
   query,
   withTransaction,
@@ -51,25 +51,25 @@ export {
   type DbClient,
   type DbResult,
   type DbRow,
-} from "./db/queries.js";
-export { setMigrationSource, closeDb, ensureDatabaseExists } from "./db/bootstrap.js";
-export { withConnection } from "./db/connections.js";
+} from "./data/db/queries.js";
+export { setMigrationSource, closeDb, ensureDatabaseExists } from "./data/db/bootstrap.js";
+export { withConnection } from "./data/db/connections.js";
 export {
   runMigrations,
   pendingMigrations,
   type Migration,
-} from "./db/migrations.js";
+} from "./data/db/migrations.js";
 export {
   queryReadOnly,
   type ReadOnlyOptions,
   type ReadOnlyResult,
-} from "./db/queries.js";
+} from "./data/db/queries.js";
 export {
   isMissingSchema,
   explainDbError,
   MISSING_SCHEMA_CLI,
   MISSING_SCHEMA_MCP,
-} from "./db/errors.js";
+} from "./data/db/errors.js";
 export {
   getPlaidClient,
   getPlaidError,
@@ -77,7 +77,7 @@ export {
   isPlaidErrorCode,
   isMutationDuringPagination,
   isItemLoginRequired,
-} from "./plaid/client.js";
+} from "./data/plaid.client.js";
 export {
   saveItem,
   getItem,
@@ -89,18 +89,18 @@ export {
   deleteItem,
   type StoredItem,
   type SaveItemParams,
-} from "./plaid/items.js";
+} from "./data/items.repository.js";
 export {
   createLinkToken,
   exchangePublicToken,
   type LinkedItem,
-} from "./plaid/link.js";
+} from "./services/banks/link.js";
 export {
   syncAllItems,
   syncItem,
   type ItemSyncResult,
   type SyncSummary,
-} from "./plaid/sync.js";
+} from "./services/banks/sync.js";
 export {
   countData,
   revokeAtPlaid,
@@ -109,4 +109,4 @@ export {
   resetSyncedData,
   type DataCounts,
   type RemovalOutcome,
-} from "./plaid/remove.js";
+} from "./services/banks/remove.js";

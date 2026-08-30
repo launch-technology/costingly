@@ -22,7 +22,7 @@ const execFileAsync = promisify(execFile);
 const HOME = "/tmp/costingly-concurrency";
 process.env["COSTINGLY_HOME"] = HOME;
 const NODE = process.execPath;
-const CLI = `${P}/dist/cli/index.js`;
+const CLI = `${P}/dist/interfaces/cli/index.js`;
 
 const out: string[] = [];
 let fail = 0;
@@ -38,7 +38,7 @@ const ok = (c: boolean, what: string): void => eq(c, true, what);
 // From dist/, not src/: the CLI child processes below run the built code, and
 // both sides must agree on which build they are talking to.
 const { query, withTransaction, closeDb, serverStatus, stopServer, clusterDir, withConnection } =
-  (await import(new URL("../dist/src/index.js", import.meta.url).href)) as typeof import("../src/index.js");
+  (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 
 /** Run the CLI as a separate OS process. */
 async function cli(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -60,9 +60,9 @@ async function cli(...args: string[]): Promise<{ code: number; stdout: string; s
 // processes run the built code and both sides must agree on which build they are
 // talking to.
 const { setMigrationSource } =
-  (await import(new URL("../dist/src/index.js", import.meta.url).href)) as typeof import("../src/index.js");
+  (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 const { loadMigrations } =
-  (await import(new URL("../dist/cli/migrations.js", import.meta.url).href)) as typeof import("../cli/migrations.js");
+  (await import(new URL("../dist/interfaces/cli/migrations.js", import.meta.url).href)) as typeof import("../src/interfaces/cli/migrations.js");
 setMigrationSource(loadMigrations);
 
 // The first connection is what creates the cluster, starts it, creates the

@@ -35,7 +35,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 if (HOME !== "/tmp/costingly-mcp") throw new Error("refusing to run against a real profile");
 
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { CostinglyMcpServer } = await import("../src/mcp/server.js");
+const { CostinglyMcpServer } = await import("../src/interfaces/mcp/server.js");
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 
@@ -60,7 +60,7 @@ await wipe();
 
 // Register the migration loader the way cli/index.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../cli/migrations.js");
+const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
 setMigrationSource(loadMigrations);
 await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
@@ -263,8 +263,8 @@ ok(/relink_bank/.test(tools.find((t) => t.name === "link_bank")?.description ?? 
 // this block only — the link_bank tests below deliberately run without any.
 process.env["PLAID_CLIENT_ID"] = "fake-client-id";
 process.env["PLAID_SECRET"] = "fake-secret";
-const { setPublicDir: setDir } = await import("../src/link/server.js");
-const { publicDir: pubDir } = await import("../cli/paths.js");
+const { setPublicDir: setDir } = await import("../src/interfaces/web/server.js");
+const { publicDir: pubDir } = await import("../src/interfaces/cli/paths.js");
 setDir(pubDir);
 
 const relinkUnknown = await client.callTool({
@@ -306,7 +306,7 @@ ok(/i1/.test(text(wrongId)), "and the real item ids are listed back");
 
 // Seed a second bank with data of its own, so the delete has something to cascade
 // through and the first bank can be checked for collateral damage.
-const { encrypt } = await import("../src/crypto.js");
+const { encrypt } = await import("../src/core/crypto.js");
 await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('doomed', 'Doomed Bank', $1, 'active')`, [encrypt("fake-access-token")]);
 await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
@@ -454,7 +454,7 @@ ok(!/costingly init/.test(credsText),
 // directly. This is where the design lives: the output is read by a model that
 // is about to write a report, and a partial failure must be impossible to skim
 // past. Assertions below check ORDER, not just presence.
-const { formatSyncSummary } = await import("../src/mcp/format.js");
+const { formatSyncSummary } = await import("../src/interfaces/mcp/format.js");
 
 const item = (over: Record<string, unknown>): any => ({
   itemId: "i", institutionName: "Bank", ok: true, added: 0, modified: 0,
@@ -513,7 +513,7 @@ process.env["PLAID_SECRET"] = "fake-secret";
 
 // cli/index.ts registers this; an in-process test has to do it too, for the same
 // reason it registers the migration loader.
-const { linkServerStatus } = await import("../src/link/server.js");
+const { linkServerStatus } = await import("../src/interfaces/web/server.js");
 const started = await client.callTool({ name: "link_bank", arguments: {} });
 eq(started.isError, undefined, "with credentials present, link_bank starts the page");
 const startedText = text(started);
@@ -551,7 +551,7 @@ function driveServer(lines: string[], holdMs: number): Promise<Run> {
     const started = Date.now();
     const child = spawn(
       process.execPath,
-      [`${P}/node_modules/tsx/dist/cli.mjs`, `${P}/cli/index.ts`, "mcp"],
+      [`${P}/node_modules/tsx/dist/cli.mjs`, `${P}/src/interfaces/cli/index.ts`, "mcp"],
       { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, COSTINGLY_HOME: HOME } },
     );
 

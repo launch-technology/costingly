@@ -49,18 +49,18 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { query, describeDriver } = await import("../src/db/queries.js");
-const { closeDb, setMigrationSource } = await import("../src/db/bootstrap.js");
-const { getPlaidClient } = await import("../src/plaid/client.js");
-const { exchangePublicToken } = await import("../src/plaid/link.js");
-const { syncAllItems } = await import("../src/plaid/sync.js");
-const { listAllItems } = await import("../src/plaid/items.js");
-const { stopServer } = await import("../src/db/server.js");
+const { query, describeDriver } = await import("../src/data/db/queries.js");
+const { closeDb, setMigrationSource } = await import("../src/data/db/bootstrap.js");
+const { getPlaidClient } = await import("../src/data/plaid.client.js");
+const { exchangePublicToken } = await import("../src/services/banks/link.js");
+const { syncAllItems } = await import("../src/services/banks/sync.js");
+const { listAllItems } = await import("../src/data/items.repository.js");
+const { stopServer } = await import("../src/data/db/server.js");
 const { readFile, rm } = await import("node:fs/promises");
 
 // Register the migration loader the way cli/index.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../cli/migrations.js");
+const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
 setMigrationSource(loadMigrations);
 
 /**
@@ -175,9 +175,9 @@ await closeDb();
 // module instance — which is the point of the assertion below. TypeScript
 // cannot resolve a specifier with a query string, so the type comes from the
 // plain path and the specifier is built at runtime.
-const REOPEN = "../src/db/queries.js?reopen=1";
-const { query: q2 } = (await import(REOPEN)) as typeof import("../src/db/queries.js");
-const { closeDb: close2 } = await import("../src/db/bootstrap.js");
+const REOPEN = "../src/data/db/queries.js?reopen=1";
+const { query: q2 } = (await import(REOPEN)) as typeof import("../src/data/db/queries.js");
+const { closeDb: close2 } = await import("../src/data/db/bootstrap.js");
 const persisted = await q2<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
 eq(persisted.rows[0]!.c, after.rows[0]!.c, "data survives close/reopen");
 await close2();

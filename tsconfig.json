@@ -14,7 +14,7 @@
 
     // Emit is on: `npm run build` is a bare `tsc`. `npm run typecheck` passes
     // --noEmit explicitly, so editors and CI still get a check-only run.
-    "rootDir": ".",
+    "rootDir": "src",
     "outDir": "dist",
 
     "skipLibCheck": true,
@@ -28,7 +28,7 @@
   // tests/ and scripts/ are typechecked separately by tsconfig.test.json, which
   // sets noEmit. They must not be emitted here, because dist/ is what `files`
   // publishes.
-  "include": ["src/**/*.ts", "cli/**/*.ts"],
+  "include": ["src/**/*.ts"],
   // "dist" is required, not cosmetic: tsc only auto-excludes outDir when
   // `exclude` is absent entirely, and this config specifies it.
   "exclude": ["node_modules", "dist"]

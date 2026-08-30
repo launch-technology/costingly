@@ -26,7 +26,7 @@ const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
 const { query, withTransaction, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { describeDatabase, renderDatabaseDoc } = await import("../src/db/dictionary.js");
+const { describeDatabase, renderDatabaseDoc } = await import("../src/data/db/dictionary.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -49,7 +49,7 @@ await wipe();
 
 // Register the migration loader the way cli/index.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../cli/migrations.js");
+const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
 setMigrationSource(loadMigrations);
 
 // Enough data that the live facts have something to report.

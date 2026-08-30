@@ -51,10 +51,10 @@ const dir = await mkdtemp(join(tmpdir(), "costingly-initflow-"));
 // these runs would write to the real profile and destroy live credentials.
 process.env["COSTINGLY_HOME"] = join(dir, "profile");
 
-const { runInit } = await import("../cli/init.js");
-const { readConfigFile } = await import("../src/config.js");
-const { configPath } = await import("../src/profile.js");
-const { closeDb } = await import("../src/db/bootstrap.js");
+const { runInit } = await import("../src/interfaces/cli/init.js");
+const { readConfigFile } = await import("../src/core/config.js");
+const { configPath } = await import("../src/core/profile.js");
+const { closeDb } = await import("../src/data/db/bootstrap.js");
 
 /** Where init will write: `<COSTINGLY_HOME>/config.json`. */
 const configIn = (): string => configPath();

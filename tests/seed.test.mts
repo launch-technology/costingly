@@ -21,10 +21,10 @@ const HOME = "/tmp/costingly-seed";
 process.env["COSTINGLY_HOME"] = HOME;
 
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { generateSeedDataset } = await import("../src/seed/generate.js");
-const { applySeed, assertSeedable, SeedRefused } = await import("../src/seed/apply.js");
-const { listSyncableItems, listAllItems, saveItem } = await import("../src/plaid/items.js");
-const { createRepairLinkToken } = await import("../src/plaid/link.js");
+const { generateSeedDataset } = await import("../src/services/seed/generate.js");
+const { applySeed, assertSeedable, SeedRefused } = await import("../src/services/seed/apply.js");
+const { listSyncableItems, listAllItems, saveItem } = await import("../src/data/items.repository.js");
+const { createRepairLinkToken } = await import("../src/services/banks/link.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -58,7 +58,7 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-const { loadMigrations } = await import("../cli/migrations.js");
+const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
 setMigrationSource(loadMigrations);
 
 // ===========================================================================

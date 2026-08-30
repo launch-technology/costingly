@@ -25,9 +25,9 @@ process.env["PLAID_SECRET"] = SECRET;
 process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { checkDatabase, restartDatabase } = await import("../src/db/health.js");
-const { formatHealth } = await import("../src/mcp/format.js");
-const { serverStatus } = await import("../src/db/server.js");
+const { checkDatabase, restartDatabase } = await import("../src/data/db/health.js");
+const { formatHealth } = await import("../src/interfaces/mcp/format.js");
+const { serverStatus } = await import("../src/data/db/server.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -48,7 +48,7 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-const { loadMigrations } = await import("../cli/migrations.js");
+const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
 setMigrationSource(loadMigrations);
 
 // ===========================================================================

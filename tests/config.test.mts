@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
-const cfg = await import("../src/config.js");
-const { configPath, displayPath } = await import("../src/profile.js");
+const cfg = await import("../src/core/config.js");
+const { configPath, displayPath } = await import("../src/core/profile.js");
 const { mkdtemp, readdir, readFile, rm, stat, writeFile, mkdir } = await import("node:fs/promises");
 const { tmpdir, platform } = await import("node:os");
 
@@ -205,7 +205,7 @@ for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_
 // A pre-existing file whose other values must survive the merge.
 await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc" }), "utf8");
 
-const crypto = await import(new URL("../src/crypto.js?key-test", import.meta.url).href);
+const crypto = await import(new URL("../src/core/crypto.js?key-test", import.meta.url).href);
 
 eq(cfg.getSecretIfSet("encryptionKey"), undefined, "no encryption key to begin with");
 

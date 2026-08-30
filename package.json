@@ -10,7 +10,7 @@
     "node": ">=20"
   },
   "bin": {
-    "costingly": "./dist/cli/index.js"
+    "costingly": "./dist/interfaces/cli/index.js"
   },
   "files": [
     "dist",
@@ -18,11 +18,11 @@
     "public"
   ],
   "scripts": {
-    "build": "npm run clean && tsc && node -e \"require('fs').chmodSync('dist/cli/index.js',0o755)\"",
+    "build": "npm run clean && tsc && node -e \"require('fs').chmodSync('dist/interfaces/cli/index.js',0o755)\"",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "cli": "tsx cli/index.ts",
+    "cli": "tsx src/interfaces/cli/index.ts",
     "setup:sandbox": "tsx scripts/setup-sandbox.mts",
     "test": "tsx tests/run.mts",
     "build:bundle": "tsx scripts/build-bundle.mts"
