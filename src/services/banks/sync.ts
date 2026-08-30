@@ -25,13 +25,15 @@ import type {
 } from "plaid";
 import type { DbClient } from "../../data/db/queries.js";
 import { withTransaction } from "../../data/db/queries.js";
+import { upsertMany, deleteByIds } from "../../data/repositories/transactions.repository.js";
+import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
+import { toTransactionRow, toAccountRow } from "./plaid.mappers.js";
 import {
   listSyncableItems,
   setItemCursor,
   setItemStatus,
-  upsertAccounts,
   type SyncableItem,
-} from "../../data/items.repository.js";
+} from "../../data/repositories/items.repository.js";
 import {
   describeError,
   getPlaidClient,
@@ -49,7 +51,6 @@ const MAX_PAGINATION_RESTARTS = 5;
 const MAX_PAGES_PER_ATTEMPT = 1000;
 
 /** Rows per multi-row INSERT. 200 x 14 params is well under Postgres' 65535. */
-const UPSERT_CHUNK_SIZE = 200;
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -203,115 +204,7 @@ async function fetchItemChanges(
 // Writing
 // ---------------------------------------------------------------------------
 
-const TRANSACTION_COLUMNS = [
-  "transaction_id",
-  "account_id",
-  "item_id",
-  "amount",
-  "iso_currency_code",
-  "date",
-  "authorized_date",
-  "name",
-  "merchant_name",
-  "pending",
-  "payment_channel",
-  "category",
-  "pfc",
-  "raw",
-] as const;
 
-function transactionValues(transaction: Transaction, itemId: string): unknown[] {
-  return [
-    transaction.transaction_id,
-    transaction.account_id,
-    itemId,
-    // Plaid's sign convention is preserved verbatim:
-    // positive = money out, negative = money in. See schema.sql.
-    transaction.amount,
-    transaction.iso_currency_code ?? transaction.unofficial_currency_code,
-    transaction.date,
-    transaction.authorized_date,
-    transaction.name,
-    transaction.merchant_name ?? null,
-    transaction.pending,
-    transaction.payment_channel,
-    // `category` is a string array. node-postgres would encode a raw JS array
-    // as a Postgres array literal, not as JSON, so it must be stringified.
-    transaction.category ? JSON.stringify(transaction.category) : null,
-    transaction.personal_finance_category
-      ? JSON.stringify(transaction.personal_finance_category)
-      : null,
-    JSON.stringify(transaction),
-  ];
-}
-
-/**
- * Upsert transactions in chunked multi-row INSERTs.
- *
- * The input must already be de-duplicated by `transaction_id`: Postgres rejects
- * an ON CONFLICT DO UPDATE statement that tries to touch the same row twice
- * ("cannot affect row a second time"), and a paginated sync can legitimately
- * return the same id on more than one page.
- */
-async function upsertTransactions(
-  client: DbClient,
-  itemId: string,
-  transactions: readonly Transaction[],
-): Promise<void> {
-  const columnList = TRANSACTION_COLUMNS.join(", ");
-  const updateList = TRANSACTION_COLUMNS
-    // `transaction_id` is the conflict target and never needs rewriting.
-    .filter((column) => column !== "transaction_id")
-    .map((column) => `${column} = EXCLUDED.${column}`)
-    .join(",\n        ");
-
-  for (let offset = 0; offset < transactions.length; offset += UPSERT_CHUNK_SIZE) {
-    const chunk = transactions.slice(offset, offset + UPSERT_CHUNK_SIZE);
-
-    const params: unknown[] = [];
-    const tuples: string[] = [];
-
-    for (const transaction of chunk) {
-      const values = transactionValues(transaction, itemId);
-      const placeholders = values.map((_, index) => `$${params.length + index + 1}`);
-      // created_at defaults on insert; updated_at is set explicitly so the
-      // ON CONFLICT branch below can reuse the same tuple shape.
-      tuples.push(`(${placeholders.join(", ")}, now())`);
-      params.push(...values);
-    }
-
-    await client.query(
-      `
-      INSERT INTO transactions (${columnList}, updated_at)
-      VALUES ${tuples.join(", ")}
-      ON CONFLICT (transaction_id) DO UPDATE SET
-        ${updateList},
-        updated_at = now()
-      `,
-      params,
-    );
-  }
-}
-
-/**
- * Delete transactions Plaid has retracted.
- *
- * The common case is a pending transaction settling: Plaid issues the settled
- * version under a brand-new `transaction_id` and retracts the pending one, so
- * these deletes are what stop the table accumulating stale pending rows.
- */
-async function deleteTransactions(
-  client: DbClient,
-  removed: readonly RemovedTransaction[],
-): Promise<void> {
-  if (removed.length === 0) return;
-
-  const ids = [...new Set(removed.map((entry) => entry.transaction_id))];
-  for (let offset = 0; offset < ids.length; offset += UPSERT_CHUNK_SIZE) {
-    const chunk = ids.slice(offset, offset + UPSERT_CHUNK_SIZE);
-    await client.query(`DELETE FROM transactions WHERE transaction_id = ANY($1::text[])`, [chunk]);
-  }
-}
 
 /**
  * Collapse `added` + `modified` into one write set, keyed by transaction_id.
@@ -357,9 +250,9 @@ export async function syncItem(item: SyncableItem): Promise<ItemSyncResult> {
     await withTransaction(async (client) => {
       // Order matters: accounts first, because transactions.account_id is a
       // foreign key into accounts and a new account may appear in this batch.
-      await upsertAccounts(client, item.itemId, changes.accounts);
-      await upsertTransactions(client, item.itemId, upserts);
-      await deleteTransactions(client, changes.removed);
+      await upsertAccountRows(client, changes.accounts.map((a) => toAccountRow(a, item.itemId)));
+      await upsertMany(client, upserts.map((t) => toTransactionRow(t, item.itemId)));
+      await deleteByIds(client, changes.removed.map((entry) => entry.transaction_id));
       // Committed together with the rows above — this is the atomicity that
       // makes a re-run safe.
       await setItemCursor(client, item.itemId, changes.nextCursor);

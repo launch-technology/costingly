@@ -9,28 +9,14 @@
  */
 
 import type { Command } from "commander";
-import { query } from "../../../data/db/queries.js";
+import {
+  listWithAccounts,
+  type ItemAccountListing,
+} from "../../../data/repositories/items.repository.js";
 import { describeServer } from "../../../data/db/server.js";
 import { money, ago } from "../ui/format.js";
 
-type Row = {
-  item_id: string;
-  institution_name: string | null;
-  status: string;
-  last_synced_at: Date | null;
-  never_synced: boolean;
-  source: string;
-  account_id: string | null;
-  account_name: string | null;
-  mask: string | null;
-  type: string | null;
-  subtype: string | null;
-  currency: string | null;
-  current_balance: string | null;
-  txn_count: string;
-  first_date: string | null;
-  last_date: string | null;
-};
+type Row = ItemAccountListing;
 
 /**
  * Flag the states that need the user to do something.
@@ -136,32 +122,7 @@ async function databaseLine(): Promise<string> {
 }
 
 export async function runStatus(options: StatusOptions): Promise<void> {
-  const { rows } = await query<Row>(`
-    SELECT i.item_id,
-           i.institution_name,
-           i.status,
-           i.last_synced_at,
-           i.cursor IS NULL           AS never_synced,
-           i.source,
-           a.account_id,
-           a.name                     AS account_name,
-           a.mask,
-           a.type,
-           a.subtype,
-           a.currency,
-           a.current_balance,
-           COALESCE(t.txn_count, 0)::text AS txn_count,
-           t.first_date::text         AS first_date,
-           t.last_date::text          AS last_date
-      FROM items i
-      LEFT JOIN accounts a ON a.item_id = i.item_id
-      LEFT JOIN LATERAL (
-             SELECT COUNT(*) AS txn_count, MIN(date) AS first_date, MAX(date) AS last_date
-               FROM transactions
-              WHERE account_id = a.account_id
-           ) t ON TRUE
-     ORDER BY i.institution_name NULLS LAST, a.name NULLS LAST
-  `);
+  const rows = await listWithAccounts();
 
   if (rows.length === 0) {
     if (options.json) {

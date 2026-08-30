@@ -9,11 +9,9 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { query } from "../../../data/db/queries.js";
+import { listBasic, deleteItem } from "../../../data/repositories/items.repository.js";
 import { explainDbError } from "../../../data/db/errors.js";
-import { getItem } from "../../../data/items.repository.js";
-import { revokeAtPlaid } from "../../../services/banks/remove.js";
-import { describeError } from "../../../data/plaid.client.js";
+import { countItemData, revokeIfPossible } from "../../../services/banks/remove.js";
 import { ConfirmationStore } from "../utils/confirmations.js";
 
 /**
@@ -89,24 +87,18 @@ export function registerUnlinkBankTool(server: McpServer): void {
                 // rotated or lost encryption key — would throw here and make it
                 // impossible to remove ANY bank. That is precisely the situation
                 // in which someone most wants to clean up.
-                const { rows: items } = await query<{
-                    item_id: string;
-                    institution_name: string | null;
-                }>(
-                    `SELECT item_id, institution_name FROM items
-                      ORDER BY institution_name NULLS LAST, created_at`,
-                );
-                const item = items.find((i) => i.item_id === item_id);
+                const banks = await listBasic();
+                const item = banks.find((i) => i.itemId === item_id);
 
                 if (item === undefined) {
                     const known =
-                        items.length === 0
+                        banks.length === 0
                             ? "No banks are connected, so there is nothing to disconnect."
                             : "Connected banks:\n" +
-                              items
+                              banks
                                   .map(
                                       (i) =>
-                                          `  ${i.item_id}  ${i.institution_name ?? "(unknown bank)"}`,
+                                          `  ${i.itemId}  ${i.institutionName ?? "(unknown bank)"}`,
                                   )
                                   .join("\n");
                     return {
@@ -117,18 +109,12 @@ export function registerUnlinkBankTool(server: McpServer): void {
                     };
                 }
 
-                const name = item.institution_name ?? item.item_id;
+                const name = item.institutionName ?? item.itemId;
 
                 // Counted before anything is destroyed, because afterwards there
                 // is nothing left to count and the user deserves to be told what
                 // went. Phase one reports these; phase two repeats them.
-                const { rows } = await query<{ accounts: string; transactions: string }>(
-                    `SELECT (SELECT COUNT(*) FROM accounts     WHERE item_id = $1)::text AS accounts,
-                            (SELECT COUNT(*) FROM transactions WHERE item_id = $1)::text AS transactions`,
-                    [item_id],
-                );
-                const accounts = Number(rows[0]?.accounts ?? 0);
-                const transactions = Number(rows[0]?.transactions ?? 0);
+                const { accounts, transactions } = await countItemData(item_id);
 
                 // ---- Phase one: report, mint a token, delete nothing ----------
                 if (confirmation_token === undefined) {
@@ -184,32 +170,24 @@ export function registerUnlinkBankTool(server: McpServer): void {
                 // nothing to revoke — it just gets deleted locally like
                 // everything else. One tool, one path, no second concept for
                 // the model to choose between.
-                let revoked = false;
-                let revokeError: string | undefined;
-                try {
-                    const stored = await getItem(item_id);
-                    if (stored !== null && stored.accessToken !== null) {
-                        await revokeAtPlaid(stored.accessToken);
-                        revoked = true;
-                    }
-                } catch (error) {
-                    revokeError = describeError(error);
-                }
+                const revocation = await revokeIfPossible(item_id);
 
                 // Accounts and transactions go with it: both foreign keys are
                 // ON DELETE CASCADE. See migrations/0001-initial.sql.
-                await query(`DELETE FROM items WHERE item_id = $1`, [item_id]);
+                await deleteItem(item_id);
 
                 const lines = [
                     `Disconnected ${name} and deleted its data:`,
                     `  ${accounts} account(s)`,
                     `  ${transactions} transaction(s)`,
                     "",
-                    revoked
+                    revocation.revoked
                         ? "The connection was also revoked at Plaid."
-                        : `The local data is gone, but revoking at Plaid failed: ${
-                              revokeError ?? "unknown error"
-                          }\nThe user may want to remove it from their Plaid dashboard.`,
+                        : revocation.attempted
+                          ? `The local data is gone, but revoking at Plaid failed: ${
+                                revocation.error ?? "unknown error"
+                            }\nThe user may want to remove it from their Plaid dashboard.`
+                          : "This bank had no Plaid connection to revoke.",
                 ];
 
                 return { content: [{ type: "text", text: lines.join("\n") }] };

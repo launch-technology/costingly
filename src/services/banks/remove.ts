@@ -16,8 +16,11 @@
  */
 
 import type { ItemRemoveRequest } from "plaid";
-import { query, withTransaction } from "../../data/db/queries.js";
-import { listAllItems, type StoredItem } from "../../data/items.repository.js";
+import { withTransaction } from "../../data/db/queries.js";
+import * as items from "../../data/repositories/items.repository.js";
+import * as accounts from "../../data/repositories/accounts.repository.js";
+import * as transactions from "../../data/repositories/transactions.repository.js";
+import type { StoredItem } from "../../data/repositories/items.repository.js";
 import { getPlaidClient, describeError } from "../../data/plaid.client.js";
 
 export interface DataCounts {
@@ -28,17 +31,28 @@ export interface DataCounts {
 
 /** How much data currently exists. Used to show stakes before confirming. */
 export async function countData(): Promise<DataCounts> {
-  const { rows } = await query<{ items: string; accounts: string; transactions: string }>(
-    `SELECT (SELECT COUNT(*) FROM items)::text        AS items,
-            (SELECT COUNT(*) FROM accounts)::text     AS accounts,
-            (SELECT COUNT(*) FROM transactions)::text AS transactions`,
-  );
-  const row = rows[0];
-  return {
-    items: Number(row?.items ?? 0),
-    accounts: Number(row?.accounts ?? 0),
-    transactions: Number(row?.transactions ?? 0),
-  };
+  const [itemCount, accountCount, transactionCount] = await Promise.all([
+    items.countAll(),
+    accounts.countAll(),
+    transactions.countAll(),
+  ]);
+  return { items: itemCount, accounts: accountCount, transactions: transactionCount };
+}
+
+/**
+ * How much data one Item holds.
+ *
+ * Both interfaces ask this before destroying a bank, and both used to ask it
+ * with their own copy of the same SQL. Counted before anything is deleted,
+ * because afterwards there is nothing left to count and the user deserves to be
+ * told what went.
+ */
+export async function countItemData(itemId: string): Promise<{ accounts: number; transactions: number }> {
+  const [accountCount, transactionCount] = await Promise.all([
+    accounts.countForItem(itemId),
+    transactions.countForItem(itemId),
+  ]);
+  return { accounts: accountCount, transactions: transactionCount };
 }
 
 /**
@@ -50,6 +64,33 @@ export async function revokeAtPlaid(accessToken: string): Promise<void> {
   const request: ItemRemoveRequest = { access_token: accessToken };
   await getPlaidClient().itemRemove(request);
 }
+
+/**
+ * Revoke an Item's token at Plaid, tolerating every way that can fail.
+ *
+ * Reading the token can fail independently of anything else — a rotated or lost
+ * encryption key — and so can Plaid itself. Neither must leave a user unable to
+ * delete the row, so both come back as a description rather than a throw.
+ *
+ * A seeded bank has no token and no Plaid Item, so there is nothing to revoke.
+ * That is reported as `attempted: false`, which is a different outcome from a
+ * revoke that was tried and failed.
+ */
+export async function revokeIfPossible(
+  itemId: string,
+): Promise<{ attempted: boolean; revoked: boolean; error?: string }> {
+  try {
+    const stored = await items.getItem(itemId);
+    if (stored === null || stored.accessToken === null) {
+      return { attempted: false, revoked: false };
+    }
+    await revokeAtPlaid(stored.accessToken);
+    return { attempted: true, revoked: true };
+  } catch (error) {
+    return { attempted: true, revoked: false, error: describeError(error) };
+  }
+}
+
 
 export interface RemovalOutcome {
   itemId: string;
@@ -90,7 +131,7 @@ export async function removeItem(
     }
   }
 
-  await query(`DELETE FROM items WHERE item_id = $1`, [item.itemId]);
+  await items.deleteItem(item.itemId);
   return outcome;
 }
 
@@ -105,22 +146,15 @@ export async function removeAllItems(options: {
   revoke: boolean;
 }): Promise<RemovalOutcome[]> {
   if (!options.revoke) {
-    const { rows } = await query<{ item_id: string; institution_name: string | null }>(
-      `SELECT item_id, institution_name FROM items`,
-    );
-    // TRUNCATE would be faster, but DELETE keeps the cascade semantics obvious
-    // and this is never a hot path.
-    await query(`DELETE FROM items`);
-    return rows.map((row) => ({
-      itemId: row.item_id,
-      institutionName: row.institution_name,
-      revoked: false,
-    }));
+    // Listed before deleting, because afterwards there is nothing left to name.
+    const existing = await items.listBasic();
+    await items.deleteAll();
+    return existing.map((row) => ({ ...row, revoked: false }));
   }
 
-  const items = await listAllItems();
+  const stored = await items.listAllItems();
   const outcomes: RemovalOutcome[] = [];
-  for (const item of items) {
+  for (const item of stored) {
     outcomes.push(await removeItem(item, { revoke: true }));
   }
   return outcomes;
@@ -138,10 +172,8 @@ export async function removeAllItems(options: {
  */
 export async function resetSyncedData(): Promise<{ transactions: number }> {
   return withTransaction(async (client) => {
-    const deleted = await client.query(`DELETE FROM transactions`);
-    await client.query(
-      `UPDATE items SET cursor = NULL, last_synced_at = NULL, updated_at = now()`,
-    );
-    return { transactions: deleted.rowCount ?? 0 };
+    const deleted = await transactions.deleteAll(client);
+    await items.clearCursors(client);
+    return { transactions: deleted };
   });
 }

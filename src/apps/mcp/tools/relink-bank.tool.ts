@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { startLinkServer, takeRecentRepairs } from "../../../web/server.js";
-import { query } from "../../../data/db/queries.js";
+import { listBasic } from "../../../data/repositories/items.repository.js";
 import { describeError } from "../../../data/plaid.client.js";
 import { explainDbError } from "../../../data/db/errors.js";
 import { credentialsPresent, MISSING_CREDENTIALS } from "../utils/credentials.js";
@@ -57,15 +57,8 @@ export function registerRelinkBankTool(server: McpServer): void {
                 // Listed without decrypting: naming a bank needs no credential,
                 // and an item whose token no longer decrypts is exactly the kind
                 // that might need repairing.
-                const { rows: items } = await query<{
-                    item_id: string;
-                    institution_name: string | null;
-                    status: string;
-                }>(
-                    `SELECT item_id, institution_name, status FROM items
-                      ORDER BY institution_name NULLS LAST, created_at`,
-                );
-                const item = items.find((i) => i.item_id === item_id);
+                const items = await listBasic();
+                const item = items.find((i) => i.itemId === item_id);
 
                 if (item === undefined) {
                     const known =
@@ -75,7 +68,7 @@ export function registerRelinkBankTool(server: McpServer): void {
                               items
                                   .map(
                                       (i) =>
-                                          `  ${i.item_id}  ${i.institution_name ?? "(unknown bank)"}` +
+                                          `  ${i.itemId}  ${i.institutionName ?? "(unknown bank)"}` +
                                           `  [${i.status}]`,
                                   )
                                   .join("\n");
@@ -88,7 +81,7 @@ export function registerRelinkBankTool(server: McpServer): void {
                 }
 
                 const { url } = await startLinkServer();
-                const name = item.institution_name ?? item.item_id;
+                const name = item.institutionName ?? item.itemId;
 
                 // A repair finishes in the browser long after this returned, so
                 // a repeat call is the natural place to report it — same reason

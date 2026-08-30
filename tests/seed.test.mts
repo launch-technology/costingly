@@ -23,7 +23,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
 const { generateSeedDataset } = await import("../src/services/seed/generate.js");
 const { applySeed, assertSeedable, SeedRefused } = await import("../src/services/seed/apply.js");
-const { listSyncableItems, listAllItems, saveItem } = await import("../src/data/items.repository.js");
+const { listSyncableItems, listAllItems, saveItem } = await import("../src/data/repositories/items.repository.js");
 const { createRepairLinkToken } = await import("../src/services/banks/link.js");
 
 const out: string[] = [];

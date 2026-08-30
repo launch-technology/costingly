@@ -14,7 +14,9 @@
 import { CountryCode, Products } from "plaid";
 import type { LinkTokenCreateRequest } from "plaid";
 import { getPlaidClient, describeError } from "../../data/plaid.client.js";
-import { getItem, saveItem, setItemStatus, upsertAccounts, type StoredItem } from "../../data/items.repository.js";
+import { getItem, saveItem, setItemStatus, type StoredItem } from "../../data/repositories/items.repository.js";
+import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
+import { toAccountRow } from "./plaid.mappers.js";
 import { withTransaction } from "../../data/db/queries.js";
 
 /**
@@ -157,7 +159,7 @@ export async function exchangePublicToken(publicToken: string): Promise<LinkedIt
 
   const accounts = await plaid.accountsGet({ access_token: accessToken });
   await withTransaction(async (client) => {
-    await upsertAccounts(client, itemId, accounts.data.accounts);
+    await upsertAccountRows(client, accounts.data.accounts.map((a) => toAccountRow(a, itemId)));
   });
 
   return {

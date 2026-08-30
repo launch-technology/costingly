@@ -11,25 +11,9 @@
 import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { query } from "../../../data/db/queries.js";
-import { listAllItems, type StoredItem } from "../../../data/items.repository.js";
-import { removeItem } from "../../../services/banks/remove.js";
+import { listAllItems, type StoredItem } from "../../../data/repositories/items.repository.js";
+import { countItemData, removeItem } from "../../../services/banks/remove.js";
 import { confirmDestructive } from "../ui/confirm.js";
-
-type ItemStats = { accounts: number; transactions: number };
-
-async function statsFor(itemId: string): Promise<ItemStats> {
-  const { rows } = await query<{ accounts: string; transactions: string }>(
-    `SELECT (SELECT COUNT(*) FROM accounts     WHERE item_id = $1)::text AS accounts,
-            (SELECT COUNT(*) FROM transactions WHERE item_id = $1)::text AS transactions`,
-    [itemId],
-  );
-  const row = rows[0];
-  return {
-    accounts: Number(row?.accounts ?? 0),
-    transactions: Number(row?.transactions ?? 0),
-  };
-}
 
 function label(item: StoredItem): string {
   return item.institutionName ?? `(unknown bank) ${item.itemId}`;
@@ -40,7 +24,7 @@ async function pickItem(items: StoredItem[]): Promise<StoredItem | null> {
 
   const options = await Promise.all(
     items.map(async (item) => {
-      const stats = await statsFor(item.itemId);
+      const stats = await countItemData(item.itemId);
       const flag = item.status === "active" ? "" : `  [${item.status}]`;
       return {
         value: item.itemId,
@@ -128,7 +112,7 @@ export async function runUnlink(
   }
   if (target === null) return;
 
-  const stats = await statsFor(target.itemId);
+  const stats = await countItemData(target.itemId);
   const consequences = [
     `${stats.accounts} account(s) and ${stats.transactions} transaction(s) for this bank are deleted.`,
     "Its stored access token is destroyed — re-link with `costingly link` to restore it.",

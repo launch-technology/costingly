@@ -12,8 +12,13 @@
  * --force: the correct move is a different profile, which costs nothing.
  */
 
-import { withTransaction, query, type DbClient } from "../../data/db/queries.js";
-import { saveItem } from "../../data/items.repository.js";
+import { withTransaction } from "../../data/db/queries.js";
+import { saveItem, countBySource, deleteBySource } from "../../data/repositories/items.repository.js";
+import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
+import {
+  upsertMany,
+  type TransactionRow,
+} from "../../data/repositories/transactions.repository.js";
 import type { SeedDataset, SeedTransaction } from "./generate.js";
 
 export class SeedRefused extends Error {}
@@ -26,10 +31,7 @@ export class SeedRefused extends Error {}
  * iterating on the generator.
  */
 export async function assertSeedable(): Promise<void> {
-  const { rows } = await query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM items WHERE source = 'plaid'`,
-  );
-  const linked = Number(rows[0]?.count ?? 0);
+  const linked = await countBySource("plaid");
   if (linked > 0) {
     throw new SeedRefused(
       `This profile has ${linked} real bank connection(s) in it.\n\n` +
@@ -93,7 +95,7 @@ export interface SeedSummary {
 export async function applySeed(dataset: SeedDataset): Promise<SeedSummary> {
   await assertSeedable();
 
-  await query(`DELETE FROM items WHERE source = 'seed'`);
+  await deleteBySource("seed");
 
   for (const item of dataset.items) {
     await saveItem({
@@ -106,27 +108,22 @@ export async function applySeed(dataset: SeedDataset): Promise<SeedSummary> {
   }
 
   await withTransaction(async (client) => {
-    for (const account of dataset.accounts) {
-      await client.query(
-        `INSERT INTO accounts (
-           account_id, item_id, name, official_name, mask, type, subtype,
-           currency, current_balance, available_balance, updated_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())`,
-        [
-          account.accountId,
-          account.itemId,
-          account.name,
-          account.officialName,
-          account.mask,
-          account.type,
-          account.subtype,
-          account.currency,
-          account.currentBalance,
-          account.availableBalance,
-        ],
-      );
-    }
-    await insertTransactions(client, dataset.transactions);
+    await upsertAccountRows(
+      client,
+      dataset.accounts.map((account) => ({
+        accountId: account.accountId,
+        itemId: account.itemId,
+        name: account.name,
+        officialName: account.officialName,
+        mask: account.mask,
+        type: account.type,
+        subtype: account.subtype,
+        currency: account.currency,
+        currentBalance: account.currentBalance,
+        availableBalance: account.availableBalance,
+      })),
+    );
+    await upsertMany(client, dataset.transactions.map(toRow));
   });
 
   const dates = dataset.transactions.map((t) => t.date).sort();
@@ -140,52 +137,27 @@ export async function applySeed(dataset: SeedDataset): Promise<SeedSummary> {
 }
 
 /**
- * Insert in batches rather than one statement per row.
+ * A generated transaction, flattened into the row the repository stores.
  *
- * A couple of thousand round trips is slow enough to be noticeable on a command
- * someone runs while waiting, and unlike sync there is no rate limit to respect.
+ * Seeded rows carry no legacy `category` array — Plaid replaced it with the
+ * personal finance category, and fabricating a deprecated field would teach a
+ * query the wrong lesson.
  */
-async function insertTransactions(
-  client: DbClient,
-  transactions: readonly SeedTransaction[],
-): Promise<void> {
-  const COLUMNS = 13;
-  const BATCH = 200;
-
-  for (let start = 0; start < transactions.length; start += BATCH) {
-    const batch = transactions.slice(start, start + BATCH);
-    const values: unknown[] = [];
-    const tuples: string[] = [];
-
-    batch.forEach((txn, index) => {
-      const base = index * COLUMNS;
-      tuples.push(
-        `(${Array.from({ length: COLUMNS }, (_, offset) => `$${base + offset + 1}`).join(", ")}, now(), now())`,
-      );
-      values.push(
-        txn.transactionId,
-        txn.accountId,
-        txn.itemId,
-        txn.amount,
-        txn.isoCurrencyCode,
-        txn.date,
-        txn.authorizedDate,
-        txn.name,
-        txn.merchantName,
-        txn.pending,
-        txn.paymentChannel,
-        JSON.stringify({ primary: txn.pfcPrimary, detailed: txn.pfcDetailed }),
-        JSON.stringify(rawPayload(txn)),
-      );
-    });
-
-    await client.query(
-      `INSERT INTO transactions (
-         transaction_id, account_id, item_id, amount, iso_currency_code,
-         date, authorized_date, name, merchant_name, pending, payment_channel,
-         pfc, raw, created_at, updated_at
-       ) VALUES ${tuples.join(", ")}`,
-      values,
-    );
-  }
+function toRow(txn: SeedTransaction): TransactionRow {
+  return {
+    transactionId: txn.transactionId,
+    accountId: txn.accountId,
+    itemId: txn.itemId,
+    amount: txn.amount,
+    isoCurrencyCode: txn.isoCurrencyCode,
+    date: txn.date,
+    authorizedDate: txn.authorizedDate,
+    name: txn.name,
+    merchantName: txn.merchantName,
+    pending: txn.pending,
+    paymentChannel: txn.paymentChannel,
+    category: null,
+    pfc: JSON.stringify({ primary: txn.pfcPrimary, detailed: txn.pfcDetailed }),
+    raw: JSON.stringify(rawPayload(txn)),
+  };
 }

@@ -17,7 +17,11 @@
 import { InvalidArgumentError } from "commander";
 import type { Command } from "commander";
 import { stdin } from "node:process";
-import { query } from "../../../data/db/queries.js";
+import { search as searchAccounts } from "../../../data/repositories/accounts.repository.js";
+import {
+  listForAccounts,
+  summaryForAccounts,
+} from "../../../data/repositories/transactions.repository.js";
 import { money, truncate } from "../ui/format.js";
 import {
   DEFAULT_DAYS,
@@ -30,17 +34,6 @@ import {
 } from "../ui/picker.js";
 import { todayLocal, daysBetween, subtractDays } from "../utils/dates.js";
 
-type TxnRow = {
-  date: string;
-  name: string | null;
-  merchant_name: string | null;
-  amount: string;
-  pending: boolean;
-  category: string | null;
-  account_name: string | null;
-  mask: string | null;
-  currency: string | null;
-};
 
 function parseDays(value: string): number {
   const parsed = Number.parseInt(value, 10);
@@ -50,26 +43,6 @@ function parseDays(value: string): number {
   return parsed;
 }
 
-async function loadAccounts(accountQuery: string | null): Promise<AccountRow[]> {
-  const { rows } = await query<AccountRow>(
-    `
-    SELECT a.account_id, a.name, a.mask, a.type, a.subtype, a.currency,
-           a.current_balance, i.institution_name,
-           COALESCE((SELECT COUNT(*) FROM transactions t WHERE t.account_id = a.account_id), 0)::text
-             AS txn_count
-      FROM accounts a
-      JOIN items i ON i.item_id = a.item_id
-     WHERE $1::text IS NULL
-        OR a.account_id = $1
-        OR a.mask = $1
-        OR a.name ILIKE '%' || $1 || '%'
-        OR i.institution_name ILIKE '%' || $1 || '%'
-     ORDER BY i.institution_name NULLS LAST, a.name NULLS LAST
-    `,
-    [accountQuery],
-  );
-  return rows;
-}
 
 async function showTransactions(accounts: AccountRow[], window: Window): Promise<void> {
   const ids = accounts.map((account) => account.account_id);
@@ -80,21 +53,7 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
   const today = todayLocal();
   const cutoff = window === "all" ? null : subtractDays(today, window);
 
-  const { rows } = await query<TxnRow>(
-    `
-    SELECT t.date, t.name, t.merchant_name, t.amount, t.pending,
-           t.pfc->>'primary' AS category,
-           a.name            AS account_name,
-           a.mask,
-           a.currency
-      FROM transactions t
-      JOIN accounts a ON a.account_id = t.account_id
-     WHERE t.account_id = ANY($1::text[])
-       AND ($2::date IS NULL OR t.date >= $2::date)
-     ORDER BY t.date DESC, t.pending DESC, t.transaction_id
-    `,
-    [ids, cutoff],
-  );
+  const rows = await listForAccounts(ids, cutoff);
 
   const banks = [...new Set(accounts.map((a) => a.institution_name ?? "(unknown bank)"))];
   const heading = multi
@@ -108,15 +67,7 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
     // An empty window is not the same as an empty account. Say which, and
     // suggest a window that would actually contain something — otherwise a
     // correct answer is indistinguishable from a broken one.
-    const outside = await query<{ newest: string | null; total: string }>(
-      `
-      SELECT MAX(date)::text AS newest, COUNT(*)::text AS total
-        FROM transactions
-       WHERE account_id = ANY($1::text[])
-      `,
-      [ids],
-    );
-    const info = outside.rows[0];
+    const info = await summaryForAccounts(ids);
 
     console.log(
       window === "all"
@@ -230,7 +181,7 @@ export async function runTransactions(
   const accountQuery = account.length > 0 ? account.join(" ") : null;
   const interactive = stdin.isTTY === true;
 
-  const matches = await loadAccounts(accountQuery);
+  const matches = await searchAccounts(accountQuery);
 
   if (matches.length === 0) {
     if (accountQuery === null) {

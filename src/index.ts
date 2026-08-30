@@ -85,11 +85,10 @@ export {
   listAllItems,
   setItemCursor,
   setItemStatus,
-  upsertAccounts,
   deleteItem,
   type StoredItem,
   type SaveItemParams,
-} from "./data/items.repository.js";
+} from "./data/repositories/items.repository.js";
 export {
   createLinkToken,
   exchangePublicToken,

@@ -6,10 +6,9 @@
  * ever sees the plaintext.
  */
 
-import type { AccountBase } from "plaid";
-import type { DbClient } from "./db/queries.js";
-import { query } from "./db/queries.js";
-import { encrypt, decrypt } from "../core/crypto.js";
+import type { DbClient } from "../db/queries.js";
+import { query } from "../db/queries.js";
+import { encrypt, decrypt } from "../../core/crypto.js";
 
 /**
  * Where an Item's data came from. See migrations/0002-item-source.sql.
@@ -212,58 +211,6 @@ export async function setItemStatus(itemId: string, status: string): Promise<voi
   ]);
 }
 
-/**
- * Upsert the accounts belonging to an Item, refreshing balances.
- *
- * Must run before transactions are written: `transactions.account_id` is a
- * foreign key into this table, and a brand-new account (or a first-ever sync)
- * would otherwise fail the constraint.
- */
-export async function upsertAccounts(
-  client: DbClient,
-  itemId: string,
-  accounts: readonly AccountBase[],
-): Promise<number> {
-  if (accounts.length === 0) return 0;
-
-  for (const account of accounts) {
-    const { balances } = account;
-    await client.query(
-      `
-      INSERT INTO accounts (
-        account_id, item_id, name, official_name, mask, type, subtype,
-        currency, current_balance, available_balance, updated_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-      ON CONFLICT (account_id) DO UPDATE SET
-        item_id           = EXCLUDED.item_id,
-        name              = EXCLUDED.name,
-        official_name     = EXCLUDED.official_name,
-        mask              = EXCLUDED.mask,
-        type              = EXCLUDED.type,
-        subtype           = EXCLUDED.subtype,
-        currency          = EXCLUDED.currency,
-        current_balance   = EXCLUDED.current_balance,
-        available_balance = EXCLUDED.available_balance,
-        updated_at        = now()
-      `,
-      [
-        account.account_id,
-        itemId,
-        account.name,
-        account.official_name,
-        account.mask,
-        account.type,
-        account.subtype,
-        balances.iso_currency_code ?? balances.unofficial_currency_code,
-        balances.current,
-        balances.available,
-      ],
-    );
-  }
-
-  return accounts.length;
-}
 
 /**
  * Delete an Item and everything under it (accounts and transactions cascade).
@@ -273,4 +220,125 @@ export async function upsertAccounts(
  */
 export async function deleteItem(itemId: string): Promise<void> {
   await query(`DELETE FROM items WHERE item_id = $1`, [itemId]);
+}
+
+/** An Item named without decrypting anything. */
+export interface ItemSummary {
+  itemId: string;
+  institutionName: string | null;
+  status: string;
+}
+
+/** How many Items exist, whatever their source. */
+export async function countAll(): Promise<number> {
+  const { rows } = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM items`);
+  return Number(rows[0]?.count ?? 0);
+}
+
+/** How many Items came from a given source. */
+export async function countBySource(source: ItemSource): Promise<number> {
+  const { rows } = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM items WHERE source = $1`,
+    [source],
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+/**
+ * Every Item, as id and name only.
+ *
+ * Deliberately not listAllItems(): that decrypts every access token, so one
+ * Item whose token no longer decrypts would throw and make it impossible to
+ * list — or remove — ANY of them. That is precisely the situation in which
+ * someone most wants to clean up.
+ */
+export async function listBasic(): Promise<ItemSummary[]> {
+  const { rows } = await query<{ item_id: string; institution_name: string | null; status: string }>(
+    `SELECT item_id, institution_name, status FROM items
+      ORDER BY institution_name NULLS LAST, created_at`,
+  );
+  return rows.map((row) => ({
+    itemId: row.item_id,
+    institutionName: row.institution_name,
+    status: row.status,
+  }));
+}
+
+/** Delete every Item. Accounts and transactions cascade. */
+export async function deleteAll(): Promise<void> {
+  await query(`DELETE FROM items`);
+}
+
+/** Delete every Item from one source. Accounts and transactions cascade. */
+export async function deleteBySource(source: ItemSource): Promise<void> {
+  await query(`DELETE FROM items WHERE source = $1`, [source]);
+}
+
+/**
+ * Forget where each sync got to, so the next one backfills from scratch.
+ *
+ * Takes a client because this is only ever correct alongside deleting the rows
+ * the cursors describe — separating them would make the missing history
+ * unrecoverable without a re-link.
+ */
+export async function clearCursors(client: DbClient): Promise<void> {
+  await client.query(`UPDATE items SET cursor = NULL, last_synced_at = NULL, updated_at = now()`);
+}
+
+/** One row of the status report: an Item, one of its accounts, and its counts. */
+export interface ItemAccountListing {
+  item_id: string;
+  institution_name: string | null;
+  status: string;
+  last_synced_at: Date | null;
+  never_synced: boolean;
+  source: ItemSource;
+  account_id: string | null;
+  account_name: string | null;
+  mask: string | null;
+  type: string | null;
+  subtype: string | null;
+  currency: string | null;
+  current_balance: string | null;
+  txn_count: string;
+  first_date: string | null;
+  last_date: string | null;
+}
+
+/**
+ * Every Item with every account beneath it, and each account's transaction
+ * count and date range.
+ *
+ * A LEFT JOIN throughout: an Item that has just been linked but never synced
+ * has no accounts yet, and it still has to appear — that state is exactly what
+ * someone running `status` is trying to see.
+ */
+export async function listWithAccounts(): Promise<ItemAccountListing[]> {
+  const { rows } = await query<ItemAccountListing>(`
+    SELECT i.item_id,
+           i.institution_name,
+           i.status,
+           i.last_synced_at,
+           i.cursor IS NULL           AS never_synced,
+           i.source,
+           a.account_id,
+           a.name                     AS account_name,
+           a.mask,
+           a.type,
+           a.subtype,
+           a.currency,
+           a.current_balance,
+           COALESCE(t.txn_count, 0)::text AS txn_count,
+           t.first_date::text         AS first_date,
+           t.last_date::text          AS last_date
+      FROM items i
+      LEFT JOIN accounts a ON a.item_id = i.item_id
+      LEFT JOIN LATERAL (
+             SELECT COUNT(*) AS txn_count, MIN(date) AS first_date, MAX(date) AS last_date
+               FROM transactions
+              WHERE account_id = a.account_id
+           ) t ON TRUE
+     ORDER BY i.institution_name NULLS LAST, a.name NULLS LAST
+  `);
+  return rows;
 }

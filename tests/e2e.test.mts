@@ -54,7 +54,7 @@ const { closeDb, setMigrationSource } = await import("../src/data/db/bootstrap.j
 const { getPlaidClient } = await import("../src/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/services/banks/link.js");
 const { syncAllItems } = await import("../src/services/banks/sync.js");
-const { listAllItems } = await import("../src/data/items.repository.js");
+const { listAllItems } = await import("../src/data/repositories/items.repository.js");
 const { stopServer } = await import("../src/data/db/server.js");
 const { readFile, rm } = await import("node:fs/promises");
 
