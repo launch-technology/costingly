@@ -16,10 +16,10 @@
  */
 
 import type { Command } from "commander";
-import { generateSeedDataset } from "../../services/seed/generate.js";
-import { applySeed, SeedRefused } from "../../services/seed/apply.js";
-import { profileDir, displayPath } from "../../core/profile.js";
-import { CliError } from "./errors.js";
+import { generateSeedDataset } from "../../../services/seed/generate.js";
+import { applySeed, SeedRefused } from "../../../services/seed/apply.js";
+import { profileDir, displayPath } from "../../../core/profile.js";
+import { CliError } from "../errors.js";
 
 interface SeedOptions {
   years?: string;

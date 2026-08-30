@@ -58,7 +58,7 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
+const { loadMigrations } = await import("../src/data/db/migrations.js");
 setMigrationSource(loadMigrations);
 
 // ===========================================================================

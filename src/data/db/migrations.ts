@@ -30,13 +30,16 @@
  *
  * WHERE THE FILES COME FROM
  *
- * Not from here. Reading `migrations/` means resolving a path from
- * `import.meta.url`, and src/ deliberately does not (see the header of
- * cli/paths.ts). The entry point registers a loader; this module calls it.
- * Nothing registered means no automatic migration — the right default for code
- * embedding this module rather than running the CLI.
+ * From here. `loadMigrations()` at the bottom of this file reads them off disk,
+ * locating the folder through core/package.ts, which walks up to the nearest
+ * package.json rather than assuming a fixed depth. The entry point still hands
+ * that function to bootstrap.ts via setMigrationSource, so a caller that wants
+ * a different source can supply one — but the default lives beside the runner.
  */
 
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { migrationsDir } from "../../core/package.js";
 import type { DbClient } from "./queries.js";
 
 export interface Migration {
@@ -113,4 +116,21 @@ export async function runMigrations(
   }
 
   return pending.map((m) => m.id);
+}
+
+/**
+ * Every migration, in filename order.
+ *
+ * Plain string sort, which is why the files are zero-padded — `0010` must come
+ * after `0009`, and `10` would not.
+ */
+export async function loadMigrations(): Promise<Migration[]> {
+  const files = (await readdir(migrationsDir)).filter((f) => f.endsWith(".sql")).sort();
+
+  return Promise.all(
+    files.map(async (file) => ({
+      id: file.replace(/\.sql$/, ""),
+      sql: await readFile(join(migrationsDir, file), "utf8"),
+    })),
+  );
 }

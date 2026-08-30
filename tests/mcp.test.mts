@@ -58,9 +58,9 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-// Register the migration loader the way cli/index.ts does, then let the first
+// Register the migration loader the way cli/main.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
+const { loadMigrations } = await import("../src/data/db/migrations.js");
 setMigrationSource(loadMigrations);
 await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
@@ -264,7 +264,7 @@ ok(/relink_bank/.test(tools.find((t) => t.name === "link_bank")?.description ?? 
 process.env["PLAID_CLIENT_ID"] = "fake-client-id";
 process.env["PLAID_SECRET"] = "fake-secret";
 const { setPublicDir: setDir } = await import("../src/interfaces/web/server.js");
-const { publicDir: pubDir } = await import("../src/interfaces/cli/paths.js");
+const { publicDir: pubDir } = await import("../src/core/package.js");
 setDir(pubDir);
 
 const relinkUnknown = await client.callTool({
@@ -511,7 +511,7 @@ ok(/Sync again shortly/.test(notReady), "and says what to do about it");
 process.env["PLAID_CLIENT_ID"] = "fake-client-id";
 process.env["PLAID_SECRET"] = "fake-secret";
 
-// cli/index.ts registers this; an in-process test has to do it too, for the same
+// cli/main.ts registers this; an in-process test has to do it too, for the same
 // reason it registers the migration loader.
 const { linkServerStatus } = await import("../src/interfaces/web/server.js");
 const started = await client.callTool({ name: "link_bank", arguments: {} });
@@ -551,7 +551,7 @@ function driveServer(lines: string[], holdMs: number): Promise<Run> {
     const started = Date.now();
     const child = spawn(
       process.execPath,
-      [`${P}/node_modules/tsx/dist/cli.mjs`, `${P}/src/interfaces/cli/index.ts`, "mcp"],
+      [`${P}/node_modules/tsx/dist/cli.mjs`, `${P}/src/interfaces/cli/main.ts`, "mcp"],
       { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, COSTINGLY_HOME: HOME } },
     );
 

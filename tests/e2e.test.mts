@@ -58,9 +58,9 @@ const { listAllItems } = await import("../src/data/items.repository.js");
 const { stopServer } = await import("../src/data/db/server.js");
 const { readFile, rm } = await import("node:fs/promises");
 
-// Register the migration loader the way cli/index.ts does, then let the first
+// Register the migration loader the way cli/main.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
+const { loadMigrations } = await import("../src/data/db/migrations.js");
 setMigrationSource(loadMigrations);
 
 /**

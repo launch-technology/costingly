@@ -16,14 +16,14 @@
 import type { Command } from "commander";
 import { intro, outro, text, password, confirm, isCancel, cancel, log } from "@clack/prompts";
 import { stdin } from "node:process";
-import { generateEncryptionKey } from "../../core/crypto.js";
-import { describeError } from "../../data/plaid.client.js";
-import { createLinkToken } from "../../services/banks/link.js";
-import { clusterDir } from "../../data/db/server.js";
-import { configPath, displayPath, profileDir, profileSource } from "../../core/profile.js";
-import { readConfigFile, writeConfig, type StoredConfig } from "../../core/config.js";
-import { runMigrate } from "./migrate.js";
-import { CliError } from "./errors.js";
+import { generateEncryptionKey } from "../../../core/crypto.js";
+import { describeError } from "../../../data/plaid.client.js";
+import { createLinkToken } from "../../../services/banks/link.js";
+import { clusterDir } from "../../../data/db/server.js";
+import { configPath, displayPath, profileDir, profileSource } from "../../../core/profile.js";
+import { readConfigFile, writeConfig, type StoredConfig } from "../../../core/config.js";
+import { runMigrate } from "./migrate.command.js";
+import { CliError } from "../errors.js";
 
 /**
  * Streams the prompts read and write.

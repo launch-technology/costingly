@@ -11,9 +11,9 @@
  */
 
 import type { Command } from "commander";
-import { get } from "../../core/config.js";
-import { countData, removeAllItems, resetSyncedData } from "../../services/banks/remove.js";
-import { confirmDestructive } from "./confirm.js";
+import { get } from "../../../core/config.js";
+import { countData, removeAllItems, resetSyncedData } from "../../../services/banks/remove.js";
+import { confirmDestructive } from "../ui/confirm.js";
 
 interface ResetOptions {
   dataOnly?: boolean;

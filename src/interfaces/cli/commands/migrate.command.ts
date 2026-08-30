@@ -8,10 +8,9 @@
  */
 
 import type { Command } from "commander";
-import { withTransaction } from "../../data/db/queries.js";
-import { runMigrations } from "../../data/db/migrations.js";
-import { loadMigrations } from "./migrations.js";
-import { CliError } from "./errors.js";
+import { withTransaction } from "../../../data/db/queries.js";
+import { loadMigrations, runMigrations } from "../../../data/db/migrations.js";
+import { CliError } from "../errors.js";
 
 export function registerMigrateCommand(program: Command): void {
   program

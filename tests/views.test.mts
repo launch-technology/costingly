@@ -47,9 +47,9 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-// Register the migration loader the way cli/index.ts does, then let the first
+// Register the migration loader the way cli/main.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../src/interfaces/cli/migrations.js");
+const { loadMigrations } = await import("../src/data/db/migrations.js");
 setMigrationSource(loadMigrations);
 
 // Enough data that the live facts have something to report.

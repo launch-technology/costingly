@@ -18,11 +18,11 @@
   ],
   "server": {
     "type": "node",
-    "entry_point": "dist/interfaces/cli/index.js",
+    "entry_point": "dist/interfaces/cli/main.js",
     "mcp_config": {
       "command": "node",
       "args": [
-        "${__dirname}/dist/interfaces/cli/index.js",
+        "${__dirname}/dist/interfaces/cli/main.js",
         "mcp"
       ],
       "env": {

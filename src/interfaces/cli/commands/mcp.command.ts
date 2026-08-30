@@ -1,7 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Command } from "commander";
-import { CostinglyMcpServer } from "../mcp/server.js";
-import { packageVersion } from "./paths.js";
+import { CostinglyMcpServer } from "../../mcp/server.js";
+import { packageVersion } from "../../../core/package.js";
 
 
 export function registerMcpCommand(program: Command): void {

@@ -9,9 +9,9 @@
  */
 
 import type { Command } from "commander";
-import { query } from "../../data/db/queries.js";
-import { describeServer } from "../../data/db/server.js";
-import { money, ago } from "./format.js";
+import { query } from "../../../data/db/queries.js";
+import { describeServer } from "../../../data/db/server.js";
+import { money, ago } from "../ui/format.js";
 
 type Row = {
   item_id: string;

@@ -14,9 +14,9 @@
 
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { get } from "../../core/config.js";
-import { clusterDir } from "../../data/db/server.js";
-import { displayPath } from "../../core/profile.js";
+import { get } from "../../../core/config.js";
+import { clusterDir } from "../../../data/db/server.js";
+import { displayPath } from "../../../core/profile.js";
 
 /**
  * Which database is about to be modified.

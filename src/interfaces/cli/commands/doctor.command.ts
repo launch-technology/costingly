@@ -14,10 +14,10 @@
 
 import type { Command } from "commander";
 import { stat } from "node:fs/promises";
-import { describeConfig } from "../../core/config.js";
-import { clusterDir, databaseCredentials, serverLogPath, serverStatus } from "../../data/db/server.js";
-import { configPath, displayPath, profileDir, profileSource } from "../../core/profile.js";
-import { packageVersion } from "./paths.js";
+import { describeConfig } from "../../../core/config.js";
+import { clusterDir, databaseCredentials, serverLogPath, serverStatus } from "../../../data/db/server.js";
+import { configPath, displayPath, profileDir, profileSource } from "../../../core/profile.js";
+import { packageVersion } from "../../../core/package.js";
 
 export function registerDoctorCommand(program: Command): void {
   program

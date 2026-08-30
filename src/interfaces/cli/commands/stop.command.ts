@@ -11,8 +11,8 @@
  */
 
 import type { Command } from "commander";
-import { stopServer, clusterDir } from "../../index.js";
-import { displayPath } from "../../core/profile.js";
+import { stopServer, clusterDir } from "../../../index.js";
+import { displayPath } from "../../../core/profile.js";
 
 export function registerStopCommand(program: Command): void {
   program

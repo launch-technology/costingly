@@ -8,8 +8,8 @@
  */
 
 import { existsSync } from "node:fs";
-import { configPath, displayPath, profileDir, profileSource } from "../../core/profile.js";
-import { clusterDir } from "../../data/db/server.js";
+import { configPath, displayPath, profileDir, profileSource } from "../../../core/profile.js";
+import { clusterDir } from "../../../data/db/server.js";
 
 export function environmentBanner(): string {
   const lines: string[] = [];

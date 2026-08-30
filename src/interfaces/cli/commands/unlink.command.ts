@@ -11,10 +11,10 @@
 import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { query } from "../../data/db/queries.js";
-import { listAllItems, type StoredItem } from "../../data/items.repository.js";
-import { removeItem } from "../../services/banks/remove.js";
-import { confirmDestructive } from "./confirm.js";
+import { query } from "../../../data/db/queries.js";
+import { listAllItems, type StoredItem } from "../../../data/items.repository.js";
+import { removeItem } from "../../../services/banks/remove.js";
+import { confirmDestructive } from "../ui/confirm.js";
 
 type ItemStats = { accounts: number; transactions: number };
 
