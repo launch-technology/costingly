@@ -9,15 +9,15 @@
 
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { McpRuntime } from "./runtime.js";
-import { registerDescribeDatabaseTool } from "./tools/describe-database.js";
-import { registerQueryTool } from "./tools/query.js";
-import { registerCheckDatabaseTool } from "./tools/check-database.js";
-import { registerRestartDatabaseTool } from "./tools/restart-database.js";
-import { registerSyncTool } from "./tools/sync.js";
-import { registerLinkBankTool } from "./tools/link-bank.js";
-import { registerRelinkBankTool } from "./tools/relink-bank.js";
-import { registerUnlinkBankTool } from "./tools/unlink-bank.js";
-import { stopLinkServer } from "../web/server.js";
+import { registerDescribeDatabaseTool } from "./tools/describe-database.tool.js";
+import { registerQueryTool } from "./tools/query.tool.js";
+import { registerCheckDatabaseTool } from "./tools/check-database.tool.js";
+import { registerRestartDatabaseTool } from "./tools/restart-database.tool.js";
+import { registerSyncTool } from "./tools/sync.tool.js";
+import { registerLinkBankTool } from "./tools/link-bank.tool.js";
+import { registerRelinkBankTool } from "./tools/relink-bank.tool.js";
+import { registerUnlinkBankTool } from "./tools/unlink-bank.tool.js";
+import { stopLinkServer } from "../../web/server.js";
 
 /**
  * Returned in the initialize result, above any individual tool.

@@ -4,11 +4,11 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { startLinkServer, takeRecentRepairs } from "../../web/server.js";
+import { startLinkServer, takeRecentRepairs } from "../../../web/server.js";
 import { query } from "../../../data/db/queries.js";
 import { describeError } from "../../../data/plaid.client.js";
 import { explainDbError } from "../../../data/db/errors.js";
-import { credentialsPresent, MISSING_CREDENTIALS } from "../credentials.js";
+import { credentialsPresent, MISSING_CREDENTIALS } from "../utils/credentials.js";
 
 export function registerRelinkBankTool(server: McpServer): void {
     server.registerTool(

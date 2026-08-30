@@ -33,16 +33,16 @@ import express from "express";
 import type { Request, Response } from "express";
 import type { Server } from "node:http";
 
-import { get } from "../../core/config.js";
-import { ports } from "../../core/ports.js";
+import { get } from "../core/config.js";
+import { ports } from "../core/ports.js";
 import {
   createLinkToken,
   createRepairLinkToken,
   exchangePublicToken,
   markItemRepaired,
   type LinkedItem,
-} from "../../services/banks/link.js";
-import { describeError } from "../../data/plaid.client.js";
+} from "../services/banks/link.js";
+import { describeError } from "../data/plaid.client.js";
 
 /** Close the server after this long with no requests. */
 const IDLE_MS = 10 * 60 * 1000;

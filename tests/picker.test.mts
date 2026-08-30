@@ -4,7 +4,7 @@
  */
 
 import { PassThrough } from "node:stream";
-import { pickAccounts, pickWindow, type AccountRow } from "../src/interfaces/cli/ui/picker.js";
+import { pickAccounts, pickWindow, type AccountRow } from "../src/apps/cli/ui/picker.js";
 
 const KEY = { down: "[B", up: "[A", enter: "\r", ctrlC: "" };
 

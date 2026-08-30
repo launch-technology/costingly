@@ -13,7 +13,7 @@ process.env.PLAID_ENV = "production";
 
 import { PassThrough } from "node:stream";
 
-const { describeDatabase } = await import("../src/interfaces/cli/ui/confirm.js");
+const { describeDatabase } = await import("../src/apps/cli/ui/confirm.js");
 const { displayPath } = await import("../src/core/profile.js");
 const { join, resolve } = await import("node:path");
 

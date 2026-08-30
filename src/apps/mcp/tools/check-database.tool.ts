@@ -8,7 +8,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { checkDatabase } from "../../../data/db/health.js";
-import { formatHealth } from "../format.js";
+import { formatHealth } from "./check-database.utils.js";
 
 /**
  * Is it working, and which profile is this?

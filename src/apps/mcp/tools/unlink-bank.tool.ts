@@ -2,7 +2,7 @@
  * unlink_bank — disconnect a bank and delete everything held for it.
  *
  * The only tool here that destroys data, so it is two-phase. The token
- * mechanism itself is generic and lives in confirmations.ts; what
+ * mechanism itself is generic and lives in utils/confirmations.ts; what
  * stays here is what only costingly knows — what gets counted, what the numbers
  * mean, and that the connection must also be revoked at Plaid.
  */
@@ -14,7 +14,7 @@ import { explainDbError } from "../../../data/db/errors.js";
 import { getItem } from "../../../data/items.repository.js";
 import { revokeAtPlaid } from "../../../services/banks/remove.js";
 import { describeError } from "../../../data/plaid.client.js";
-import { ConfirmationStore } from "../confirmations.js";
+import { ConfirmationStore } from "../utils/confirmations.js";
 
 /**
  * How long an unlink confirmation stays spendable.

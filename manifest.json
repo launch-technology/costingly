@@ -18,12 +18,11 @@
   ],
   "server": {
     "type": "node",
-    "entry_point": "dist/interfaces/cli/main.js",
+    "entry_point": "dist/apps/mcp/main.js",
     "mcp_config": {
       "command": "node",
       "args": [
-        "${__dirname}/dist/interfaces/cli/main.js",
-        "mcp"
+        "${__dirname}/dist/apps/mcp/main.js"
       ],
       "env": {
         "PLAID_CLIENT_ID": "${user_config.plaid_client_id}",

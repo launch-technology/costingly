@@ -26,7 +26,7 @@ process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
 const { checkDatabase, restartDatabase } = await import("../src/data/db/health.js");
-const { formatHealth } = await import("../src/interfaces/mcp/format.js");
+const { formatHealth } = await import("../src/apps/mcp/tools/check-database.utils.js");
 const { serverStatus } = await import("../src/data/db/server.js");
 
 const out: string[] = [];

@@ -3,10 +3,10 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { startLinkServer, takeRecentLinks } from "../../web/server.js";
+import { startLinkServer, takeRecentLinks } from "../../../web/server.js";
 import { describeError } from "../../../data/plaid.client.js";
 import { explainDbError } from "../../../data/db/errors.js";
-import { credentialsPresent, MISSING_CREDENTIALS } from "../credentials.js";
+import { credentialsPresent, MISSING_CREDENTIALS } from "../utils/credentials.js";
 
 export function registerLinkBankTool(server: McpServer): void {
     server.registerTool(

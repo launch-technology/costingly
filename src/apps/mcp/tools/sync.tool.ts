@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { syncAllItems } from "../../../services/banks/sync.js";
 import { explainDbError } from "../../../data/db/errors.js";
-import { formatSyncSummary } from "../format.js";
+import { formatSyncSummary } from "./sync.utils.js";
 
 export function registerSyncTool(server: McpServer): void {
     server.registerTool(

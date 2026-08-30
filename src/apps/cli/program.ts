@@ -20,7 +20,6 @@ import { registerUnlinkCommand } from "./commands/unlink.command.js";
 import { registerResetCommand } from "./commands/reset.command.js";
 import { registerStopCommand } from "./commands/stop.command.js";
 import { registerDoctorCommand } from "./commands/doctor.command.js";
-import { registerMcpCommand } from "./commands/mcp.command.js";
 import { registerSeedCommand } from "./commands/seed.command.js";
 
 /**
@@ -48,7 +47,6 @@ Per-command flags:  costingly <command> --help
   // grouped catalog the old hand-rolled help.ts used to print.
   registerInitCommand(program);
   registerMigrateCommand(program);
-  registerMcpCommand(program);
   registerLinkCommand(program);
   registerSyncCommand(program);
   registerStatusCommand(program);

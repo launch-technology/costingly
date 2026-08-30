@@ -35,7 +35,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 if (HOME !== "/tmp/costingly-mcp") throw new Error("refusing to run against a real profile");
 
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { CostinglyMcpServer } = await import("../src/interfaces/mcp/server.js");
+const { CostinglyMcpServer } = await import("../src/apps/mcp/server.js");
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 
@@ -263,7 +263,7 @@ ok(/relink_bank/.test(tools.find((t) => t.name === "link_bank")?.description ?? 
 // this block only — the link_bank tests below deliberately run without any.
 process.env["PLAID_CLIENT_ID"] = "fake-client-id";
 process.env["PLAID_SECRET"] = "fake-secret";
-const { setPublicDir: setDir } = await import("../src/interfaces/web/server.js");
+const { setPublicDir: setDir } = await import("../src/web/server.js");
 const { publicDir: pubDir } = await import("../src/core/package.js");
 setDir(pubDir);
 
@@ -454,7 +454,7 @@ ok(!/costingly init/.test(credsText),
 // directly. This is where the design lives: the output is read by a model that
 // is about to write a report, and a partial failure must be impossible to skim
 // past. Assertions below check ORDER, not just presence.
-const { formatSyncSummary } = await import("../src/interfaces/mcp/format.js");
+const { formatSyncSummary } = await import("../src/apps/mcp/tools/sync.utils.js");
 
 const item = (over: Record<string, unknown>): any => ({
   itemId: "i", institutionName: "Bank", ok: true, added: 0, modified: 0,
@@ -513,7 +513,7 @@ process.env["PLAID_SECRET"] = "fake-secret";
 
 // cli/main.ts registers this; an in-process test has to do it too, for the same
 // reason it registers the migration loader.
-const { linkServerStatus } = await import("../src/interfaces/web/server.js");
+const { linkServerStatus } = await import("../src/web/server.js");
 const started = await client.callTool({ name: "link_bank", arguments: {} });
 eq(started.isError, undefined, "with credentials present, link_bank starts the page");
 const startedText = text(started);
@@ -551,7 +551,7 @@ function driveServer(lines: string[], holdMs: number): Promise<Run> {
     const started = Date.now();
     const child = spawn(
       process.execPath,
-      [`${P}/node_modules/tsx/dist/cli.mjs`, `${P}/src/interfaces/cli/main.ts`, "mcp"],
+      [`${P}/node_modules/tsx/dist/cli.mjs`, `${P}/src/apps/mcp/main.ts`],
       { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, COSTINGLY_HOME: HOME } },
     );
 

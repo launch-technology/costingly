@@ -22,7 +22,7 @@ const execFileAsync = promisify(execFile);
 const HOME = "/tmp/costingly-concurrency";
 process.env["COSTINGLY_HOME"] = HOME;
 const NODE = process.execPath;
-const CLI = `${P}/dist/interfaces/cli/main.js`;
+const CLI = `${P}/dist/apps/cli/main.js`;
 
 const out: string[] = [];
 let fail = 0;
@@ -62,7 +62,7 @@ async function cli(...args: string[]): Promise<{ code: number; stdout: string; s
 const { setMigrationSource } =
   (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 const { loadMigrations } =
-  (await import(new URL("../dist/interfaces/cli/migrations.js", import.meta.url).href)) as typeof import("../src/data/db/migrations.js");
+  (await import(new URL("../dist/data/db/migrations.js", import.meta.url).href)) as typeof import("../src/data/db/migrations.js");
 setMigrationSource(loadMigrations);
 
 // The first connection is what creates the cluster, starts it, creates the

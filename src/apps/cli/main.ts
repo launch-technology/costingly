@@ -12,7 +12,7 @@
  */
 
 import { closeDb, setMigrationSource } from "../../data/db/bootstrap.js";
-import { setPublicDir } from "../web/server.js";
+import { setPublicDir } from "../../web/server.js";
 import { isMissingSchema, MISSING_SCHEMA_CLI } from "../../data/db/errors.js";
 import { CliError } from "./errors.js";
 import { publicDir } from "../../core/package.js";
