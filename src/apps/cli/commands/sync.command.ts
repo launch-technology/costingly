@@ -9,8 +9,8 @@
 
 import type { Command } from "commander";
 import { TransactionsUpdateStatus } from "plaid";
-import { syncAllItems } from "../../../services/banks/sync.js";
-import type { ItemSyncResult } from "../../../services/banks/sync.js";
+import { syncAllItems } from "../../../services/banks/sync.service.js";
+import type { ItemSyncResult } from "../../../services/banks/sync.types.js";
 import { CliError } from "../errors.js";
 
 function label(result: ItemSyncResult): string {

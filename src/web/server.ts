@@ -37,11 +37,10 @@ import { get } from "../core/config.js";
 import { ports } from "../core/ports.js";
 import {
   createLinkToken,
-  createRepairLinkToken,
   exchangePublicToken,
-  markItemRepaired,
   type LinkedItem,
-} from "../services/banks/link.js";
+} from "../services/banks/link.service.js";
+import { createRepairLinkToken, markItemRepaired } from "../services/banks/relink.service.js";
 import { describeError } from "../data/plaid.client.js";
 
 /** Close the server after this long with no requests. */

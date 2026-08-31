@@ -19,7 +19,7 @@ import {
   upsertMany,
   type TransactionRow,
 } from "../../data/repositories/transactions.repository.js";
-import type { SeedDataset, SeedTransaction } from "./generate.js";
+import type { SeedDataset, SeedSummary, SeedTransaction } from "./seed.types.js";
 
 export class SeedRefused extends Error {}
 
@@ -43,47 +43,6 @@ export async function assertSeedable(): Promise<void> {
   }
 }
 
-/**
- * Plaid's transaction object, reconstructed for the `raw` column.
- *
- * `transactions.raw` is NOT NULL and holds the provider's payload verbatim, so
- * that a new column can be backfilled from it without re-syncing. Seeded rows
- * have no provider, so the payload is rebuilt from the row itself — which keeps
- * that promise true for anything reading `raw` without caring where the row
- * came from.
- */
-function rawPayload(txn: SeedTransaction): Record<string, unknown> {
-  return {
-    transaction_id: txn.transactionId,
-    account_id: txn.accountId,
-    amount: txn.amount,
-    iso_currency_code: txn.isoCurrencyCode,
-    unofficial_currency_code: null,
-    date: txn.date,
-    authorized_date: txn.authorizedDate,
-    name: txn.name,
-    merchant_name: txn.merchantName,
-    pending: txn.pending,
-    pending_transaction_id: null,
-    payment_channel: txn.paymentChannel,
-    personal_finance_category: {
-      primary: txn.pfcPrimary,
-      detailed: txn.pfcDetailed,
-      confidence_level: "VERY_HIGH",
-    },
-    // Says so in the payload as well as the column, for anyone who reaches for
-    // `raw` and skips v_items.
-    costingly_source: "seed",
-  };
-}
-
-export interface SeedSummary {
-  items: number;
-  accounts: number;
-  transactions: number;
-  firstDate: string | null;
-  lastDate: string | null;
-}
 
 /**
  * Replace any existing seeded data with `dataset`.
@@ -133,6 +92,37 @@ export async function applySeed(dataset: SeedDataset): Promise<SeedSummary> {
     transactions: dataset.transactions.length,
     firstDate: dates[0] ?? null,
     lastDate: dates[dates.length - 1] ?? null,
+  };
+}
+
+/**
+ * Plaid's transaction object, reconstructed for the `raw` column.
+ *
+ * Seeded rows carry one so that anything reading `raw` — a query, a debugging
+ * session — meets the same shape it would for a real transaction.
+ */
+function rawPayload(txn: SeedTransaction): Record<string, unknown> {
+  return {
+    transaction_id: txn.transactionId,
+    account_id: txn.accountId,
+    amount: txn.amount,
+    iso_currency_code: txn.isoCurrencyCode,
+    unofficial_currency_code: null,
+    date: txn.date,
+    authorized_date: txn.authorizedDate,
+    name: txn.name,
+    merchant_name: txn.merchantName,
+    pending: txn.pending,
+    pending_transaction_id: null,
+    payment_channel: txn.paymentChannel,
+    personal_finance_category: {
+      primary: txn.pfcPrimary,
+      detailed: txn.pfcDetailed,
+      confidence_level: "VERY_HIGH",
+    },
+    // Says so in the payload as well as the column, for anyone who reaches for
+    // `raw` and skips v_items.
+    costingly_source: "seed",
   };
 }
 

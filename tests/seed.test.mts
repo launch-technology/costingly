@@ -21,10 +21,10 @@ const HOME = "/tmp/costingly-seed";
 process.env["COSTINGLY_HOME"] = HOME;
 
 const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { generateSeedDataset } = await import("../src/services/seed/generate.js");
-const { applySeed, assertSeedable, SeedRefused } = await import("../src/services/seed/apply.js");
+const { generateSeedDataset } = await import("../src/services/seed/seed.generator.js");
+const { applySeed, assertSeedable, SeedRefused } = await import("../src/services/seed/seed.service.js");
 const { listSyncableItems, listAllItems, saveItem } = await import("../src/data/repositories/items.repository.js");
-const { createRepairLinkToken } = await import("../src/services/banks/link.js");
+const { createRepairLinkToken } = await import("../src/services/banks/relink.service.js");
 
 const out: string[] = [];
 let fail = 0;

@@ -29,7 +29,7 @@ process.env["PLAID_ENV"] = "sandbox";
 const { writeConfig, readConfigFile } = await import("../src/core/config.js");
 const { configPath, displayPath } = await import("../src/core/profile.js");
 const { generateEncryptionKey } = await import("../src/core/crypto.js");
-const { createLinkToken } = await import("../src/services/banks/link.js");
+const { createLinkToken } = await import("../src/services/banks/link.service.js");
 const { describeError } = await import("../src/data/plaid.client.js");
 
 intro("costingly sandbox profile");

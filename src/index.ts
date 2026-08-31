@@ -93,19 +93,21 @@ export {
   createLinkToken,
   exchangePublicToken,
   type LinkedItem,
-} from "./services/banks/link.js";
+} from "./services/banks/link.service.js";
+export { createRepairLinkToken, markItemRepaired } from "./services/banks/relink.service.js";
 export {
   syncAllItems,
-  syncItem,
-  type ItemSyncResult,
-  type SyncSummary,
-} from "./services/banks/sync.js";
+} from "./services/banks/sync.service.js";
+export type { ItemSyncResult, SyncSummary } from "./services/banks/sync.types.js";
+export {
+  removeItem,
+  countItemData,
+  revokeIfPossible,
+  type RemovalOutcome,
+} from "./services/banks/unlink.service.js";
 export {
   countData,
-  revokeAtPlaid,
-  removeItem,
   removeAllItems,
   resetSyncedData,
   type DataCounts,
-  type RemovalOutcome,
-} from "./services/banks/remove.js";
+} from "./services/banks/reset.service.js";

@@ -12,7 +12,7 @@ import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
 import { listAllItems, type StoredItem } from "../../../data/repositories/items.repository.js";
-import { countItemData, removeItem } from "../../../services/banks/remove.js";
+import { countItemData, removeItem } from "../../../services/banks/unlink.service.js";
 import { confirmDestructive } from "../ui/confirm.js";
 
 function label(item: StoredItem): string {

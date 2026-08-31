@@ -11,7 +11,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listBasic, deleteItem } from "../../../data/repositories/items.repository.js";
 import { explainDbError } from "../../../data/db/errors.js";
-import { countItemData, revokeIfPossible } from "../../../services/banks/remove.js";
+import { countItemData, revokeIfPossible } from "../../../services/banks/unlink.service.js";
 import { ConfirmationStore } from "../utils/confirmations.js";
 
 /**

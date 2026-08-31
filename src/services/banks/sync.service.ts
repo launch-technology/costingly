@@ -24,6 +24,7 @@ import type {
   TransactionsUpdateStatus,
 } from "plaid";
 import type { DbClient } from "../../data/db/queries.js";
+import type { ItemSyncResult, SyncSummary } from "./sync.types.js";
 import { withTransaction } from "../../data/db/queries.js";
 import { upsertMany, deleteByIds } from "../../data/repositories/transactions.repository.js";
 import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
@@ -50,48 +51,6 @@ const MAX_PAGINATION_RESTARTS = 5;
 /** Safety valve so a misbehaving `has_more` can never loop forever. */
 const MAX_PAGES_PER_ATTEMPT = 1000;
 
-/** Rows per multi-row INSERT. 200 x 14 params is well under Postgres' 65535. */
-
-// ---------------------------------------------------------------------------
-// Result types
-// ---------------------------------------------------------------------------
-
-export interface ItemSyncResult {
-  itemId: string;
-  institutionName: string | null;
-  ok: boolean;
-  /** Counts as reported by Plaid across all pages. */
-  added: number;
-  modified: number;
-  removed: number;
-  accounts: number;
-  /** Number of /transactions/sync pages fetched. */
-  pages: number;
-  /** True when the Item had no cursor, i.e. this was the full-history backfill. */
-  initialBackfill: boolean;
-  /**
-   * Plaid's view of how far the Item's data has caught up. On a brand-new Item
-   * this is often NOT_READY with zero transactions: Plaid is still pulling
-   * history in the background and the next run will return it.
-   */
-  updateStatus: TransactionsUpdateStatus | null;
-  /** Present only when `ok` is false. */
-  error?: string;
-}
-
-export interface SyncSummary {
-  ok: boolean;
-  startedAt: string;
-  finishedAt: string;
-  durationMs: number;
-  itemsTotal: number;
-  itemsSucceeded: number;
-  itemsFailed: number;
-  added: number;
-  modified: number;
-  removed: number;
-  results: ItemSyncResult[];
-}
 
 // ---------------------------------------------------------------------------
 // Fetching
@@ -234,7 +193,7 @@ function dedupeTransactions(...lists: ReadonlyArray<readonly Transaction[]>): Tr
  * (source 'seed') has nothing to sync, and the type says so rather than a guard
  * having to notice at runtime.
  */
-export async function syncItem(item: SyncableItem): Promise<ItemSyncResult> {
+async function syncItem(item: SyncableItem): Promise<ItemSyncResult> {
   const initialBackfill = item.cursor === null;
 
   const base = {
