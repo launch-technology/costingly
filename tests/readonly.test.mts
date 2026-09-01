@@ -28,8 +28,8 @@ process.env["COSTINGLY_HOME"] = HOME;
 // their real database.
 if (HOME !== "/tmp/costingly-readonly") throw new Error("refusing to run against a real profile");
 
-const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { queryReadOnly } = await import("../src/data/db/queries.js");
+const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
+const { queryReadOnly } = await import("../src/data/db/readonly-query.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -67,11 +67,11 @@ await wipe();
 const { loadMigrations } = await import("../src/data/db/migrations.js");
 setMigrationSource(loadMigrations);
 
-await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
+await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
-await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+await db.query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
              VALUES ('a1', 'i1', 'Checking', '0000', 'depository', 'checking', 'USD', 100.0)`);
-await query(`
+await db.query(`
   INSERT INTO transactions (transaction_id, account_id, item_id, amount, iso_currency_code,
                             date, name, merchant_name, pending, pfc, raw)
   VALUES ('t1','a1','i1',  42.10,'USD','2026-01-15','COFFEE','Blue Bottle', false,
@@ -159,18 +159,18 @@ eq(setting.rows[0]?.["t"], "10s", "the default timeout is 10s");
 // times over.
 let leaked = "";
 for (let i = 0; i < 30; i++) {
-  const who = await query<{ u: string }>("SELECT current_user AS u");
+  const who = await db.query<{ u: string }>("SELECT current_user AS u");
   if (who.rows[0]?.u === "role_readonly") leaked = "role";
-  const ro = await query<{ ro: string }>("SELECT current_setting('transaction_read_only') AS ro");
+  const ro = await db.query<{ ro: string }>("SELECT current_setting('transaction_read_only') AS ro");
   if (ro.rows[0]?.ro === "on") leaked = leaked ? `${leaked}+read_only` : "read_only";
 }
 eq(leaked, "", "NEITHER THE ROLE NOR READ-ONLY LEAKS ONTO THE POOLED CONNECTION");
 
 // The strongest form of the same claim: ordinary access still works afterwards.
-const after = await query("SELECT access_token_enc FROM items");
+const after = await db.query("SELECT access_token_enc FROM items");
 eq(after.rows.length, 1, "and the application can still read what it owns");
 
-const timeoutAfter = await query<{ t: string }>("SELECT current_setting('statement_timeout') AS t");
+const timeoutAfter = await db.query<{ t: string }>("SELECT current_setting('statement_timeout') AS t");
 eq(timeoutAfter.rows[0]?.t, "0", "the statement timeout reverts too");
 
 await closeDb();

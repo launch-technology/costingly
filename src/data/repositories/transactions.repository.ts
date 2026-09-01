@@ -17,7 +17,7 @@
  * the schema is what tells a model about it.
  */
 
-import { query, type DbClient } from "../db/queries.js";
+import type { Executor } from "../db/types/executor.js";
 
 /** Columns in insert order. `transaction_id` is the conflict target. */
 const COLUMNS = [
@@ -98,7 +98,7 @@ function values(row: TransactionRow): unknown[] {
  * so a row keeps the moment it first arrived.
  */
 export async function upsertMany(
-  client: DbClient,
+  exec: Executor,
   rows: readonly TransactionRow[],
 ): Promise<void> {
   if (rows.length === 0) return;
@@ -121,7 +121,7 @@ export async function upsertMany(
       params.push(...rowValues);
     }
 
-    await client.query(
+    await exec.query(
       `
       INSERT INTO transactions (${columnList}, updated_at)
       VALUES ${tuples.join(", ")}
@@ -141,33 +141,39 @@ export async function upsertMany(
  * version under a brand-new id and retracts the pending one, so these deletes
  * are what stop the table accumulating stale pending rows.
  */
-export async function deleteByIds(client: DbClient, ids: readonly string[]): Promise<void> {
+export async function deleteByIds(exec: Executor, ids: readonly string[]): Promise<void> {
   if (ids.length === 0) return;
 
   const unique = [...new Set(ids)];
   for (let offset = 0; offset < unique.length; offset += CHUNK_SIZE) {
     const chunk = unique.slice(offset, offset + CHUNK_SIZE);
-    await client.query(`DELETE FROM transactions WHERE transaction_id = ANY($1::text[])`, [chunk]);
+    await exec.query(`DELETE FROM transactions WHERE transaction_id = ANY($1::text[])`, [chunk]);
   }
 }
 
-/** Delete every transaction. Returns how many went. */
-export async function deleteAll(client: DbClient): Promise<number> {
-  const result = await client.query(`DELETE FROM transactions`);
+/**
+ * Delete every transaction. Returns how many went.
+ *
+ * The caller must pair this with clearing every item cursor, in one
+ * transaction: dropping the rows while the cursors still point past them makes
+ * the missing history unrecoverable without a re-link. See resetSyncedData().
+ */
+export async function deleteAll(exec: Executor): Promise<number> {
+  const result = await exec.query(`DELETE FROM transactions`);
   return result.rowCount ?? 0;
 }
 
 /** How many transactions exist across every Item. */
-export async function countAll(): Promise<number> {
-  const { rows } = await query<{ count: string }>(
+export async function countAll(exec: Executor): Promise<number> {
+  const { rows } = await exec.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM transactions`,
   );
   return Number(rows[0]?.count ?? 0);
 }
 
 /** How many transactions belong to one Item. */
-export async function countForItem(itemId: string): Promise<number> {
-  const { rows } = await query<{ count: string }>(
+export async function countForItem(exec: Executor, itemId: string): Promise<number> {
+  const { rows } = await exec.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM transactions WHERE item_id = $1`,
     [itemId],
   );
@@ -196,10 +202,11 @@ export interface TransactionListing {
  * at the bank and the server's timezone is not that.
  */
 export async function listForAccounts(
+  exec: Executor,
   accountIds: readonly string[],
   cutoff: string | null,
 ): Promise<TransactionListing[]> {
-  const { rows } = await query<TransactionListing>(
+  const { rows } = await exec.query<TransactionListing>(
     `
     SELECT t.date, t.name, t.merchant_name, t.amount, t.pending,
            t.pfc->>'primary' AS category,
@@ -225,9 +232,10 @@ export async function listForAccounts(
  * them is worth suggesting a wider window for.
  */
 export async function summaryForAccounts(
+  exec: Executor,
   accountIds: readonly string[],
 ): Promise<{ newest: string | null; total: number }> {
-  const { rows } = await query<{ newest: string | null; total: string }>(
+  const { rows } = await exec.query<{ newest: string | null; total: string }>(
     `
     SELECT MAX(date)::text AS newest, COUNT(*)::text AS total
       FROM transactions

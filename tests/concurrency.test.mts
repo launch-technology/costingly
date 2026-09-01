@@ -37,7 +37,7 @@ const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 // From dist/, not src/: the CLI child processes below run the built code, and
 // both sides must agree on which build they are talking to.
-const { query, withTransaction, closeDb, serverStatus, stopServer, clusterDir, withConnection } =
+const { db, closeDb, serverStatus, stopServer, clusterDir, adminDataSource } =
   (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 
 /** Run the CLI as a separate OS process. */
@@ -68,13 +68,13 @@ setMigrationSource(loadMigrations);
 // The first connection is what creates the cluster, starts it, creates the
 // database and runs the migrations — so it has to happen before anything asks
 // whether the server is up.
-await query(`SELECT 1`);
+await db.query(`SELECT 1`);
 eq(await serverStatus(), "running", "server is running");
 // Compared against what is actually in migrations/, not a hardcoded list: the
 // claim being tested is "the first connection applied ALL of them by itself",
 // and a literal here would turn every new migration into a failing test that
 // says nothing about concurrency.
-eq((await query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`)).rows.map((r) => r.id),
+eq((await db.query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`)).rows.map((r) => r.id),
    (await loadMigrations()).map((m) => m.id),
    "and the migrations ran themselves, with no migrate step");
 
@@ -83,20 +83,20 @@ eq((await query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`))
 // As the superuser: u_app deliberately has no DDL, so the app identity cannot
 // create this and should not be able to. Creating it here is the test arranging
 // its own fixture, not a capability the application has.
-await withConnection("superuser", "costingly", async (c) => {
-  await c.query(`CREATE TABLE IF NOT EXISTS _probe (d DATE, n NUMERIC(20,4))`);
-  await c.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON _probe TO u_app`);
+await adminDataSource("costingly").transaction(async (tx) => {
+  await tx.query(`CREATE TABLE IF NOT EXISTS _probe (d DATE, n NUMERIC(20,4))`);
+  await tx.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON _probe TO u_app`);
 });
-await query(`DELETE FROM _probe`);
-await query(`INSERT INTO _probe (d, n) VALUES ($1, $2)`, ["2024-03-11", "42.1000"]);
-const probe = await query<{ d: unknown; n: unknown }>(`SELECT d, n FROM _probe`);
+await db.query(`DELETE FROM _probe`);
+await db.query(`INSERT INTO _probe (d, n) VALUES ($1, $2)`, ["2024-03-11", "42.1000"]);
+const probe = await db.query<{ d: unknown; n: unknown }>(`SELECT d, n FROM _probe`);
 eq(probe.rows[0]!.d, "2024-03-11", "DATE reads back as the YYYY-MM-DD string, not a Date");
 eq(typeof probe.rows[0]!.n, "string", "NUMERIC stays a string (no float rounding)");
 
 // --- 2. a SECOND PROCESS reads while THIS one holds a write transaction ---
 // This is the assertion PGlite could never satisfy.
 let readDuringWrite: { code: number; stdout: string } | undefined;
-await withTransaction(async (tx) => {
+await db.transaction(async (tx) => {
   await tx.query(`INSERT INTO _probe (d, n) VALUES ('2024-04-01', '7.0000')`);
   // Transaction is open and holding a row lock. Now read from another process.
   readDuringWrite = await cli("status");
@@ -105,7 +105,7 @@ eq(readDuringWrite!.code, 0, "a separate process READS while a write transaction
 
 // The uncommitted row must not have been visible to that reader, and must be
 // visible now that the transaction committed.
-const after = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM _probe`);
+const after = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM _probe`);
 eq(after.rows[0]!.c, "2", "the committed row is visible afterwards (isolation held)");
 
 // --- 3. many processes at once --------------------------------------------
@@ -155,14 +155,12 @@ const again = await cli("stop");
 ok(/not running/i.test(again.stdout), "`costingly stop` twice is not an error");
 
 // --- 7. data survived all of that -----------------------------------------
-const survived = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM _probe`);
+const survived = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM _probe`);
 eq(survived.rows[0]!.c, "2", "data survived repeated stop/start cycles");
 
 // Dropped by the identity that created it: u_app can write the rows but does
 // not own the table, which is the no-DDL boundary working as intended.
-await withConnection("superuser", "costingly", async (c) => {
-  await c.query(`DROP TABLE _probe`);
-});
+await adminDataSource("costingly").query(`DROP TABLE _probe`);
 await closeDb();
 await stopServer().catch(() => {});
 const { rm } = await import("node:fs/promises");

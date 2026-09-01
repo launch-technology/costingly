@@ -17,6 +17,7 @@
 import { InvalidArgumentError } from "commander";
 import type { Command } from "commander";
 import { stdin } from "node:process";
+import { db } from "../../../data/db/data-source-registry.js";
 import { search as searchAccounts } from "../../../data/repositories/accounts.repository.js";
 import {
   listForAccounts,
@@ -53,7 +54,7 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
   const today = todayLocal();
   const cutoff = window === "all" ? null : subtractDays(today, window);
 
-  const rows = await listForAccounts(ids, cutoff);
+  const rows = await listForAccounts(db, ids, cutoff);
 
   const banks = [...new Set(accounts.map((a) => a.institution_name ?? "(unknown bank)"))];
   const heading = multi
@@ -67,7 +68,7 @@ async function showTransactions(accounts: AccountRow[], window: Window): Promise
     // An empty window is not the same as an empty account. Say which, and
     // suggest a window that would actually contain something — otherwise a
     // correct answer is indistinguishable from a broken one.
-    const info = await summaryForAccounts(ids);
+    const info = await summaryForAccounts(db, ids);
 
     console.log(
       window === "all"
@@ -181,7 +182,7 @@ export async function runTransactions(
   const accountQuery = account.length > 0 ? account.join(" ") : null;
   const interactive = stdin.isTTY === true;
 
-  const matches = await searchAccounts(accountQuery);
+  const matches = await searchAccounts(db, accountQuery);
 
   if (matches.length === 0) {
     if (accountQuery === null) {

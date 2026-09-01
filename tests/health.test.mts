@@ -24,10 +24,10 @@ const SECRET = "plaid-secret-must-never-be-printed";
 process.env["PLAID_SECRET"] = SECRET;
 process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
-const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { checkDatabase, restartDatabase } = await import("../src/data/db/health.js");
+const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
+const { checkDatabase, restartDatabase } = await import("../src/data/db/database-diagnostics.js");
 const { formatHealth } = await import("../src/apps/mcp/tools/check-database.utils.js");
-const { serverStatus } = await import("../src/data/db/server.js");
+const { serverStatus } = await import("../src/postgres/server.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -101,7 +101,7 @@ eq(await serverStatus(), "running", "and left it running");
 // 4. Restart
 // ===========================================================================
 
-await query(`SELECT 1`);
+await db.query(`SELECT 1`);
 const restart = await restartDatabase();
 eq(restart.wasRunning, true, "restart_database saw a running server");
 eq(restart.ok, true, "RESTART BROUGHT THE DATABASE BACK");
@@ -109,12 +109,12 @@ ok(restart.elapsedMs > 0, "and reported how long it took");
 eq(await serverStatus(), "running", "the server is running afterwards");
 
 // Data has to survive it — that is the difference between a restart and a reset.
-await query(
+await db.query(
   `INSERT INTO items (item_id, institution_name, access_token_enc, source, status)
    VALUES ('survivor', 'Persisted Bank', 'aXY=.dGFn.Y2lwaGVy', 'plaid', 'active')`,
 );
 await restartDatabase();
-const survived = await query<{ c: string }>(
+const survived = await db.query<{ c: string }>(
   `SELECT COUNT(*)::text c FROM items WHERE item_id = 'survivor'`,
 );
 eq(survived.rows[0]!.c, "1", "DATA SURVIVES A RESTART");

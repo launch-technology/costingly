@@ -7,7 +7,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { checkDatabase } from "../../../data/db/health.js";
+import { checkDatabase } from "../../../data/db/database-diagnostics.js";
 import { formatHealth } from "./check-database.utils.js";
 
 /**

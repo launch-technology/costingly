@@ -5,9 +5,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { startLinkServer, takeRecentRepairs } from "../../../web/server.js";
+import { db } from "../../../data/db/data-source-registry.js";
 import { listBasic } from "../../../data/repositories/items.repository.js";
 import { describeError } from "../../../data/plaid.client.js";
-import { explainDbError } from "../../../data/db/errors.js";
+import { explainDbError } from "../utils/database-errors.js";
 import { credentialsPresent, MISSING_CREDENTIALS } from "../utils/credentials.js";
 
 export function registerRelinkBankTool(server: McpServer): void {
@@ -57,7 +58,7 @@ export function registerRelinkBankTool(server: McpServer): void {
                 // Listed without decrypting: naming a bank needs no credential,
                 // and an item whose token no longer decrypts is exactly the kind
                 // that might need repairing.
-                const items = await listBasic();
+                const items = await listBasic(db);
                 const item = items.find((i) => i.itemId === item_id);
 
                 if (item === undefined) {

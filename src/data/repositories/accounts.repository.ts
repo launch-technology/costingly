@@ -11,7 +11,7 @@
  * good reasons.
  */
 
-import { query, type DbClient } from "../db/queries.js";
+import type { Executor } from "../db/types/executor.js";
 
 /** One account as the table stores it. */
 export interface AccountRow {
@@ -35,11 +35,11 @@ export interface AccountRow {
  * without benefit here.
  */
 export async function upsertMany(
-  client: DbClient,
+  exec: Executor,
   rows: readonly AccountRow[],
 ): Promise<number> {
   for (const row of rows) {
-    await client.query(
+    await exec.query(
       `
       INSERT INTO accounts (
         account_id, item_id, name, official_name, mask, type, subtype,
@@ -77,14 +77,14 @@ export async function upsertMany(
 }
 
 /** How many accounts exist across every Item. */
-export async function countAll(): Promise<number> {
-  const { rows } = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM accounts`);
+export async function countAll(exec: Executor): Promise<number> {
+  const { rows } = await exec.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM accounts`);
   return Number(rows[0]?.count ?? 0);
 }
 
 /** How many accounts belong to one Item. */
-export async function countForItem(itemId: string): Promise<number> {
-  const { rows } = await query<{ count: string }>(
+export async function countForItem(exec: Executor, itemId: string): Promise<number> {
+  const { rows } = await exec.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM accounts WHERE item_id = $1`,
     [itemId],
   );
@@ -115,8 +115,8 @@ export interface AccountListing {
  * name, so "chase", "0000" and a full account id all work without the caller
  * having to say which kind of thing it has.
  */
-export async function search(term: string | null): Promise<AccountListing[]> {
-  const { rows } = await query<AccountListing>(
+export async function search(exec: Executor, term: string | null): Promise<AccountListing[]> {
+  const { rows } = await exec.query<AccountListing>(
     `
     SELECT a.account_id, a.name, a.mask, a.type, a.subtype, a.currency,
            a.current_balance, i.institution_name,

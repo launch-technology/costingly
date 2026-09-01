@@ -11,6 +11,7 @@
 import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
+import { db } from "../../../data/db/data-source-registry.js";
 import { listAllItems, type StoredItem } from "../../../data/repositories/items.repository.js";
 import { countItemData, removeItem } from "../../../services/banks/unlink.service.js";
 import { confirmDestructive } from "../ui/confirm.js";
@@ -77,7 +78,7 @@ export async function runUnlink(
 ): Promise<void> {
   const nameQuery = bank.length > 0 ? bank.join(" ").toLowerCase() : null;
 
-  const allItems = await listAllItems();
+  const allItems = await listAllItems(db);
   if (allItems.length === 0) {
     console.log("No banks linked. Nothing to unlink.");
     return;

@@ -19,7 +19,7 @@ import { stdin } from "node:process";
 import { generateEncryptionKey } from "../../../core/crypto.js";
 import { describeError } from "../../../data/plaid.client.js";
 import { createLinkToken } from "../../../services/banks/link.service.js";
-import { clusterDir } from "../../../data/db/server.js";
+import { clusterDir } from "../../../postgres/server.js";
 import { configPath, displayPath, profileDir, profileSource } from "../../../core/profile.js";
 import { readConfigFile, writeConfig, type StoredConfig } from "../../../core/config.js";
 import { runMigrate } from "./migrate.command.js";

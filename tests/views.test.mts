@@ -25,8 +25,9 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { query, withTransaction, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { describeDatabase, renderDatabaseDoc } = await import("../src/data/db/dictionary.js");
+const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
+const { describeDatabase } = await import("../src/data/repositories/schema.repository.js");
+const { renderDatabaseDoc } = await import("../src/apps/mcp/tools/describe-database.utils.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -53,11 +54,11 @@ const { loadMigrations } = await import("../src/data/db/migrations.js");
 setMigrationSource(loadMigrations);
 
 // Enough data that the live facts have something to report.
-await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
+await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
-await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+await db.query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
              VALUES ('a1', 'i1', 'Checking', '0000', 'depository', 'checking', 'USD', 100.0)`);
-await query(`
+await db.query(`
   INSERT INTO transactions (transaction_id, account_id, item_id, amount, iso_currency_code,
                             date, name, merchant_name, pending, pfc, raw)
   VALUES ('t1','a1','i1',  42.10,'USD','2026-01-15','COFFEE','Blue Bottle', false,
@@ -69,7 +70,7 @@ await query(`
 
 // --- the views exist and hide what they must ------------------------------
 const cols = async (rel: string): Promise<string[]> =>
-  (await query<{ column_name: string }>(
+  (await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
       WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position`, [rel],
   )).rows.map((r) => r.column_name);
@@ -86,16 +87,16 @@ ok(txnCols.includes("account_name") && txnCols.includes("institution_name"),
    "v_transactions joins the names a practical query needs");
 
 // The view must not silently change the numbers.
-const raw = await query<{ n: string; s: string }>(
+const raw = await db.query<{ n: string; s: string }>(
   `SELECT COUNT(*)::text n, SUM(amount)::text s FROM transactions`);
-const via = await query<{ n: string; s: string }>(
+const via = await db.query<{ n: string; s: string }>(
   `SELECT COUNT(*)::text n, SUM(amount)::text s FROM v_transactions`);
 eq(via.rows[0], raw.rows[0], "the view neither drops rows nor alters amounts");
 
 // --- THE SECURITY PROPERTY ------------------------------------------------
 async function asReadOnly(sql: string): Promise<{ allowed: boolean; message: string }> {
   try {
-    await withTransaction(async (c) => {
+    await db.transaction(async (c) => {
       await c.query("SET LOCAL TRANSACTION READ ONLY");
       await c.query("SET LOCAL ROLE role_readonly");
       await c.query(sql);
@@ -127,7 +128,7 @@ const NO_COMMENT_NEEDED = new Set([
   "official_name", "currency", "created_at",
 ]);
 
-const doc = await describeDatabase();
+const doc = await describeDatabase(db);
 const uncommented = doc.views.flatMap((v) =>
   v.columns.filter((c) => c.comment === null && !NO_COMMENT_NEEDED.has(c.name))
     .map((c) => `${v.name}.${c.name}`));
@@ -168,7 +169,7 @@ ok(!/\d[\d,]*\s+rows/.test(text), "no row counts");
 
 // --- re-running the schema must not break the views -----------------------
 
-const again = await query<{ n: string }>(`SELECT COUNT(*)::text n FROM v_transactions`);
+const again = await db.query<{ n: string }>(`SELECT COUNT(*)::text n FROM v_transactions`);
 eq(again.rows[0]?.n, "3", "schema.sql is idempotent — views survive a re-run");
 ok((await asReadOnly("SELECT 1 FROM v_items LIMIT 1")).allowed,
    "and the role's grants survive it too");
@@ -178,15 +179,15 @@ ok((await asReadOnly("SELECT 1 FROM v_items LIMIT 1")).allowed,
 // is only sound if new data cannot change it. Add a transaction and a whole
 // account, then re-render: any row count, date range or value enumeration that
 // creeps back in makes these bytes differ, and the cache would start lying.
-await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+await db.query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
              VALUES ('a2', 'i1', 'Savings', '1111', 'depository', 'savings', 'EUR', 900.0)`);
-await query(`
+await db.query(`
   INSERT INTO transactions (transaction_id, account_id, item_id, amount, iso_currency_code,
                             date, name, merchant_name, pending, pfc, raw)
   VALUES ('t4','a2','i1', 7.77,'EUR','2027-06-01','LATER THING','Someone', false,
           '{"primary":"GENERAL_MERCHANDISE","detailed":"GENERAL_MERCHANDISE_OTHER"}'::jsonb, '{}'::jsonb)`);
 
-eq(renderDatabaseDoc(await describeDatabase()), text,
+eq(renderDatabaseDoc(await describeDatabase(db)), text,
    "THE DOCUMENT IS BYTE-IDENTICAL AFTER NEW DATA — this is what makes it cacheable");
 
 await closeDb();

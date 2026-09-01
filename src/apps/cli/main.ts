@@ -11,9 +11,18 @@
  * position 0, and it is what makes the built file directly executable.
  */
 
-import { closeDb, setMigrationSource } from "../../data/db/bootstrap.js";
+import { closeDb } from "../../data/db/data-source-registry.js";
+import { setMigrationSource } from "../../data/db/migrations.js";
 import { setPublicDir } from "../../web/server.js";
-import { isMissingSchema, MISSING_SCHEMA_CLI } from "../../data/db/errors.js";
+import { isMissingSchema } from "../../data/db/errors.js";
+
+/** What to tell someone at a terminal when the schema is not there yet. */
+const MISSING_SCHEMA_CLI = [
+  "The database has not been set up yet.",
+  "",
+  "  costingly init      set up credentials and create it",
+  "  costingly migrate   just create the tables",
+].join("\n");
 import { CliError } from "./errors.js";
 import { publicDir } from "../../core/package.js";
 import { loadMigrations } from "../../data/db/migrations.js";

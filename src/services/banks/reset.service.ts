@@ -11,7 +11,7 @@
  * Deleting one bank is the routine path and lives in unlink.service.ts.
  */
 
-import { withTransaction } from "../../data/db/queries.js";
+import { db } from "../../data/db/data-source-registry.js";
 import * as items from "../../data/repositories/items.repository.js";
 import * as accounts from "../../data/repositories/accounts.repository.js";
 import * as transactions from "../../data/repositories/transactions.repository.js";
@@ -26,9 +26,9 @@ export interface DataCounts {
 /** How much data currently exists. Used to show stakes before confirming. */
 export async function countData(): Promise<DataCounts> {
   const [itemCount, accountCount, transactionCount] = await Promise.all([
-    items.countAll(),
-    accounts.countAll(),
-    transactions.countAll(),
+    items.countAll(db),
+    accounts.countAll(db),
+    transactions.countAll(db),
   ]);
   return { items: itemCount, accounts: accountCount, transactions: transactionCount };
 }
@@ -45,12 +45,12 @@ export async function removeAllItems(options: {
 }): Promise<RemovalOutcome[]> {
   if (!options.revoke) {
     // Listed before deleting, because afterwards there is nothing left to name.
-    const existing = await items.listBasic();
-    await items.deleteAll();
+    const existing = await items.listBasic(db);
+    await items.deleteAll(db);
     return existing.map((row) => ({ ...row, revoked: false }));
   }
 
-  const stored = await items.listAllItems();
+  const stored = await items.listAllItems(db);
   const outcomes: RemovalOutcome[] = [];
   for (const item of stored) {
     outcomes.push(await removeItem(item, { revoke: true }));
@@ -69,9 +69,9 @@ export async function removeAllItems(options: {
  * describe would make the missing history unrecoverable without a re-link.
  */
 export async function resetSyncedData(): Promise<{ transactions: number }> {
-  return withTransaction(async (client) => {
-    const deleted = await transactions.deleteAll(client);
-    await items.clearCursors(client);
+  return db.transaction(async (tx) => {
+    const deleted = await transactions.deleteAll(tx);
+    await items.clearCursors(tx);
     return { transactions: deleted };
   });
 }

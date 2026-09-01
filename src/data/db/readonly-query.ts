@@ -1,58 +1,6 @@
 /**
- * Running work against the database.
+ * Running SQL this codebase did not write.
  *
- * Two ways in, and the difference is who wrote the SQL:
- *
- *   query / withTransaction   statements this codebase wrote, run as u_app
- *   queryReadOnly             statements a language model wrote, run under
- *                             every guard in the second half of this file
- *
- * They live together because they are the same concern — executing SQL on a
- * connection — differing only in the privileges the statement runs under.
- */
-
-import { getDriver } from "./bootstrap.js";
-import { ROLE_READONLY } from "./credentials.js";
-import type { DbClient, DbResult, DbRow } from "./connections.js";
-
-export type { DbClient, DbResult, DbRow } from "./connections.js";
-
-// ---------------------------------------------------------------------------
-// SQL we wrote
-// ---------------------------------------------------------------------------
-
-/** Run a one-off query. */
-export async function query<T extends DbRow = DbRow>(
-  text: string,
-  params?: readonly unknown[],
-): Promise<DbResult<T>> {
-  const driver = await getDriver();
-  return driver.query<T>(text, params);
-}
-
-/**
- * Run `fn` inside a single transaction.
- *
- * Every write for a given Plaid Item goes through here, so a run either applies
- * all of that item's changes *and* advances its cursor, or applies none of
- * them. There is no state where the cursor has moved past changes that were
- * never written — which is what makes the sync safely re-runnable.
- */
-export async function withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T> {
-  const driver = await getDriver();
-  return driver.transaction(fn);
-}
-
-/** Human-readable description of where data is going. For status output. */
-export async function describeDriver(): Promise<string> {
-  const driver = await getDriver();
-  return driver.describe();
-}
-
-// ---------------------------------------------------------------------------
-// SQL somebody else wrote
-// ---------------------------------------------------------------------------
-/**
  * This exists so a language model can be handed the keys to a database holding
  * encrypted bank credentials without that being a bad idea. The whole design
  * rests on one decision: **the SQL is never inspected.**
@@ -86,6 +34,11 @@ export async function describeDriver(): Promise<string> {
  * itself demoted to a read-only role and fail somewhere unrelated. The test
  * suite proves the reversion.
  */
+
+import { db } from "./data-source-registry.js";
+import { ROLE_READONLY } from "../../postgres/credentials.js";
+import type { DbRow } from "./types/db-row.js";
+
 
 
 const READ_ROLE = ROLE_READONLY;
@@ -139,13 +92,13 @@ export async function queryReadOnly(
   // "exactly 1000 rows matched" from "we stopped at 1000".
   const wrapped = `SELECT * FROM (\n${inner}\n) AS _capped LIMIT ${rowCap + 1}`;
 
-  return withTransaction(async (client) => {
+  return db.transaction(async (tx) => {
     // Must precede any query in the transaction, so it goes first.
-    await client.query("SET TRANSACTION READ ONLY");
-    await client.query(`SET LOCAL ROLE ${READ_ROLE}`);
-    await client.query(`SET LOCAL statement_timeout = ${timeoutMs}`);
+    await tx.query("SET TRANSACTION READ ONLY");
+    await tx.query(`SET LOCAL ROLE ${READ_ROLE}`);
+    await tx.query(`SET LOCAL statement_timeout = ${timeoutMs}`);
 
-    const result = await client.query(wrapped, options.params);
+    const result = await tx.query(wrapped, options.params);
     const truncated = result.rows.length > rowCap;
 
     return {

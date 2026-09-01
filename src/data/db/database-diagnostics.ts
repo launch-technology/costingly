@@ -32,8 +32,8 @@
  * "which am I looking at?" is the first question in every confused session.
  */
 
-import { query } from "./queries.js";
-import { clusterDir, databaseCredentials, serverStatus } from "./server.js";
+import { db } from "./data-source-registry.js";
+import { clusterDir, databaseCredentials, serverStatus } from "../../postgres/server.js";
 import { profileDir, profileSource, displayPath } from "../../core/profile.js";
 import { stat } from "node:fs/promises";
 
@@ -147,7 +147,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
   const started = Date.now();
   try {
     const { rows } = await withTimeout(
-      query<{ started_at: string; uptime: string }>(
+      db.query<{ started_at: string; uptime: string }>(
         // Formatted in SQL rather than cast to text: the raw value carries
         // microseconds and a timezone offset, which is noise in a line whose
         // only job is "roughly when did this start".
@@ -166,7 +166,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
   }
 
   try {
-    const { rows } = await query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`);
+    const { rows } = await db.query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`);
     health.migrationsApplied = rows.map((r) => r.id);
   } catch (error) {
     // Connected but the ledger is unreadable — an un-migrated database, most
@@ -199,8 +199,8 @@ export interface RestartOutcome {
  * stored cursor on the next run.
  */
 export async function restartDatabase(): Promise<RestartOutcome> {
-  const { closeDb } = await import("./bootstrap.js");
-  const { stopServer } = await import("./server.js");
+  const { closeDb } = await import("./data-source-registry.js");
+  const { stopServer } = await import("../../postgres/server.js");
 
   const started = Date.now();
 
@@ -217,7 +217,7 @@ export async function restartDatabase(): Promise<RestartOutcome> {
   }
 
   try {
-    await withTimeout(query(`SELECT 1`), PROBE_TIMEOUT_MS);
+    await withTimeout(db.query(`SELECT 1`), PROBE_TIMEOUT_MS);
     return { wasRunning, ok: true, elapsedMs: Date.now() - started };
   } catch (error) {
     return { wasRunning, ok: false, elapsedMs: Date.now() - started, error: message(error) };

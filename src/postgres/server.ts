@@ -15,13 +15,13 @@
 
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { APP_NAME, displayPath, profileDir } from "../../core/profile.js";
-import { readDatabaseLogins, writeDatabaseLogins, type DatabaseLogins } from "../../core/config.js";
-import { ports } from "../../core/ports.js";
+import { APP_NAME, displayPath, profileDir } from "../core/profile.js";
+import { readDatabaseLogins, writeDatabaseLogins, type DatabaseLogins } from "../core/config.js";
+import { ports } from "../core/ports.js";
 import { ROLE_APP, ROLE_SUPERUSER, type DbCredentials } from "./credentials.js";
-import { PG_MAJOR, PostgresCluster, type ClusterConfig } from "./postgres-cluster.js";
+import { PG_MAJOR, PostgresCluster, type ClusterConfig } from "./cluster.js";
 
-export type { ServerState } from "./postgres-cluster.js";
+export type { ServerState } from "./cluster.js";
 
 /** The database inside the cluster. The cluster also has the default `postgres`. */
 export const DATABASE_NAME = APP_NAME;

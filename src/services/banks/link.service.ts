@@ -19,7 +19,7 @@ import { getPlaidClient, describeError } from "../../data/plaid.client.js";
 import { saveItem } from "../../data/repositories/items.repository.js";
 import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
 import { toAccountRow } from "./plaid.mappers.js";
-import { withTransaction } from "../../data/db/queries.js";
+import { db } from "../../data/db/data-source-registry.js";
 import { PRODUCTS, COUNTRY_CODES, DAYS_REQUESTED, CLIENT_USER_ID } from "./plaid.config.js";
 
 
@@ -66,11 +66,11 @@ export async function exchangePublicToken(publicToken: string): Promise<LinkedIt
   // Store the Item before fetching accounts: if the accounts call fails we
   // still hold the access_token, so nothing is orphaned and a re-run repairs
   // the rest. (Losing an access_token would mean re-linking the bank.)
-  await saveItem({ itemId, institutionId, institutionName, accessToken, source: "plaid" });
+  await saveItem(db, { itemId, institutionId, institutionName, accessToken, source: "plaid" });
 
   const accounts = await plaid.accountsGet({ access_token: accessToken });
-  await withTransaction(async (client) => {
-    await upsertAccountRows(client, accounts.data.accounts.map((a) => toAccountRow(a, itemId)));
+  await db.transaction(async (tx) => {
+    await upsertAccountRows(tx, accounts.data.accounts.map((a) => toAccountRow(a, itemId)));
   });
 
   return {

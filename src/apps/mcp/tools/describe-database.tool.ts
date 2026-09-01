@@ -12,13 +12,15 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { describeDatabase, renderDatabaseDoc, type DatabaseDoc } from "../../../data/db/dictionary.js";
+import { db } from "../../../data/db/data-source-registry.js";
+import { describeDatabase, type DatabaseDoc } from "../../../data/repositories/schema.repository.js";
+import { renderDatabaseDoc } from "./describe-database.utils.js";
 
 let cached: string | undefined;
 
 async function getSchema(): Promise<string> {
     if (!cached) {
-        const doc: DatabaseDoc = await describeDatabase();
+        const doc: DatabaseDoc = await describeDatabase(db);
         cached = renderDatabaseDoc(doc);
     }
     return cached;

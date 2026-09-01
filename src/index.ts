@@ -36,40 +36,33 @@ export {
   serverLogPath,
   DATABASE_NAME,
   type ServerState,
-} from "./data/db/server.js";
+} from "./postgres/server.js";
 export {
   describeDatabase,
-  renderDatabaseDoc,
   type DatabaseDoc,
   type ViewDoc,
   type ColumnDoc,
-} from "./data/db/dictionary.js";
-export {
-  query,
-  withTransaction,
-  describeDriver,
-  type DbClient,
-  type DbResult,
-  type DbRow,
-} from "./data/db/queries.js";
-export { setMigrationSource, closeDb, ensureDatabaseExists } from "./data/db/bootstrap.js";
-export { withConnection } from "./data/db/connections.js";
-export {
-  runMigrations,
-  pendingMigrations,
-  type Migration,
-} from "./data/db/migrations.js";
+} from "./data/repositories/schema.repository.js";
+export type { DataSource } from "./data/db/types/data-source.js";
+export type { Executor } from "./data/db/types/executor.js";
+export type { Transaction } from "./data/db/types/transaction.js";
+export type { DbResult } from "./data/db/types/db-result.js";
+export type { DbRow } from "./data/db/types/db-row.js";
+export { db, closeDb } from "./data/db/data-source-registry.js";
+export { isMissingSchema } from "./data/db/errors.js";
 export {
   queryReadOnly,
   type ReadOnlyOptions,
   type ReadOnlyResult,
-} from "./data/db/queries.js";
+} from "./data/db/readonly-query.js";
+export { ensureDatabaseExists } from "./data/db/bootstrap.js";
+export { adminDataSource } from "./data/db/data-source-registry.js";
 export {
-  isMissingSchema,
-  explainDbError,
-  MISSING_SCHEMA_CLI,
-  MISSING_SCHEMA_MCP,
-} from "./data/db/errors.js";
+  setMigrationSource,
+  runMigrations,
+  pendingMigrations,
+  type Migration,
+} from "./data/db/migrations.js";
 export {
   getPlaidClient,
   getPlaidError,

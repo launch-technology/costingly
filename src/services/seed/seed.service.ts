@@ -12,7 +12,7 @@
  * --force: the correct move is a different profile, which costs nothing.
  */
 
-import { withTransaction } from "../../data/db/queries.js";
+import { db } from "../../data/db/data-source-registry.js";
 import { saveItem, countBySource, deleteBySource } from "../../data/repositories/items.repository.js";
 import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
 import {
@@ -31,7 +31,7 @@ export class SeedRefused extends Error {}
  * iterating on the generator.
  */
 export async function assertSeedable(): Promise<void> {
-  const linked = await countBySource("plaid");
+  const linked = await countBySource(db, "plaid");
   if (linked > 0) {
     throw new SeedRefused(
       `This profile has ${linked} real bank connection(s) in it.\n\n` +
@@ -54,10 +54,10 @@ export async function assertSeedable(): Promise<void> {
 export async function applySeed(dataset: SeedDataset): Promise<SeedSummary> {
   await assertSeedable();
 
-  await deleteBySource("seed");
+  await deleteBySource(db, "seed");
 
   for (const item of dataset.items) {
-    await saveItem({
+    await saveItem(db, {
       itemId: item.itemId,
       institutionId: item.institutionId,
       institutionName: item.institutionName,
@@ -66,9 +66,9 @@ export async function applySeed(dataset: SeedDataset): Promise<SeedSummary> {
     });
   }
 
-  await withTransaction(async (client) => {
+  await db.transaction(async (tx) => {
     await upsertAccountRows(
-      client,
+      tx,
       dataset.accounts.map((account) => ({
         accountId: account.accountId,
         itemId: account.itemId,
@@ -82,7 +82,7 @@ export async function applySeed(dataset: SeedDataset): Promise<SeedSummary> {
         availableBalance: account.availableBalance,
       })),
     );
-    await upsertMany(client, dataset.transactions.map(toRow));
+    await upsertMany(tx, dataset.transactions.map(toRow));
   });
 
   const dates = dataset.transactions.map((t) => t.date).sort();

@@ -23,9 +23,8 @@ import type {
   TransactionsSyncRequest,
   TransactionsUpdateStatus,
 } from "plaid";
-import type { DbClient } from "../../data/db/queries.js";
 import type { ItemSyncResult, SyncSummary } from "./sync.types.js";
-import { withTransaction } from "../../data/db/queries.js";
+import { db } from "../../data/db/data-source-registry.js";
 import { upsertMany, deleteByIds } from "../../data/repositories/transactions.repository.js";
 import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
 import { toTransactionRow, toAccountRow } from "./plaid.mappers.js";
@@ -206,15 +205,15 @@ async function syncItem(item: SyncableItem): Promise<ItemSyncResult> {
     const changes = await fetchItemChanges(item.accessToken, item.cursor);
     const upserts = dedupeTransactions(changes.added, changes.modified);
 
-    await withTransaction(async (client) => {
+    await db.transaction(async (tx) => {
       // Order matters: accounts first, because transactions.account_id is a
       // foreign key into accounts and a new account may appear in this batch.
-      await upsertAccountRows(client, changes.accounts.map((a) => toAccountRow(a, item.itemId)));
-      await upsertMany(client, upserts.map((t) => toTransactionRow(t, item.itemId)));
-      await deleteByIds(client, changes.removed.map((entry) => entry.transaction_id));
+      await upsertAccountRows(tx, changes.accounts.map((a) => toAccountRow(a, item.itemId)));
+      await upsertMany(tx, upserts.map((t) => toTransactionRow(t, item.itemId)));
+      await deleteByIds(tx, changes.removed.map((entry) => entry.transaction_id));
       // Committed together with the rows above — this is the atomicity that
       // makes a re-run safe.
-      await setItemCursor(client, item.itemId, changes.nextCursor);
+      await setItemCursor(tx, item.itemId, changes.nextCursor);
     });
 
     return {
@@ -232,7 +231,7 @@ async function syncItem(item: SyncableItem): Promise<ItemSyncResult> {
     // stops retrying and `costingly link` can repair it.
     if (isItemLoginRequired(error)) {
       try {
-        await setItemStatus(item.itemId, "login_required");
+        await setItemStatus(db, item.itemId, "login_required");
       } catch (statusError) {
         console.error(
           `[sync] failed to mark item ${item.itemId} as login_required:`,
@@ -269,7 +268,7 @@ export async function syncAllItems(): Promise<SyncSummary> {
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
 
-  const items = await listSyncableItems();
+  const items = await listSyncableItems(db);
   const results: ItemSyncResult[] = [];
 
   for (const item of items) {

@@ -8,12 +8,13 @@
  * "what do I have connected?" should not require touching the credentials.
  */
 
+import { db } from "../../../data/db/data-source-registry.js";
 import type { Command } from "commander";
 import {
   listWithAccounts,
   type ItemAccountListing,
 } from "../../../data/repositories/items.repository.js";
-import { describeServer } from "../../../data/db/server.js";
+import { describeServer } from "../../../postgres/server.js";
 import { money, ago } from "../ui/format.js";
 
 type Row = ItemAccountListing;
@@ -122,7 +123,7 @@ async function databaseLine(): Promise<string> {
 }
 
 export async function runStatus(options: StatusOptions): Promise<void> {
-  const rows = await listWithAccounts();
+  const rows = await listWithAccounts(db);
 
   if (rows.length === 0) {
     if (options.json) {

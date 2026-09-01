@@ -20,7 +20,7 @@ import { rm } from "node:fs/promises";
 const HOME = "/tmp/costingly-seed";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
+const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
 const { generateSeedDataset } = await import("../src/services/seed/seed.generator.js");
 const { applySeed, assertSeedable, SeedRefused } = await import("../src/services/seed/seed.service.js");
 const { listSyncableItems, listAllItems, saveItem } = await import("../src/data/repositories/items.repository.js");
@@ -126,14 +126,14 @@ const summary = await applySeed(first);
 eq(summary.transactions, first.transactions.length, "every generated transaction was stored");
 eq(summary.accounts, first.accounts.length, "every generated account was stored");
 
-const stored = await query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
+const stored = await db.query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
 eq(stored.rows[0]!.c, String(first.transactions.length), "the row count in the database matches");
 
 // --- what the model can see ------------------------------------------------
-const view = await query<{ source: string }>(`SELECT DISTINCT source FROM v_items`);
+const view = await db.query<{ source: string }>(`SELECT DISTINCT source FROM v_items`);
 eq(view.rows.map((r) => r.source), ["seed"], "v_items reports these banks as source 'seed'");
 
-const comment = await query<{ d: string | null }>(
+const comment = await db.query<{ d: string | null }>(
   `SELECT col_description('v_items'::regclass, ordinal_position) AS d
      FROM information_schema.columns
     WHERE table_name = 'v_items' AND column_name = 'source'`,
@@ -142,9 +142,9 @@ ok((comment.rows[0]?.d ?? "").length > 40,
    "v_items.source carries a comment — the model's only warning that this is not real money");
 
 // --- seeded items are inert ------------------------------------------------
-eq(await listSyncableItems(), [], "SEEDED BANKS ARE NEVER SYNCED");
+eq(await listSyncableItems(db), [], "SEEDED BANKS ARE NEVER SYNCED");
 
-const all = await listAllItems();
+const all = await listAllItems(db);
 eq(all.length, first.items.length, "seeded banks are still listed for maintenance");
 eq(all.filter((i) => i.accessToken !== null).length, 0, "no seeded bank carries an access token");
 eq(all.filter((i) => i.source !== "seed").length, 0, "every stored item reports source 'seed'");
@@ -158,7 +158,7 @@ ok(String((repairError as Error).message).includes("sample data"),
 
 // --- re-seeding replaces rather than accumulates ---------------------------
 await applySeed(generateSeedDataset(FIXED));
-const afterRerun = await query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
+const afterRerun = await db.query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
 eq(afterRerun.rows[0]!.c, String(first.transactions.length), "re-seeding replaces, it does not accumulate");
 
 // ===========================================================================
@@ -166,14 +166,14 @@ eq(afterRerun.rows[0]!.c, String(first.transactions.length), "re-seeding replace
 // ===========================================================================
 
 const nullToken = await throws(
-  () => query(`INSERT INTO items (item_id, access_token_enc, source) VALUES ('bad', NULL, 'plaid')`),
+  () => db.query(`INSERT INTO items (item_id, access_token_enc, source) VALUES ('bad', NULL, 'plaid')`),
   "the database REFUSES a plaid item with no access token",
 );
 ok(String((nullToken as Error).message).includes("items_plaid_needs_token"),
    "...by the named constraint, not by accident");
 
 await throws(
-  () => query(`INSERT INTO items (item_id, access_token_enc, source) VALUES ('bad', 'x.y.z', 'imported')`),
+  () => db.query(`INSERT INTO items (item_id, access_token_enc, source) VALUES ('bad', 'x.y.z', 'imported')`),
   "the database refuses an unknown source value",
 );
 
@@ -181,7 +181,7 @@ await throws(
 // The guard
 // ===========================================================================
 
-await saveItem({
+await saveItem(db, {
   itemId: "real-bank",
   institutionId: "ins_1",
   institutionName: "A Real Bank",
@@ -194,9 +194,9 @@ ok(refusal instanceof SeedRefused, "...with a typed error the CLI can present cl
 ok(String((refusal as Error).message).includes("COSTINGLY_HOME"),
    "...and the message names the way out");
 
-const before = await query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
+const before = await db.query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
 await throws(() => applySeed(generateSeedDataset(FIXED)), "applySeed refuses too, not just the CLI");
-const after = await query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
+const after = await db.query<{ c: string }>(`SELECT COUNT(*)::text c FROM transactions`);
 eq(after.rows[0]!.c, before.rows[0]!.c, "THE REFUSED SEED CHANGED NOTHING — it fails before deleting");
 
 await closeDb();

@@ -11,6 +11,7 @@
  * ever touches an existing Item's status.
  */
 
+import { db } from "../../data/db/data-source-registry.js";
 import { getPlaidClient } from "../../data/plaid.client.js";
 import { getItem, setItemStatus, type StoredItem } from "../../data/repositories/items.repository.js";
 import { COUNTRY_CODES, CLIENT_USER_ID } from "./plaid.config.js";
@@ -62,7 +63,7 @@ export async function createRepairLinkToken(itemId: string): Promise<string> {
 export async function markItemRepaired(itemId: string): Promise<{ institutionName: string | null }> {
   const item = await requirePlaidItem(itemId);
 
-  await setItemStatus(itemId, "active");
+  await setItemStatus(db, itemId, "active");
   return { institutionName: item.institutionName };
 }
 
@@ -74,7 +75,7 @@ export async function markItemRepaired(itemId: string): Promise<{ institutionNam
  * letting Plaid reject a null access_token with something unreadable.
  */
 async function requirePlaidItem(itemId: string): Promise<StoredItem & { accessToken: string }> {
-  const item = await getItem(itemId);
+  const item = await getItem(db, itemId);
   if (item === null) throw new Error(`No linked bank has item_id "${itemId}".`);
   if (item.source !== "plaid" || item.accessToken === null) {
     throw new Error(

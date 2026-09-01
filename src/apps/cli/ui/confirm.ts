@@ -15,7 +15,7 @@
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
 import { get } from "../../../core/config.js";
-import { clusterDir } from "../../../data/db/server.js";
+import { clusterDir } from "../../../postgres/server.js";
 import { displayPath } from "../../../core/profile.js";
 
 /**

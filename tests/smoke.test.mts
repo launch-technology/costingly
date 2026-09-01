@@ -48,15 +48,15 @@ function throws(fn: () => unknown, fragment: string): void {
 }
 
 // --- module loading -------------------------------------------------------
-const db = await import("../src/data/db/queries.js");
+const dbModule = await import("../src/data/db/data-source-registry.js");
 const crypto = await import("../src/core/crypto.js");
 const configMod = await import("../src/core/config.js");
 const index = await import("../src/index.js");
-const server = await import("../src/data/db/server.js");
+const server = await import("../src/postgres/server.js");
 
 check("all modules load under Node ESM", () => {
-  assert(typeof db.query === "function", "db.query missing");
-  assert(typeof db.withTransaction === "function", "db.withTransaction missing");
+  assert(typeof dbModule.db.query === "function", "db.query missing");
+  assert(typeof dbModule.db.transaction === "function", "db.transaction missing");
   assert(typeof server.clusterDir === "function", "server.clusterDir missing");
   assert(typeof server.ensureServerRunning === "function", "server.ensureServerRunning missing");
   assert(typeof index.syncAllItems === "function", "syncAllItems not exported from index");

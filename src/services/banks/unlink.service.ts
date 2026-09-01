@@ -19,6 +19,7 @@
  */
 
 import type { ItemRemoveRequest } from "plaid";
+import { db } from "../../data/db/data-source-registry.js";
 import * as items from "../../data/repositories/items.repository.js";
 import * as accounts from "../../data/repositories/accounts.repository.js";
 import * as transactions from "../../data/repositories/transactions.repository.js";
@@ -35,8 +36,8 @@ import { getPlaidClient, describeError } from "../../data/plaid.client.js";
  */
 export async function countItemData(itemId: string): Promise<{ accounts: number; transactions: number }> {
   const [accountCount, transactionCount] = await Promise.all([
-    accounts.countForItem(itemId),
-    transactions.countForItem(itemId),
+    accounts.countForItem(db, itemId),
+    transactions.countForItem(db, itemId),
   ]);
   return { accounts: accountCount, transactions: transactionCount };
 }
@@ -66,7 +67,7 @@ export async function revokeIfPossible(
   itemId: string,
 ): Promise<{ attempted: boolean; revoked: boolean; error?: string }> {
   try {
-    const stored = await items.getItem(itemId);
+    const stored = await items.getItem(db, itemId);
     if (stored === null || stored.accessToken === null) {
       return { attempted: false, revoked: false };
     }
@@ -117,6 +118,6 @@ export async function removeItem(
     }
   }
 
-  await items.deleteItem(item.itemId);
+  await items.deleteItem(db, item.itemId);
   return outcome;
 }

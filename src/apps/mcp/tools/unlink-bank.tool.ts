@@ -9,8 +9,9 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { db } from "../../../data/db/data-source-registry.js";
 import { listBasic, deleteItem } from "../../../data/repositories/items.repository.js";
-import { explainDbError } from "../../../data/db/errors.js";
+import { explainDbError } from "../utils/database-errors.js";
 import { countItemData, revokeIfPossible } from "../../../services/banks/unlink.service.js";
 import { ConfirmationStore } from "../utils/confirmations.js";
 
@@ -87,7 +88,7 @@ export function registerUnlinkBankTool(server: McpServer): void {
                 // rotated or lost encryption key — would throw here and make it
                 // impossible to remove ANY bank. That is precisely the situation
                 // in which someone most wants to clean up.
-                const banks = await listBasic();
+                const banks = await listBasic(db);
                 const item = banks.find((i) => i.itemId === item_id);
 
                 if (item === undefined) {
@@ -174,7 +175,7 @@ export function registerUnlinkBankTool(server: McpServer): void {
 
                 // Accounts and transactions go with it: both foreign keys are
                 // ON DELETE CASCADE. See migrations/0001-initial.sql.
-                await deleteItem(item_id);
+                await deleteItem(db, item_id);
 
                 const lines = [
                     `Disconnected ${name} and deleted its data:`,

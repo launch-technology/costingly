@@ -49,13 +49,13 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { query, describeDriver } = await import("../src/data/db/queries.js");
-const { closeDb, setMigrationSource } = await import("../src/data/db/bootstrap.js");
+const { db, closeDb } = await import("../src/data/db/data-source-registry.js");
+const { setMigrationSource } = await import("../src/data/db/migrations.js");
 const { getPlaidClient } = await import("../src/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/services/banks/link.service.js");
 const { syncAllItems } = await import("../src/services/banks/sync.service.js");
 const { listAllItems } = await import("../src/data/repositories/items.repository.js");
-const { stopServer } = await import("../src/data/db/server.js");
+const { stopServer } = await import("../src/postgres/server.js");
 const { readFile, rm } = await import("node:fs/promises");
 
 // Register the migration loader the way cli/main.ts does, then let the first
@@ -89,10 +89,10 @@ function eq(a: unknown, b: unknown, what: string): void {
 }
 function ok(c: boolean, what: string): void { eq(c, true, what); }
 
-out.push(`  --    driver: ${await describeDriver()}`);
+out.push(`  --    database: ${db.describe()}`);
 
 // migrate
-const t = await query<{ table_name: string }>(
+const t = await db.query<{ table_name: string }>(
   `SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY 1`);
 // schema_migrations is the ledger of which numbered files have run — internal
 // bookkeeping, never granted to role_readonly and absent from every view.
@@ -114,11 +114,11 @@ ok(linked.accountCount > 0, `accounts stored (${linked.accountCount})`);
 out.push(`  --    institution: ${linked.institutionName}`);
 
 // token really encrypted at rest
-const enc = await query<{ access_token_enc: string }>(`SELECT access_token_enc FROM items LIMIT 1`);
+const enc = await db.query<{ access_token_enc: string }>(`SELECT access_token_enc FROM items LIMIT 1`);
 const stored = enc.rows[0]!.access_token_enc;
 eq(stored.split(".").length, 3, "access token stored as iv.tag.ciphertext");
 ok(!stored.startsWith("access-"), "plaintext token is NOT in the database");
-const items = await listAllItems();
+const items = await listAllItems(db);
 eq(items[0]!.source, "plaid", "a linked bank is recorded as source 'plaid'");
 ok(items[0]!.accessToken?.startsWith("access-") === true, "token decrypts back out correctly");
 
@@ -129,13 +129,13 @@ let run1 = await syncAllItems();
 ok(run1.ok, `sync 1 succeeded${run1.ok ? "" : ": " + run1.results[0]?.error}`);
 out.push(`  --    sync 1: +${run1.added} added, status=${run1.results[0]?.updateStatus}`);
 for (let attempt = 0; attempt < 12; attempt++) {
-  const c = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
+  const c = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
   if (Number(c.rows[0]!.c) > 0) break;
   await new Promise((r) => setTimeout(r, 2500));
   run1 = await syncAllItems();
   out.push(`  --    retry ${attempt + 1}: +${run1.added} added, status=${run1.results[0]?.updateStatus}`);
 }
-const c1 = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
+const c1 = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
 ok(Number(c1.rows[0]!.c) > 0, `transactions written (${c1.rows[0]!.c})`);
 if (Number(c1.rows[0]!.c) === 0) {
   console.log(out.join("\n"));
@@ -144,7 +144,7 @@ if (Number(c1.rows[0]!.c) === 0) {
 }
 
 // column fidelity through the driver
-const row = await query<Record<string, unknown>>(
+const row = await db.query<Record<string, unknown>>(
   `SELECT date, amount, pending, category, pfc, raw, created_at FROM transactions ORDER BY date DESC LIMIT 1`);
 const r = row.rows[0]!;
 ok(typeof r["date"] === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r["date"] as string),
@@ -155,16 +155,16 @@ ok(r["raw"] !== null && typeof r["raw"] === "object", "raw JSONB is an object");
 ok(r["created_at"] instanceof Date, "TIMESTAMPTZ is a Date");
 
 // sync #2 — idempotency, the core promise
-const before = await query<{ c: string; s: string }>(
+const before = await db.query<{ c: string; s: string }>(
   `SELECT COUNT(*)::text AS c, COALESCE(SUM(amount),0)::text AS s FROM transactions`);
 const run2 = await syncAllItems();
-const after = await query<{ c: string; s: string }>(
+const after = await db.query<{ c: string; s: string }>(
   `SELECT COUNT(*)::text AS c, COALESCE(SUM(amount),0)::text AS s FROM transactions`);
 eq([run2.added, run2.modified, run2.removed], [0, 0, 0], "sync 2 reports no changes");
 eq(after.rows[0]!.c, before.rows[0]!.c, "row count unchanged (sync is IDEMPOTENT)");
 eq(after.rows[0]!.s, before.rows[0]!.s, "sum unchanged");
 ok(items[0]!.cursor === null, "cursor was null before the first sync");
-const after2 = await listAllItems();
+const after2 = await listAllItems(db);
 ok((after2[0]!.cursor ?? "").length > 0, "cursor persisted after sync");
 
 // persistence across a process-level close/reopen
@@ -175,10 +175,9 @@ await closeDb();
 // module instance — which is the point of the assertion below. TypeScript
 // cannot resolve a specifier with a query string, so the type comes from the
 // plain path and the specifier is built at runtime.
-const REOPEN = "../src/data/db/queries.js?reopen=1";
-const { query: q2 } = (await import(REOPEN)) as typeof import("../src/data/db/queries.js");
-const { closeDb: close2 } = await import("../src/data/db/bootstrap.js");
-const persisted = await q2<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
+const REOPEN = "../src/data/db/data-source-registry.js?reopen=1";
+const { db: db2, closeDb: close2 } = (await import(REOPEN)) as typeof import("../src/data/db/data-source-registry.js");
+const persisted = await db2.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
 eq(persisted.rows[0]!.c, after.rows[0]!.c, "data survives close/reopen");
 await close2();
 

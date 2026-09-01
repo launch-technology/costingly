@@ -9,8 +9,8 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { queryReadOnly } from "../../../data/db/queries.js";
-import { explainDbError } from "../../../data/db/errors.js";
+import { queryReadOnly } from "../../../data/db/readonly-query.js";
+import { explainDbError } from "../utils/database-errors.js";
 import { formatRows } from "./query.utils.js";
 
 export function registerQueryTool(server: McpServer): void {

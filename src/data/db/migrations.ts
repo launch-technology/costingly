@@ -40,7 +40,9 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { migrationsDir } from "../../core/package.js";
-import type { DbClient } from "./queries.js";
+import type { Executor } from "./types/executor.js";
+import { adminDataSource } from "./data-source-registry.js";
+import { DATABASE_NAME } from "../../postgres/server.js";
 
 export interface Migration {
   /** Filename without extension — "0001-initial". The ledger key. */
@@ -68,7 +70,7 @@ const LEDGER = `
  * error: inside a transaction, ANY error aborts the whole transaction, so
  * provoking one here would poison the migration that follows it.
  */
-async function appliedIds(client: DbClient): Promise<Set<string> | null> {
+async function appliedIds(client: Executor): Promise<Set<string> | null> {
   const { rows } = await client.query<{ present: string | null }>(
     `SELECT to_regclass('public.schema_migrations')::text AS present`,
   );
@@ -80,7 +82,7 @@ async function appliedIds(client: DbClient): Promise<Set<string> | null> {
 
 /** Which of `migrations` this database has not run, in order. */
 export async function pendingMigrations(
-  client: DbClient,
+  client: Executor,
   migrations: readonly Migration[],
 ): Promise<Migration[]> {
   const applied = await appliedIds(client);
@@ -101,7 +103,7 @@ export async function pendingMigrations(
  * another one finishing finds nothing to do rather than applying twice.
  */
 export async function runMigrations(
-  client: DbClient,
+  client: Executor,
   migrations: readonly Migration[],
 ): Promise<string[]> {
   await client.query(`SELECT pg_advisory_xact_lock($1)`, [LOCK_ID]);
@@ -134,3 +136,79 @@ export async function loadMigrations(): Promise<Migration[]> {
     })),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Where the migrations come from, and when they run
+// ---------------------------------------------------------------------------
+
+/**
+ * Registered by the entry point, because reading `migrations/` means resolving a
+ * path from `import.meta.url` and src/ deliberately does not do that — see the
+ * header of cli/paths.ts. Nothing registered means no automatic migration, which
+ * is the right default for code embedding this module rather than running the
+ * CLI.
+ */
+let migrationSource: (() => Promise<Migration[]>) | undefined;
+
+/**
+ * Register the loader. Must happen before anything opens the database.
+ *
+ * The throw is not defensive noise — it is the exact bug this design invites,
+ * made loud. Registering late used to succeed and silently skip every
+ * migration, and the failure surfaced several steps later as
+ * `relation "items" does not exist`. It cost a debugging cycle in the test
+ * suite before this check existed.
+ */
+export function setMigrationSource(load: () => Promise<Migration[]>): void {
+  if (databaseAlreadyOpen()) {
+    throw new Error(
+      "setMigrationSource() was called after the database was already opened, so " +
+        "migrations would be skipped for this process. Register it before the first query.",
+    );
+  }
+  migrationSource = load;
+}
+
+
+/**
+ * Set by the data source so `setMigrationSource` can refuse a late registration.
+ *
+ * Injected rather than imported: the data source already imports this module to run
+ * the migrations, and importing it back would be a cycle.
+ */
+let databaseAlreadyOpen: () => boolean = () => false;
+
+/** Called once by the data source, wiring up the late-registration guard. */
+export function reportDatabaseOpen(isOpen: () => boolean): void {
+  databaseAlreadyOpen = isOpen;
+}
+
+/**
+ * Bring the database's shape up to date, if a migration source was registered.
+ *
+ * Separate from connecting on purpose. A pool is "how to talk to Postgres";
+ * which migrations have run is an application fact one layer up, and the
+ * DataSource has no business knowing migrations exist. This needs only an
+ * `Executor`, which is the smaller contract.
+ *
+ * Costs one read of a small table when there is nothing to do — every start
+ * after the first. Only a non-empty pending set escalates to a transaction and
+ * an advisory lock. A failure is deliberately fatal: a database whose shape
+ * disagrees with the code fails confusingly and much later.
+ */
+export async function applyPendingMigrations(): Promise<void> {  if (migrationSource === undefined) return;
+
+  const migrations = await migrationSource();
+
+  // As the superuser, unpooled, and BEFORE the pool exists. Migrations create
+  // u_app itself, so they cannot run through a pool that authenticates as it —
+  // on a fresh cluster that role does not exist yet.
+  const admin = adminDataSource(DATABASE_NAME);
+
+  // Asked outside the transaction so the common case — nothing pending, every
+  // start after the first — costs one read of a small table and no BEGIN.
+  if ((await pendingMigrations(admin, migrations)).length === 0) return;
+
+  await admin.transaction((tx) => runMigrations(tx, migrations));
+}
+

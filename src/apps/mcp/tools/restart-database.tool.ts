@@ -3,7 +3,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { restartDatabase } from "../../../data/db/health.js";
+import { restartDatabase } from "../../../data/db/database-diagnostics.js";
 
 /**
  * Stop the database and bring it back.

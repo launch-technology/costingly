@@ -6,8 +6,7 @@
  * ever sees the plaintext.
  */
 
-import type { DbClient } from "../db/queries.js";
-import { query } from "../db/queries.js";
+import type { Executor } from "../db/types/executor.js";
 import { encrypt, decrypt } from "../../core/crypto.js";
 
 /**
@@ -99,8 +98,8 @@ export interface SaveItemParams {
  * so this upserts and refreshes the token — while deliberately leaving `cursor`
  * alone, so a re-link does not trigger a full re-backfill.
  */
-export async function saveItem(params: SaveItemParams): Promise<void> {
-  await query(
+export async function saveItem(exec: Executor, params: SaveItemParams): Promise<void> {
+  await exec.query(
     `
     INSERT INTO items (item_id, institution_id, institution_name, access_token_enc, source, status, updated_at)
     VALUES ($1, $2, $3, $4, $5, 'active', now())
@@ -130,8 +129,8 @@ export async function saveItem(params: SaveItemParams): Promise<void> {
  * token and still not belong in a Plaid sync, and this query would then be
  * wrong in a way that is expensive to notice.
  */
-export async function listSyncableItems(): Promise<SyncableItem[]> {
-  const result = await query<ItemRow>(
+export async function listSyncableItems(exec: Executor): Promise<SyncableItem[]> {
+  const result = await exec.query<ItemRow>(
     `SELECT ${ITEM_COLUMNS} FROM items
       WHERE status = 'active' AND source = 'plaid'
       ORDER BY last_synced_at ASC NULLS FIRST, created_at ASC`,
@@ -157,15 +156,15 @@ function isSyncable(item: StoredItem): item is SyncableItem {
  * Unlike `listSyncableItems` this includes items in 'login_required' and any
  * other non-active state — you still need to be able to see and remove those.
  */
-export async function listAllItems(): Promise<StoredItem[]> {
-  const result = await query<ItemRow>(
+export async function listAllItems(exec: Executor): Promise<StoredItem[]> {
+  const result = await exec.query<ItemRow>(
     `SELECT ${ITEM_COLUMNS} FROM items ORDER BY institution_name NULLS LAST, created_at ASC`,
   );
   return result.rows.map(toStoredItem);
 }
 
-export async function getItem(itemId: string): Promise<StoredItem | null> {
-  const result = await query<ItemRow>(
+export async function getItem(exec: Executor, itemId: string): Promise<StoredItem | null> {
+  const result = await exec.query<ItemRow>(
     `SELECT ${ITEM_COLUMNS} FROM items WHERE item_id = $1`,
     [itemId],
   );
@@ -176,19 +175,22 @@ export async function getItem(itemId: string): Promise<StoredItem | null> {
 /**
  * Advance the stored cursor and stamp the sync time.
  *
- * Takes an explicit client so it runs inside the same transaction as the
- * account/transaction writes it corresponds to.
+ * The caller must run this in the same transaction as the rows it describes.
+ * The new cursor is a claim that everything Plaid reported up to that position
+ * is already written; committing it without them means Plaid never resends
+ * those changes and the data is gone. Transaction scope is the service layer's
+ * to decide — see syncItem() — so this takes a plain Executor and trusts it.
  *
  * A `null` cursor means "Plaid did not give us a usable cursor this run" — it
  * is COALESCEd away rather than written, because clearing a good cursor would
  * silently trigger a full history re-backfill on the next run.
  */
 export async function setItemCursor(
-  client: DbClient,
+  exec: Executor,
   itemId: string,
   cursor: string | null,
 ): Promise<void> {
-  await client.query(
+  await exec.query(
     `UPDATE items
        SET cursor = COALESCE($2, cursor),
            last_synced_at = now(),
@@ -204,8 +206,8 @@ export async function setItemCursor(
  * Runs outside any transaction: it is called on the failure path, where the
  * item's transaction has already been rolled back.
  */
-export async function setItemStatus(itemId: string, status: string): Promise<void> {
-  await query(`UPDATE items SET status = $2, updated_at = now() WHERE item_id = $1`, [
+export async function setItemStatus(exec: Executor, itemId: string, status: string): Promise<void> {
+  await exec.query(`UPDATE items SET status = $2, updated_at = now() WHERE item_id = $1`, [
     itemId,
     status,
   ]);
@@ -218,8 +220,8 @@ export async function setItemStatus(itemId: string, status: string): Promise<voi
  * Note: this only removes local data. To also stop Plaid billing for the Item
  * and revoke the token, call `/item/remove` as well.
  */
-export async function deleteItem(itemId: string): Promise<void> {
-  await query(`DELETE FROM items WHERE item_id = $1`, [itemId]);
+export async function deleteItem(exec: Executor, itemId: string): Promise<void> {
+  await exec.query(`DELETE FROM items WHERE item_id = $1`, [itemId]);
 }
 
 /** An Item named without decrypting anything. */
@@ -230,14 +232,14 @@ export interface ItemSummary {
 }
 
 /** How many Items exist, whatever their source. */
-export async function countAll(): Promise<number> {
-  const { rows } = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM items`);
+export async function countAll(exec: Executor): Promise<number> {
+  const { rows } = await exec.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM items`);
   return Number(rows[0]?.count ?? 0);
 }
 
 /** How many Items came from a given source. */
-export async function countBySource(source: ItemSource): Promise<number> {
-  const { rows } = await query<{ count: string }>(
+export async function countBySource(exec: Executor, source: ItemSource): Promise<number> {
+  const { rows } = await exec.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM items WHERE source = $1`,
     [source],
   );
@@ -252,8 +254,8 @@ export async function countBySource(source: ItemSource): Promise<number> {
  * list — or remove — ANY of them. That is precisely the situation in which
  * someone most wants to clean up.
  */
-export async function listBasic(): Promise<ItemSummary[]> {
-  const { rows } = await query<{ item_id: string; institution_name: string | null; status: string }>(
+export async function listBasic(exec: Executor): Promise<ItemSummary[]> {
+  const { rows } = await exec.query<{ item_id: string; institution_name: string | null; status: string }>(
     `SELECT item_id, institution_name, status FROM items
       ORDER BY institution_name NULLS LAST, created_at`,
   );
@@ -265,24 +267,24 @@ export async function listBasic(): Promise<ItemSummary[]> {
 }
 
 /** Delete every Item. Accounts and transactions cascade. */
-export async function deleteAll(): Promise<void> {
-  await query(`DELETE FROM items`);
+export async function deleteAll(exec: Executor): Promise<void> {
+  await exec.query(`DELETE FROM items`);
 }
 
 /** Delete every Item from one source. Accounts and transactions cascade. */
-export async function deleteBySource(source: ItemSource): Promise<void> {
-  await query(`DELETE FROM items WHERE source = $1`, [source]);
+export async function deleteBySource(exec: Executor, source: ItemSource): Promise<void> {
+  await exec.query(`DELETE FROM items WHERE source = $1`, [source]);
 }
 
 /**
  * Forget where each sync got to, so the next one backfills from scratch.
  *
- * Takes a client because this is only ever correct alongside deleting the rows
- * the cursors describe — separating them would make the missing history
- * unrecoverable without a re-link.
+ * The caller must run this in the same transaction as the deletion of the rows
+ * these cursors describe — separating them would make the missing history
+ * unrecoverable without a re-link. See resetSyncedData().
  */
-export async function clearCursors(client: DbClient): Promise<void> {
-  await client.query(`UPDATE items SET cursor = NULL, last_synced_at = NULL, updated_at = now()`);
+export async function clearCursors(exec: Executor): Promise<void> {
+  await exec.query(`UPDATE items SET cursor = NULL, last_synced_at = NULL, updated_at = now()`);
 }
 
 /** One row of the status report: an Item, one of its accounts, and its counts. */
@@ -313,8 +315,8 @@ export interface ItemAccountListing {
  * has no accounts yet, and it still has to appear — that state is exactly what
  * someone running `status` is trying to see.
  */
-export async function listWithAccounts(): Promise<ItemAccountListing[]> {
-  const { rows } = await query<ItemAccountListing>(`
+export async function listWithAccounts(exec: Executor): Promise<ItemAccountListing[]> {
+  const { rows } = await exec.query<ItemAccountListing>(`
     SELECT i.item_id,
            i.institution_name,
            i.status,

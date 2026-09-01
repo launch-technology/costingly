@@ -16,7 +16,8 @@
  */
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { closeDb, setMigrationSource } from "../../data/db/bootstrap.js";
+import { closeDb } from "../../data/db/data-source-registry.js";
+import { setMigrationSource } from "../../data/db/migrations.js";
 import { loadMigrations } from "../../data/db/migrations.js";
 import { setPublicDir } from "../../web/server.js";
 import { packageVersion, publicDir } from "../../core/package.js";

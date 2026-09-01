@@ -8,7 +8,7 @@
  */
 
 import type { Command } from "commander";
-import { withTransaction } from "../../../data/db/queries.js";
+import { db } from "../../../data/db/data-source-registry.js";
 import { loadMigrations, runMigrations } from "../../../data/db/migrations.js";
 import { CliError } from "../errors.js";
 
@@ -40,7 +40,7 @@ export async function runMigrate(): Promise<void> {
   // Opening the connection has almost certainly applied these already — this is
   // the same call the driver makes. Running it again is how the command reports
   // rather than acts, and it is safe: the ledger makes it a no-op.
-  const applied = await withTransaction((client) => runMigrations(client, migrations));
+  const applied = await db.transaction((tx) => runMigrations(tx, migrations));
 
   if (applied.length === 0) {
     console.log(`Database is up to date (${migrations.length} migration(s) applied).`);

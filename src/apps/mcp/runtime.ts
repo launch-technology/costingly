@@ -13,7 +13,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { query } from "../../data/db/queries.js";
+import { db } from "../../data/db/data-source-registry.js";
 
 /** Registers one tool against the server it is handed. */
 export type ToolRegistrar = (server: McpServer) => void | Promise<void>;
@@ -99,14 +99,14 @@ export class McpRuntime {
      * the tool list appearing, and a database that could not start at all would
      * leave the user with a dead extension and no way to ask what went wrong.
      *
-     * So it is started, not awaited. getDriver() caches the promise, so a tool
+     * So it is started, not awaited. The data source caches its opening promise, so a tool
      * call arriving mid-warm-up joins this same work rather than beginning a
      * second copy — and a failed attempt is deliberately un-cached, so that call
      * retries and reports the real error through isError, where the model can
      * pass it on. Nothing here is load-bearing; it only moves the cost earlier.
      */
     private warmUp(): void {
-        void query("SELECT 1").catch((error: unknown) => {
+        void db.query("SELECT 1").catch((error: unknown) => {
             // stderr, never stdout: stdout is the protocol channel. Claude
             // Desktop captures this into mcp-server-costingly.log.
             console.error(
