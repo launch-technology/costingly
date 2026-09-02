@@ -1,4 +1,4 @@
-import type { SyncSummary } from "../../../services/banks/sync.types.js";
+import type { SyncSummary } from "../../../domain/services/banks/sync.types.js";
 
 /**
  * A sync summary, written so that a model *summarising it* surfaces failures.

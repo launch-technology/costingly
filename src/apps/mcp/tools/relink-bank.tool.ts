@@ -4,10 +4,10 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { startLinkServer, takeRecentRepairs } from "../../../web/server.js";
-import { db } from "../../../data/db/data-source-registry.js";
-import { listBasic } from "../../../data/repositories/items.repository.js";
-import { describeError } from "../../../data/plaid.client.js";
+import { startLinkServer, takeRecentRepairs } from "../../../domain/services/banks/link-session.service.js";
+import { db } from "../../../domain/data/default-database.js";
+import { listBasic } from "../../../domain/data/repositories/items.repository.js";
+import { describeError } from "../../../domain/data/plaid.client.js";
 import { explainDbError } from "../utils/database-errors.js";
 import { credentialsPresent, MISSING_CREDENTIALS } from "../utils/credentials.js";
 

@@ -7,7 +7,7 @@
  * decides how they read.
  */
 
-import type { DatabaseDoc } from "../../../data/repositories/schema.repository.js";
+import type { DatabaseDoc } from "../../../domain/data/repositories/schema.repository.js";
 
 /**
  * Render the document as text.

@@ -8,13 +8,13 @@
  * "what do I have connected?" should not require touching the credentials.
  */
 
-import { db } from "../../../data/db/data-source-registry.js";
+import { db } from "../../../domain/data/default-database.js";
 import type { Command } from "commander";
 import {
   listWithAccounts,
   type ItemAccountListing,
-} from "../../../data/repositories/items.repository.js";
-import { describeServer } from "../../../postgres/server.js";
+} from "../../../domain/data/repositories/items.repository.js";
+import { describeServer } from "../../../platform/postgres/server.js";
 import { money, ago } from "../ui/format.js";
 
 type Row = ItemAccountListing;

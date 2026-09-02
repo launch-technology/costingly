@@ -59,11 +59,8 @@ async function cli(...args: string[]): Promise<{ code: number; stdout: string; s
 // query builds the database. From dist/ like everything else here: the CLI child
 // processes run the built code and both sides must agree on which build they are
 // talking to.
-const { setMigrationSource } =
-  (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 const { loadMigrations } =
-  (await import(new URL("../dist/data/db/migrations.js", import.meta.url).href)) as typeof import("../src/data/db/migrations.js");
-setMigrationSource(loadMigrations);
+  (await import(new URL("../dist/platform/postgres/migrations.js", import.meta.url).href)) as typeof import("../src/platform/postgres/migrations.js");
 
 // The first connection is what creates the cluster, starts it, creates the
 // database and runs the migrations — so it has to happen before anything asks

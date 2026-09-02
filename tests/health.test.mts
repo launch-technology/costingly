@@ -24,10 +24,10 @@ const SECRET = "plaid-secret-must-never-be-printed";
 process.env["PLAID_SECRET"] = SECRET;
 process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
-const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { checkDatabase, restartDatabase } = await import("../src/data/db/database-diagnostics.js");
+const { db, closeDb, stopServer } = await import("../src/index.js");
+const { checkDatabase, restartDatabase } = await import("../src/domain/services/database/database-health.service.js");
 const { formatHealth } = await import("../src/apps/mcp/tools/check-database.utils.js");
-const { serverStatus } = await import("../src/postgres/server.js");
+const { serverStatus } = await import("../src/platform/postgres/server.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -48,8 +48,7 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-const { loadMigrations } = await import("../src/data/db/migrations.js");
-setMigrationSource(loadMigrations);
+const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
 
 // ===========================================================================
 // 1. Nothing exists yet — the very first thing a broken install looks like

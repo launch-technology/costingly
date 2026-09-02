@@ -1,9 +1,13 @@
 /**
- * Public surface of the framework-agnostic core.
+ * What costingly exposes to a consumer that imports it as a library.
  *
- * Everything below `src/` depends only on `plaid`, `pg` and Node built-ins —
- * no Express, no commander, no clack. That boundary is what keeps the sync
- * logic liftable into another host later.
+ * Deliberately NOT used from inside src/ — a module that imports this imports
+ * every layer at once, which is the opposite of what the layering is for. The
+ * test suites use it as a façade, and one of them loads the BUILT dist/index.js
+ * to prove the compiled package resolves.
+ *
+ * The layering rules enforce this: `tests/architecture.test.mts` fails if
+ * anything under src/ reaches for it.
  */
 
 export {
@@ -12,12 +16,11 @@ export {
   getSecretIfSet,
   describeConfig,
   writeConfig,
-  updateConfigSync,
   readConfigFile,
   type PlaidEnvName,
   type StoredConfig,
   type ResolvedValue,
-} from "./core/config.js";
+} from "./domain/config.js";
 export {
   profileDir,
   profileSource,
@@ -25,8 +28,9 @@ export {
   displayPath,
   APP_NAME,
   type ProfileSource,
-} from "./core/profile.js";
-export { encrypt, decrypt, generateEncryptionKey } from "./core/crypto.js";
+} from "./platform/profile.js";
+export { updateConfigSync } from "./platform/config-store.js";
+export { encrypt, decrypt, generateEncryptionKey } from "./domain/crypto.js";
 export {
   ensureServerRunning,
   stopServer,
@@ -36,33 +40,31 @@ export {
   serverLogPath,
   DATABASE_NAME,
   type ServerState,
-} from "./postgres/server.js";
+} from "./platform/postgres/server.js";
 export {
   describeDatabase,
   type DatabaseDoc,
   type ViewDoc,
   type ColumnDoc,
-} from "./data/repositories/schema.repository.js";
-export type { DataSource } from "./data/db/types/data-source.js";
-export type { Executor } from "./data/db/types/executor.js";
-export type { Transaction } from "./data/db/types/transaction.js";
-export type { DbResult } from "./data/db/types/db-result.js";
-export type { DbRow } from "./data/db/types/db-row.js";
-export { db, closeDb } from "./data/db/data-source-registry.js";
-export { isMissingSchema } from "./data/db/errors.js";
+} from "./domain/data/repositories/schema.repository.js";
+export type { DataSource } from "./platform/postgres/types/data-source.js";
+export type { Executor } from "./platform/postgres/types/executor.js";
+export type { Transaction } from "./platform/postgres/types/transaction.js";
+export type { DbResult } from "./platform/postgres/types/db-result.js";
+export type { DbRow } from "./platform/postgres/types/db-row.js";
+export { db, closeDb } from "./domain/data/default-database.js";
+export { isMissingSchema } from "./platform/postgres/errors.js";
 export {
   queryReadOnly,
   type ReadOnlyOptions,
   type ReadOnlyResult,
-} from "./data/db/readonly-query.js";
-export { ensureDatabaseExists } from "./data/db/bootstrap.js";
-export { adminDataSource } from "./data/db/data-source-registry.js";
+} from "./domain/services/query/readonly-query.service.js";
+export { database, adminDataSource } from "./domain/data/default-database.js";
 export {
-  setMigrationSource,
   runMigrations,
   pendingMigrations,
   type Migration,
-} from "./data/db/migrations.js";
+} from "./platform/postgres/migrations.js";
 export {
   getPlaidClient,
   getPlaidError,
@@ -70,7 +72,7 @@ export {
   isPlaidErrorCode,
   isMutationDuringPagination,
   isItemLoginRequired,
-} from "./data/plaid.client.js";
+} from "./domain/data/plaid.client.js";
 export {
   saveItem,
   getItem,
@@ -81,26 +83,26 @@ export {
   deleteItem,
   type StoredItem,
   type SaveItemParams,
-} from "./data/repositories/items.repository.js";
+} from "./domain/data/repositories/items.repository.js";
 export {
   createLinkToken,
   exchangePublicToken,
   type LinkedItem,
-} from "./services/banks/link.service.js";
-export { createRepairLinkToken, markItemRepaired } from "./services/banks/relink.service.js";
+} from "./domain/services/banks/link.service.js";
+export { createRepairLinkToken, markItemRepaired } from "./domain/services/banks/relink.service.js";
 export {
   syncAllItems,
-} from "./services/banks/sync.service.js";
-export type { ItemSyncResult, SyncSummary } from "./services/banks/sync.types.js";
+} from "./domain/services/banks/sync.service.js";
+export type { ItemSyncResult, SyncSummary } from "./domain/services/banks/sync.types.js";
 export {
   removeItem,
   countItemData,
   revokeIfPossible,
   type RemovalOutcome,
-} from "./services/banks/unlink.service.js";
+} from "./domain/services/banks/unlink.service.js";
 export {
   countData,
   removeAllItems,
   resetSyncedData,
   type DataCounts,
-} from "./services/banks/reset.service.js";
+} from "./domain/services/banks/reset.service.js";

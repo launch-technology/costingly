@@ -8,9 +8,9 @@
  */
 
 import type { Command } from "commander";
-import { get } from "../../../core/config.js";
-import { startLinkServer, stopLinkServer } from "../../../web/server.js";
-import { publicDir } from "../../../core/package.js";
+import { get } from "../../../domain/config.js";
+import { startLinkServer, stopLinkServer } from "../../../domain/services/banks/link-session.service.js";
+import { publicDir } from "../../../platform/package.js";
 
 export function registerLinkCommand(program: Command): void {
   program

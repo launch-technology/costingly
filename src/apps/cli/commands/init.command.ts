@@ -16,12 +16,12 @@
 import type { Command } from "commander";
 import { intro, outro, text, password, confirm, isCancel, cancel, log } from "@clack/prompts";
 import { stdin } from "node:process";
-import { generateEncryptionKey } from "../../../core/crypto.js";
-import { describeError } from "../../../data/plaid.client.js";
-import { createLinkToken } from "../../../services/banks/link.service.js";
-import { clusterDir } from "../../../postgres/server.js";
-import { configPath, displayPath, profileDir, profileSource } from "../../../core/profile.js";
-import { readConfigFile, writeConfig, type StoredConfig } from "../../../core/config.js";
+import { generateEncryptionKey } from "../../../domain/crypto.js";
+import { describeError } from "../../../domain/data/plaid.client.js";
+import { createLinkToken } from "../../../domain/services/banks/link.service.js";
+import { clusterDir } from "../../../platform/postgres/server.js";
+import { configPath, displayPath, profileDir, profileSource } from "../../../platform/profile.js";
+import { readConfigFile, writeConfig, type StoredConfig } from "../../../domain/config.js";
 import { runMigrate } from "./migrate.command.js";
 import { CliError } from "../errors.js";
 

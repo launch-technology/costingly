@@ -26,11 +26,11 @@ const PROFILE = resolve(process.cwd(), ".dev-sandbox");
 process.env["COSTINGLY_HOME"] = PROFILE;
 process.env["PLAID_ENV"] = "sandbox";
 
-const { writeConfig, readConfigFile } = await import("../src/core/config.js");
-const { configPath, displayPath } = await import("../src/core/profile.js");
-const { generateEncryptionKey } = await import("../src/core/crypto.js");
-const { createLinkToken } = await import("../src/services/banks/link.service.js");
-const { describeError } = await import("../src/data/plaid.client.js");
+const { writeConfig, readConfigFile } = await import("../src/domain/config.js");
+const { configPath, displayPath } = await import("../src/platform/profile.js");
+const { generateEncryptionKey } = await import("../src/domain/crypto.js");
+const { createLinkToken } = await import("../src/domain/services/banks/link.service.js");
+const { describeError } = await import("../src/domain/data/plaid.client.js");
 
 intro("costingly sandbox profile");
 

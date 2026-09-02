@@ -11,9 +11,9 @@
  */
 
 import type { Command } from "commander";
-import { get } from "../../../core/config.js";
-import { countData, removeAllItems, resetSyncedData } from "../../../services/banks/reset.service.js";
-import type { RemovalOutcome } from "../../../services/banks/unlink.service.js";
+import { get } from "../../../domain/config.js";
+import { countData, removeAllItems, resetSyncedData } from "../../../domain/services/banks/reset.service.js";
+import type { RemovalOutcome } from "../../../domain/services/banks/unlink.service.js";
 import { confirmDestructive } from "../ui/confirm.js";
 
 interface ResetOptions {

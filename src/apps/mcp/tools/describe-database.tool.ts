@@ -12,8 +12,8 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { db } from "../../../data/db/data-source-registry.js";
-import { describeDatabase, type DatabaseDoc } from "../../../data/repositories/schema.repository.js";
+import { db } from "../../../domain/data/default-database.js";
+import { describeDatabase, type DatabaseDoc } from "../../../domain/data/repositories/schema.repository.js";
 import { renderDatabaseDoc } from "./describe-database.utils.js";
 
 let cached: string | undefined;

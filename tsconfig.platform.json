@@ -1,0 +1,17 @@
+{
+  // Proves platform/ imports nothing above it.
+  //
+  // Under `composite` every file tsc pulls into the program must match this
+  // `include` pattern — so the moment a platform file imports src/domain or
+  // src/apps, the build fails with TS6307 naming the offending file. A glob
+  // beats a hand-written file list because a list drifts and a pattern cannot.
+  //
+  // Check-only: nothing is emitted from here. `npm run build` is the main
+  // config, which compiles the whole of src/ as one program.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true
+  },
+  "include": ["src/platform/**/*.ts"]
+}

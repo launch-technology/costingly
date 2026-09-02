@@ -14,7 +14,7 @@ process.env.PLAID_ENV = "production";
 import { PassThrough } from "node:stream";
 
 const { describeDatabase } = await import("../src/apps/cli/ui/confirm.js");
-const { displayPath } = await import("../src/core/profile.js");
+const { displayPath } = await import("../src/platform/profile.js");
 const { join, resolve } = await import("node:path");
 
 /** The cluster path as describeDatabase renders it: resolved, then shortened. */

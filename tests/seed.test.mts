@@ -20,11 +20,11 @@ import { rm } from "node:fs/promises";
 const HOME = "/tmp/costingly-seed";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { generateSeedDataset } = await import("../src/services/seed/seed.generator.js");
-const { applySeed, assertSeedable, SeedRefused } = await import("../src/services/seed/seed.service.js");
-const { listSyncableItems, listAllItems, saveItem } = await import("../src/data/repositories/items.repository.js");
-const { createRepairLinkToken } = await import("../src/services/banks/relink.service.js");
+const { db, closeDb, stopServer } = await import("../src/index.js");
+const { generateSeedDataset } = await import("../src/domain/services/seed/seed.generator.js");
+const { applySeed, assertSeedable, SeedRefused } = await import("../src/domain/services/seed/seed.service.js");
+const { listSyncableItems, listAllItems, saveItem } = await import("../src/domain/data/repositories/items.repository.js");
+const { createRepairLinkToken } = await import("../src/domain/services/banks/relink.service.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -58,8 +58,7 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-const { loadMigrations } = await import("../src/data/db/migrations.js");
-setMigrationSource(loadMigrations);
+const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
 
 // ===========================================================================
 // The generator, before any database is involved

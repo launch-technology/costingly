@@ -49,19 +49,17 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { db, closeDb } = await import("../src/data/db/data-source-registry.js");
-const { setMigrationSource } = await import("../src/data/db/migrations.js");
-const { getPlaidClient } = await import("../src/data/plaid.client.js");
-const { exchangePublicToken } = await import("../src/services/banks/link.service.js");
-const { syncAllItems } = await import("../src/services/banks/sync.service.js");
-const { listAllItems } = await import("../src/data/repositories/items.repository.js");
-const { stopServer } = await import("../src/postgres/server.js");
+const { db, closeDb } = await import("../src/domain/data/default-database.js");
+const { getPlaidClient } = await import("../src/domain/data/plaid.client.js");
+const { exchangePublicToken } = await import("../src/domain/services/banks/link.service.js");
+const { syncAllItems } = await import("../src/domain/services/banks/sync.service.js");
+const { listAllItems } = await import("../src/domain/data/repositories/items.repository.js");
+const { stopServer } = await import("../src/platform/postgres/server.js");
 const { readFile, rm } = await import("node:fs/promises");
 
 // Register the migration loader the way cli/main.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../src/data/db/migrations.js");
-setMigrationSource(loadMigrations);
+const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
 
 /**
  * Wipe the scratch cluster.
@@ -128,9 +126,14 @@ ok(items[0]!.accessToken?.startsWith("access-") === true, "token decrypts back o
 let run1 = await syncAllItems();
 ok(run1.ok, `sync 1 succeeded${run1.ok ? "" : ": " + run1.results[0]?.error}`);
 out.push(`  --    sync 1: +${run1.added} added, status=${run1.results[0]?.updateStatus}`);
+// Wait for the sandbox to SETTLE, not merely to produce a row. Plaid delivers
+// the historical pull in instalments, so "some rows arrived" can still be
+// followed by hundreds more — and the idempotence check below would then
+// measure Plaid still working rather than this code re-applying a batch.
+// Settled means: rows exist AND the last sync found nothing new.
 for (let attempt = 0; attempt < 12; attempt++) {
   const c = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
-  if (Number(c.rows[0]!.c) > 0) break;
+  if (Number(c.rows[0]!.c) > 0 && run1.added === 0 && run1.modified === 0) break;
   await new Promise((r) => setTimeout(r, 2500));
   run1 = await syncAllItems();
   out.push(`  --    retry ${attempt + 1}: +${run1.added} added, status=${run1.results[0]?.updateStatus}`);
@@ -175,8 +178,8 @@ await closeDb();
 // module instance — which is the point of the assertion below. TypeScript
 // cannot resolve a specifier with a query string, so the type comes from the
 // plain path and the specifier is built at runtime.
-const REOPEN = "../src/data/db/data-source-registry.js?reopen=1";
-const { db: db2, closeDb: close2 } = (await import(REOPEN)) as typeof import("../src/data/db/data-source-registry.js");
+const REOPEN = "../src/domain/data/default-database.js?reopen=1";
+const { db: db2, closeDb: close2 } = (await import(REOPEN)) as typeof import("../src/domain/data/default-database.js");
 const persisted = await db2.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
 eq(persisted.rows[0]!.c, after.rows[0]!.c, "data survives close/reopen");
 await close2();

@@ -9,10 +9,10 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { db } from "../../../data/db/data-source-registry.js";
-import { listBasic, deleteItem } from "../../../data/repositories/items.repository.js";
+import { db } from "../../../domain/data/default-database.js";
+import { listBasic } from "../../../domain/data/repositories/items.repository.js";
 import { explainDbError } from "../utils/database-errors.js";
-import { countItemData, revokeIfPossible } from "../../../services/banks/unlink.service.js";
+import { countItemData, removeBankById } from "../../../domain/services/banks/unlink.service.js";
 import { ConfirmationStore } from "../utils/confirmations.js";
 
 /**
@@ -162,20 +162,19 @@ export function registerUnlinkBankTool(server: McpServer): void {
                     };
                 }
 
-                // Revoking needs the decrypted token, and reading it can fail
-                // independently of the delete. A token we cannot decrypt, or a
-                // Plaid outage, must not leave the user unable to remove the
-                // row — so this is attempted, reported, and never fatal.
-                //
-                // A seeded bank has no token and no Plaid Item, so there is
-                // nothing to revoke — it just gets deleted locally like
-                // everything else. One tool, one path, no second concept for
-                // the model to choose between.
-                const revocation = await revokeIfPossible(item_id);
-
-                // Accounts and transactions go with it: both foreign keys are
-                // ON DELETE CASCADE. See migrations/0001-initial.sql.
-                await deleteItem(db, item_id);
+                // One service call, not a revoke plus a delete assembled here.
+                // Revoking needs the decrypted token and can fail independently
+                // of the delete — a lost encryption key, a Plaid outage — and
+                // neither may leave the user unable to remove the row. The
+                // service tolerates all of that; a seeded bank simply has
+                // nothing to revoke.
+                const revocation = await removeBankById(item_id, { revoke: true });
+                if (revocation === null) {
+                    return {
+                        content: [{ type: "text", text: `No bank has item_id "".` }],
+                        isError: true,
+                    };
+                }
 
                 const lines = [
                     `Disconnected ${name} and deleted its data:`,
@@ -184,10 +183,9 @@ export function registerUnlinkBankTool(server: McpServer): void {
                     "",
                     revocation.revoked
                         ? "The connection was also revoked at Plaid."
-                        : revocation.attempted
-                          ? `The local data is gone, but revoking at Plaid failed: ${
-                                revocation.error ?? "unknown error"
-                            }\nThe user may want to remove it from their Plaid dashboard.`
+                        : revocation.revokeError !== undefined
+                          ? `The local data is gone, but revoking at Plaid failed: ${revocation.revokeError}` +
+                            "\nThe user may want to remove it from their Plaid dashboard."
                           : "This bank had no Plaid connection to revoke.",
                 ];
 

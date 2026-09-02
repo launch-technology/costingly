@@ -7,7 +7,7 @@
  * cannot act on are replaced.
  */
 
-import { isMissingSchema } from "../../../data/db/errors.js";
+import { isMissingSchema } from "../../../platform/postgres/errors.js";
 
 /** The subset of a `pg` error we care about. */
 interface PgError {

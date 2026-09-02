@@ -8,9 +8,9 @@
 
 import { createServer, type Server } from "node:net";
 
-import type { PortStore } from "../src/core/port-allocator.js";
+import type { PortStore } from "../src/platform/port-allocator.js";
 
-const { PortService } = await import("../src/core/port-allocator.js");
+const { PortService } = await import("../src/platform/port-allocator.js");
 
 const out: string[] = [];
 let fail = 0;

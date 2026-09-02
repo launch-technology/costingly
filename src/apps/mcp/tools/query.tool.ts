@@ -9,7 +9,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { queryReadOnly } from "../../../data/db/readonly-query.js";
+import { queryReadOnly } from "../../../domain/services/query/readonly-query.service.js";
 import { explainDbError } from "../utils/database-errors.js";
 import { formatRows } from "./query.utils.js";
 

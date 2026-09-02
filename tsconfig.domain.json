@@ -1,0 +1,13 @@
+{
+  // Proves domain/ imports platform but never apps.
+  //
+  // Same mechanism as tsconfig.platform.json: an import reaching up into
+  // src/apps pulls a file outside `include` into the program, and composite
+  // rejects it by name.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true
+  },
+  "include": ["src/platform/**/*.ts", "src/domain/**/*.ts"]
+}

@@ -23,8 +23,8 @@
  *             difference.
  */
 
-import type { DbRow } from "../../../data/db/types/db-row.js";
-import type { ReadOnlyResult } from "../../../data/db/readonly-query.js";
+import type { DbRow } from "../../../platform/postgres/types/db-row.js";
+import type { ReadOnlyResult } from "../../../domain/services/query/readonly-query.service.js";
 
 /** Separator. Chosen over a tab because tabs are invisible when debugging. */
 const SEP = " | ";

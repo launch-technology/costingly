@@ -8,8 +8,8 @@
  */
 
 import type { Command } from "commander";
-import { db } from "../../../data/db/data-source-registry.js";
-import { loadMigrations, runMigrations } from "../../../data/db/migrations.js";
+import { db } from "../../../domain/data/default-database.js";
+import { loadMigrations, runMigrations } from "../../../platform/postgres/migrations.js";
 import { CliError } from "../errors.js";
 
 export function registerMigrateCommand(program: Command): void {

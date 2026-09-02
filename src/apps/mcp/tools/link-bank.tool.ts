@@ -3,8 +3,8 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { startLinkServer, takeRecentLinks } from "../../../web/server.js";
-import { describeError } from "../../../data/plaid.client.js";
+import { startLinkServer, takeRecentLinks } from "../../../domain/services/banks/link-session.service.js";
+import { describeError } from "../../../domain/data/plaid.client.js";
 import { explainDbError } from "../utils/database-errors.js";
 import { credentialsPresent, MISSING_CREDENTIALS } from "../utils/credentials.js";
 

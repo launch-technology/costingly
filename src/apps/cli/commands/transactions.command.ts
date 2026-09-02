@@ -17,12 +17,12 @@
 import { InvalidArgumentError } from "commander";
 import type { Command } from "commander";
 import { stdin } from "node:process";
-import { db } from "../../../data/db/data-source-registry.js";
-import { search as searchAccounts } from "../../../data/repositories/accounts.repository.js";
+import { db } from "../../../domain/data/default-database.js";
+import { search as searchAccounts } from "../../../domain/data/repositories/accounts.repository.js";
 import {
   listForAccounts,
   summaryForAccounts,
-} from "../../../data/repositories/transactions.repository.js";
+} from "../../../domain/data/repositories/transactions.repository.js";
 import { money, truncate } from "../ui/format.js";
 import {
   DEFAULT_DAYS,

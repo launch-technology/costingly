@@ -11,9 +11,9 @@
 import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { db } from "../../../data/db/data-source-registry.js";
-import { listAllItems, type StoredItem } from "../../../data/repositories/items.repository.js";
-import { countItemData, removeItem } from "../../../services/banks/unlink.service.js";
+import { db } from "../../../domain/data/default-database.js";
+import { listAllItems, type StoredItem } from "../../../domain/data/repositories/items.repository.js";
+import { countItemData, removeItem } from "../../../domain/services/banks/unlink.service.js";
 import { confirmDestructive } from "../ui/confirm.js";
 
 function label(item: StoredItem): string {

@@ -5,7 +5,7 @@
  * screen. Nothing generic survives extraction here.
  */
 
-import { get, getSecretIfSet } from "../../../core/config.js";
+import { get, getSecretIfSet } from "../../../domain/config.js";
 
 /**
  * What to say when Plaid credentials are missing.

@@ -25,8 +25,8 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { describeDatabase } = await import("../src/data/repositories/schema.repository.js");
+const { db, closeDb, stopServer } = await import("../src/index.js");
+const { describeDatabase } = await import("../src/domain/data/repositories/schema.repository.js");
 const { renderDatabaseDoc } = await import("../src/apps/mcp/tools/describe-database.utils.js");
 
 const out: string[] = [];
@@ -50,8 +50,7 @@ await wipe();
 
 // Register the migration loader the way cli/main.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../src/data/db/migrations.js");
-setMigrationSource(loadMigrations);
+const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
 
 // Enough data that the live facts have something to report.
 await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)

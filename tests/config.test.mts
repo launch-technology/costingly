@@ -14,8 +14,9 @@ import { fileURLToPath } from "node:url";
 const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
-const cfg = await import("../src/core/config.js");
-const { configPath, displayPath } = await import("../src/core/profile.js");
+const cfg = await import("../src/domain/config.js");
+const store = await import("../src/platform/config-store.js");
+const { configPath, displayPath } = await import("../src/platform/profile.js");
 const { mkdtemp, readdir, readFile, rm, stat, writeFile, mkdir } = await import("node:fs/promises");
 const { tmpdir, platform } = await import("node:os");
 
@@ -107,14 +108,14 @@ eq(cfg.readConfigFile().plaidClientId, "client-abc", "and leaves other keys alon
 // --- the ports section survives a rewrite -----------------------------------
 // `init` goes through writeConfig, which does not know ports exist. If it wrote
 // wholesale it would drop them and every service would re-allocate on next run.
-cfg.writePorts({ link: 4100, database: 54321 });
+store.writePorts({ link: 4100, database: 54321 });
 await cfg.writeConfig(SAMPLE);
-eq(cfg.readPorts(), { link: 4100, database: 54321 },
+eq(store.readPorts(), { link: 4100, database: 54321 },
    "WRITECONFIG PRESERVES THE PORTS SECTION it knows nothing about");
 
 // A malformed entry is dropped rather than taking the whole file down.
-cfg.updateConfigSync({ ports: { link: 4100, bad: -1 } as Record<string, number> });
-eq(cfg.readPorts(), { link: 4100 }, "an out-of-range stored port is ignored, not fatal");
+store.updateConfigSync({ ports: { link: 4100, bad: -1 } as Record<string, number> });
+eq(store.readPorts(), { link: 4100 }, "an out-of-range stored port is ignored, not fatal");
 if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
 
 // --- validation ------------------------------------------------------------
@@ -205,7 +206,7 @@ for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_
 // A pre-existing file whose other values must survive the merge.
 await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc" }), "utf8");
 
-const crypto = await import(new URL("../src/core/crypto.js?key-test", import.meta.url).href);
+const crypto = await import(new URL("../src/domain/crypto.js?key-test", import.meta.url).href);
 
 eq(cfg.getSecretIfSet("encryptionKey"), undefined, "no encryption key to begin with");
 
@@ -230,7 +231,7 @@ if (posixModes) eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfi
 // An environment value is a per-invocation override, not state. Persisting one
 // would silently turn a temporary setting into a permanent one.
 process.env["PLAID_SECRET"] = "from-the-environment";
-cfg.updateConfigSync({ plaidEnv: "sandbox" });
+store.updateConfigSync({ plaidEnv: "sandbox" });
 const afterEnv = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, string>;
 eq(afterEnv["plaidEnv"], "sandbox", "updateConfigSync writes what it was given");
 eq(afterEnv["plaidSecret"], undefined,

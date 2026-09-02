@@ -52,9 +52,9 @@ const dir = await mkdtemp(join(tmpdir(), "costingly-initflow-"));
 process.env["COSTINGLY_HOME"] = join(dir, "profile");
 
 const { runInit } = await import("../src/apps/cli/commands/init.command.js");
-const { readConfigFile } = await import("../src/core/config.js");
-const { configPath } = await import("../src/core/profile.js");
-const { closeDb } = await import("../src/data/db/data-source-registry.js");
+const { readConfigFile } = await import("../src/domain/config.js");
+const { configPath } = await import("../src/platform/profile.js");
+const { closeDb } = await import("../src/domain/data/default-database.js");
 
 /** Where init will write: `<COSTINGLY_HOME>/config.json`. */
 const configIn = (): string => configPath();

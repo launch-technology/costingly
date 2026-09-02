@@ -3,7 +3,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { syncAllItems } from "../../../services/banks/sync.service.js";
+import { syncAllItems } from "../../../domain/services/banks/sync.service.js";
 import { explainDbError } from "../utils/database-errors.js";
 import { formatSyncSummary } from "./sync.utils.js";
 

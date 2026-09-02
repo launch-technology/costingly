@@ -16,9 +16,9 @@
  */
 
 import type { Command } from "commander";
-import { generateSeedDataset } from "../../../services/seed/seed.generator.js";
-import { applySeed, SeedRefused } from "../../../services/seed/seed.service.js";
-import { profileDir, displayPath } from "../../../core/profile.js";
+import { generateSeedDataset } from "../../../domain/services/seed/seed.generator.js";
+import { applySeed, SeedRefused } from "../../../domain/services/seed/seed.service.js";
+import { profileDir, displayPath } from "../../../platform/profile.js";
 import { CliError } from "../errors.js";
 
 interface SeedOptions {

@@ -12,7 +12,7 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
 const { profileDir, profileSource, configPath, displayPath, APP_NAME } = await import(
-  new URL("../src/core/profile.js", import.meta.url).href
+  new URL("../src/platform/profile.js", import.meta.url).href
 );
 const { homedir, platform } = await import("node:os");
 const { join, resolve, isAbsolute, sep } = await import("node:path");

@@ -34,8 +34,8 @@ process.env["COSTINGLY_HOME"] = HOME;
 // SAFETY: everything below wipes HOME. Refuse to run against anything else.
 if (HOME !== "/tmp/costingly-mcp") throw new Error("refusing to run against a real profile");
 
-const { db, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { CostinglyMcpServer } = await import("../src/apps/mcp/server.js");
+const { db, closeDb, stopServer } = await import("../src/index.js");
+const { CostinglyMcpApplication } = await import("../src/apps/mcp/costingly-mcp.application.js");
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 
@@ -58,10 +58,8 @@ async function wipe(): Promise<void> {
 }
 await wipe();
 
-// Register the migration loader the way cli/main.ts does, then let the first
-// query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../src/data/db/migrations.js");
-setMigrationSource(loadMigrations);
+// The first query builds the database — migrations included. Tests take the
+// same path a real install takes.
 await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
 
@@ -70,11 +68,12 @@ await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, 
 // ---------------------------------------------------------------------------
 
 const [clientEnd, serverEnd] = InMemoryTransport.createLinkedPair();
-const server = new CostinglyMcpServer("9.9.9-test");
+const app = new CostinglyMcpApplication("9.9.9-test", serverEnd);
+await app.start();
 
 // run() resolves only when the client disconnects, so it is deliberately NOT
 // awaited here — it is awaited at the end, which also proves shutdown works.
-const serving = server.run(serverEnd);
+const serving = app.run();
 
 const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
@@ -263,10 +262,6 @@ ok(/relink_bank/.test(tools.find((t) => t.name === "link_bank")?.description ?? 
 // this block only — the link_bank tests below deliberately run without any.
 process.env["PLAID_CLIENT_ID"] = "fake-client-id";
 process.env["PLAID_SECRET"] = "fake-secret";
-const { setPublicDir: setDir } = await import("../src/web/server.js");
-const { publicDir: pubDir } = await import("../src/core/package.js");
-setDir(pubDir);
-
 const relinkUnknown = await client.callTool({
   name: "relink_bank", arguments: { item_id: "not-a-bank" },
 });
@@ -306,7 +301,7 @@ ok(/i1/.test(text(wrongId)), "and the real item ids are listed back");
 
 // Seed a second bank with data of its own, so the delete has something to cascade
 // through and the first bank can be checked for collateral damage.
-const { encrypt } = await import("../src/core/crypto.js");
+const { encrypt } = await import("../src/domain/crypto.js");
 await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('doomed', 'Doomed Bank', $1, 'active')`, [encrypt("fake-access-token")]);
 await db.query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
@@ -513,7 +508,7 @@ process.env["PLAID_SECRET"] = "fake-secret";
 
 // cli/main.ts registers this; an in-process test has to do it too, for the same
 // reason it registers the migration loader.
-const { linkServerStatus } = await import("../src/web/server.js");
+const { linkServerStatus } = await import("../src/domain/services/banks/link-session.service.js");
 const started = await client.callTool({ name: "link_bank", arguments: {} });
 eq(started.isError, undefined, "with credentials present, link_bank starts the page");
 const startedText = text(started);
@@ -524,9 +519,10 @@ eq(linkServerStatus().running, true, "the link server is listening");
 
 await client.close();
 await serving;
+await app.stop();
 
 eq(linkServerStatus().running, false,
-   "AND run() SHUTS IT DOWN ON DISCONNECT — otherwise the process cannot exit");
+   "AND stop() SHUTS IT DOWN ON DISCONNECT — otherwise the process cannot exit");
 
 delete process.env["PLAID_CLIENT_ID"];
 delete process.env["PLAID_SECRET"];

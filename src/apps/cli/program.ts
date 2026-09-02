@@ -8,7 +8,7 @@
 
 import { Command } from "commander";
 import { environmentBanner } from "./ui/banner.js";
-import { packageVersion } from "../../core/package.js";
+import { packageVersion } from "../../platform/package.js";
 
 import { registerInitCommand } from "./commands/init.command.js";
 import { registerMigrateCommand } from "./commands/migrate.command.js";

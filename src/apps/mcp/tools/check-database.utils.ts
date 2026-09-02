@@ -11,7 +11,7 @@
  * the worst failure this tool can help prevent.
  */
 
-import type { DatabaseHealth } from "../../../data/db/database-diagnostics.js";
+import type { DatabaseHealth } from "../../../domain/services/database/database-health.service.js";
 
 export function formatHealth(health: DatabaseHealth): string {
     const lines: string[] = [];
