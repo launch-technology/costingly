@@ -10,7 +10,7 @@
  */
 
 import type { DataSource } from "./types/data-source.js";
-import { DATABASE_NAME, ensureServerRunning } from "./server.js";
+import type { PostgresServer } from "./server.js";
 
 export class LocalPostgres {
   /**
@@ -19,7 +19,11 @@ export class LocalPostgres {
    *              possible, so it must not depend on the registry that hands
    *              one out.
    */
-  constructor(private readonly admin: (database: string) => DataSource) {}
+  constructor(
+    private readonly admin: (database: string) => DataSource,
+    private readonly server: PostgresServer,
+    private readonly databaseName: string,
+  ) {}
 
   /**
    * Start the cluster if needed, wait until it answers, create the database.
@@ -28,7 +32,7 @@ export class LocalPostgres {
    * three a caller has to sequence correctly.
    */
   async ensureRunning(): Promise<void> {
-    await ensureServerRunning();
+    await this.server.ensureRunning();
     // Before anything connects. ensureDatabaseExists() opens a connection of
     // its own, and a process that lost the start race would hit it too early.
     await this.waitUntilAccepting();
@@ -41,7 +45,7 @@ export class LocalPostgres {
    * Connects to the always-present `postgres` database, because a database
    * cannot be created from inside itself. Doing this here rather than in `init`
    * is what lets a half-finished setup heal itself instead of failing with
-   * `database "costingly" does not exist`.
+   * `database "<name>" does not exist`.
    *
    * Two separate `query()` calls, deliberately: `CREATE DATABASE` is one of the
    * few statements Postgres refuses to run inside a transaction block, so this
@@ -53,13 +57,13 @@ export class LocalPostgres {
     const admin = this.admin("postgres");
 
     const existing = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [
-      DATABASE_NAME,
+      this.databaseName,
     ]);
     if (existing.rowCount === 1) return false;
 
     // No parameters possible in CREATE DATABASE. The name is our own constant,
     // not user input, but quote it properly regardless.
-    await admin.query(`CREATE DATABASE "${DATABASE_NAME.replace(/"/g, '""')}"`);
+    await admin.query(`CREATE DATABASE "${this.databaseName.replace(/"/g, '""')}"`);
     return true;
   }
 

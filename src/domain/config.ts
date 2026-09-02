@@ -27,12 +27,9 @@
  * lives in config-store.ts. Only this module names Plaid.
  */
 
-import { configPath, displayPath } from "../platform/profile.js";
-import {
-  readStoredFile,
-  updateConfigFile,
-  type StoredSections,
-} from "../platform/config-store.js";
+import { platform } from "./project.js";
+import { configStore } from "./project.js";
+import type { StoredSections } from "../platform/config-store.js";
 
 export type PlaidEnvName = "sandbox" | "production";
 
@@ -80,7 +77,7 @@ export interface ResolvedValue {
 // ---------------------------------------------------------------------------
 
 function readStored(): ConfigFile {
-  return readStoredFile() as ConfigFile;
+  return configStore.read() as ConfigFile;
 }
 
 /**
@@ -127,7 +124,7 @@ function resolve(key: keyof StoredConfig): { value: string | number | undefined;
 function missing(key: keyof StoredConfig): Error {
   return new Error(
     `${ENV_NAMES[key]} is not set.\n\n` +
-      `Looked in the environment and in:\n  ${displayPath(configPath())}\n\n` +
+      `Looked in the environment and in:\n  ${platform.displayPath(platform.configPath())}\n\n` +
       `Run \`costingly init\` to set it up.`,
   );
 }
@@ -208,7 +205,7 @@ export function describeConfig(): ResolvedValue[] {
  * The merge is what stops a re-run discarding them.
  */
 export async function writeConfig(values: StoredConfig): Promise<void> {
-  await updateConfigFile({ ...values });
+  await configStore.updateAsync({ ...values });
 }
 
 /** Read the file as-is. For `init`, which needs to know what already exists. */

@@ -27,7 +27,7 @@ process.env["COSTINGLY_HOME"] = PROFILE;
 process.env["PLAID_ENV"] = "sandbox";
 
 const { writeConfig, readConfigFile } = await import("../src/domain/config.js");
-const { configPath, displayPath } = await import("../src/platform/profile.js");
+const { platform } = await import("../src/domain/project.js");
 const { generateEncryptionKey } = await import("../src/domain/crypto.js");
 const { createLinkToken } = await import("../src/domain/services/banks/link.service.js");
 const { describeError } = await import("../src/domain/data/plaid.client.js");
@@ -36,9 +36,9 @@ intro("costingly sandbox profile");
 
 const existing = readConfigFile();
 if (Object.keys(existing).length > 0) {
-  log.info(`Updating ${displayPath(configPath())}`);
+  log.info(`Updating ${platform.displayPath(platform.configPath())}`);
 } else {
-  log.info(`Will create ${displayPath(configPath())}`);
+  log.info(`Will create ${platform.displayPath(platform.configPath())}`);
 }
 
 log.message(
@@ -117,7 +117,7 @@ await writeConfig({
   plaidEnv: "sandbox",
 });
 
-log.success(`Wrote ${displayPath(configPath())}  (mode 0600, git-ignored)`);
+log.success(`Wrote ${platform.displayPath(platform.configPath())}  (mode 0600, git-ignored)`);
 log.info(
   "This profile has its own cluster and its own encryption key, so it cannot\n" +
     "read or write your real transactions.",

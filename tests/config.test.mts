@@ -15,8 +15,9 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
 const cfg = await import("../src/domain/config.js");
-const store = await import("../src/platform/config-store.js");
-const { configPath, displayPath } = await import("../src/platform/profile.js");
+const { platform: projectConfig, configStore: store } = await import("../src/domain/project.js");
+const configPath = () => projectConfig.configPath();
+const displayPath = (p: string) => projectConfig.displayPath(p);
 const { mkdtemp, readdir, readFile, rm, stat, writeFile, mkdir } = await import("node:fs/promises");
 const { tmpdir, platform } = await import("node:os");
 
@@ -114,7 +115,7 @@ eq(store.readPorts(), { link: 4100, database: 54321 },
    "WRITECONFIG PRESERVES THE PORTS SECTION it knows nothing about");
 
 // A malformed entry is dropped rather than taking the whole file down.
-store.updateConfigSync({ ports: { link: 4100, bad: -1 } as Record<string, number> });
+store.update({ ports: { link: 4100, bad: -1 } as Record<string, number> });
 eq(store.readPorts(), { link: 4100 }, "an out-of-range stored port is ignored, not fatal");
 if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
 
@@ -231,7 +232,7 @@ if (posixModes) eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfi
 // An environment value is a per-invocation override, not state. Persisting one
 // would silently turn a temporary setting into a permanent one.
 process.env["PLAID_SECRET"] = "from-the-environment";
-store.updateConfigSync({ plaidEnv: "sandbox" });
+store.update({ plaidEnv: "sandbox" });
 const afterEnv = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, string>;
 eq(afterEnv["plaidEnv"], "sandbox", "updateConfigSync writes what it was given");
 eq(afterEnv["plaidSecret"], undefined,

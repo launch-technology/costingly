@@ -14,7 +14,7 @@ import {
   listWithAccounts,
   type ItemAccountListing,
 } from "../../../domain/data/repositories/items.repository.js";
-import { describeServer } from "../../../platform/postgres/server.js";
+import { server } from "../../../domain/project.js";
 import { money, ago } from "../ui/format.js";
 
 type Row = ItemAccountListing;
@@ -119,7 +119,7 @@ Never decrypts an access token — this only reads metadata.
  * and "is it running?" is the first question when something behaves oddly.
  */
 async function databaseLine(): Promise<string> {
-  return describeServer();
+  return server.describe();
 }
 
 export async function runStatus(options: StatusOptions): Promise<void> {

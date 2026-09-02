@@ -17,7 +17,7 @@
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { getSecretIfSet } from "./config.js";
-import { updateConfigSync } from "../platform/config-store.js";
+import { configStore } from "./project.js";
 
 const ALGORITHM = "aes-256-gcm";
 const KEY_BYTES = 32; // AES-256
@@ -43,7 +43,7 @@ function ensureKey(): string {
   if (existing !== undefined) return existing;
 
   const generated = generateEncryptionKey();
-  updateConfigSync({ encryptionKey: generated });
+  configStore.update({ encryptionKey: generated });
   return generated;
 }
 

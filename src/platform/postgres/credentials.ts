@@ -18,7 +18,7 @@
  * config and opens no connections.
  */
 
-/** The roles costingly creates. Constants, never built from input. */
+/** The roles a project's migrations create. Constants, never built from input. */
 export const ROLE_SUPERUSER = "u_superuser";
 export const ROLE_APP = "u_app";
 export const ROLE_READONLY = "role_readonly";

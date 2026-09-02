@@ -1,7 +1,7 @@
 /**
  * Finding a usable local port, and remembering which one worked.
  *
- * Infrastructure, not domain: this module knows nothing about costingly, the
+ * Infrastructure, not domain: this module knows nothing about the project, the
  * database or Plaid. It is handed somewhere to persist its answers and a set of
  * defaults, and it answers one question — "give me a port I can bind for this
  * service". That is what makes it liftable into another MCP server unchanged.

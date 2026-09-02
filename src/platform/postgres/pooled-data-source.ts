@@ -5,7 +5,7 @@
  * it is handed a function that produces a pool and calls it once, on the first
  * query. Deciding what to hand it is the registry's job.
  *
- * Opening is lazy for a reason that outlives this class. `costingly doctor`
+ * Opening is lazy for a reason that outlives this class. A diagnostic command
  * exists to diagnose a cluster that will not start, so constructing a
  * DataSource must never start one.
  */

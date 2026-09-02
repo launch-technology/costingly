@@ -6,13 +6,13 @@
  * is handed one already configured.
  *
  * `pg` is imported dynamically, not at module load: constructing a factory has
- * to stay free so that `costingly doctor` — which must work when the cluster is
+ * to stay free so that a diagnostic command — which must work when the cluster is
  * dead — pays nothing for the database layer merely being reachable.
  */
 
 import type { Client, Pool } from "pg";
 import { connectionStringFor } from "./credentials.js";
-import { databaseCredentials } from "./server.js";
+import type { PostgresServer } from "./server.js";
 
 // ---------------------------------------------------------------------------
 // Type parsing
@@ -27,6 +27,8 @@ const DATE_OID = 1082;
 const keepAsSent = (value: string): string => value;
 
 export class ConnectionFactory {
+  constructor(private readonly server: PostgresServer) {}
+
   /**
    * A pool for the application database, as u_app.
    *
@@ -41,7 +43,7 @@ export class ConnectionFactory {
     types.setTypeParser(DATE_OID, keepAsSent);
 
     const pool = new PgPool({
-      connectionString: connectionStringFor(await databaseCredentials(), "app"),
+      connectionString: connectionStringFor(await this.server.credentials(), "app"),
       // No `ssl`: the listener is bound to loopback, so the bytes never leave
       // the machine and there is no network path to intercept.
       max: 10,
@@ -63,7 +65,7 @@ export class ConnectionFactory {
   async connectAsSuperuser(database: string): Promise<Client> {
     const pgPkg = (await import("pg")).default;
     const client = new pgPkg.Client({
-      connectionString: connectionStringFor(await databaseCredentials(), "superuser", database),
+      connectionString: connectionStringFor(await this.server.credentials(), "superuser", database),
     });
     await client.connect();
     return client;

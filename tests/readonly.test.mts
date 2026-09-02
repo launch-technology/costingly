@@ -28,7 +28,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 // their real database.
 if (HOME !== "/tmp/costingly-readonly") throw new Error("refusing to run against a real profile");
 
-const { db, closeDb, stopServer } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
 const { queryReadOnly } = await import("../src/domain/services/query/readonly-query.service.js");
 
 const out: string[] = [];
@@ -55,7 +55,7 @@ const blocked = async (sql: string, what: string): Promise<void> =>
   ok((await rejected(sql)) !== "", what);
 
 async function wipe(): Promise<void> {
-  await stopServer().catch(() => {});
+  await server.stop().catch(() => {});
   // maxRetries: Windows can still hold handles on the cluster directory for a
   // moment after the postmaster exits, which unlink-while-open unix does not.
   await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });

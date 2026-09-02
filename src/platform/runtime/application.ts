@@ -1,5 +1,5 @@
 /**
- * What every costingly executable is.
+ * What every executable on this platform is.
  *
  * Three phases, in a fixed order, run by an ApplicationHost that owns the
  * process around them:

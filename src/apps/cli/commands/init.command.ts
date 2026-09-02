@@ -19,8 +19,8 @@ import { stdin } from "node:process";
 import { generateEncryptionKey } from "../../../domain/crypto.js";
 import { describeError } from "../../../domain/data/plaid.client.js";
 import { createLinkToken } from "../../../domain/services/banks/link.service.js";
-import { clusterDir } from "../../../platform/postgres/server.js";
-import { configPath, displayPath, profileDir, profileSource } from "../../../platform/profile.js";
+import { server } from "../../../domain/project.js";
+import { platform } from "../../../domain/project.js";
 import { readConfigFile, writeConfig, type StoredConfig } from "../../../domain/config.js";
 import { runMigrate } from "./migrate.command.js";
 import { CliError } from "../errors.js";
@@ -93,15 +93,15 @@ export async function runInit(io: PromptIO = {}): Promise<void> {
     );
   }
 
-  const path = configPath();
+  const path = platform.configPath();
   const existing = readConfigFile();
   const updating = Object.keys(existing).length > 0;
 
   intro("costingly setup", io);
 
   log.info(
-    `${updating ? "Updating" : "Will write"} ${displayPath(path)}\n` +
-      `Profile: ${displayPath(profileDir())}  (${profileSource()})`,
+    `${updating ? "Updating" : "Will write"} ${platform.displayPath(path)}\n` +
+      `Profile: ${platform.displayPath(platform.profileDir())}  (${platform.profileSource()})`,
     io,
   );
 
@@ -170,12 +170,12 @@ export async function runInit(io: PromptIO = {}): Promise<void> {
     plaidEnv: existing.plaidEnv ?? "production",
   };
   await writeConfig(values);
-  log.success(`Wrote ${displayPath(path)}`, io);
+  log.success(`Wrote ${platform.displayPath(path)}`, io);
 
   if (!existing.encryptionKey) {
     log.warn(
       "Back up your encryption key. Losing it means re-linking every bank:\n" +
-        `  ${displayPath(path)}`,
+        `  ${platform.displayPath(path)}`,
       io,
     );
   }
@@ -183,7 +183,7 @@ export async function runInit(io: PromptIO = {}): Promise<void> {
   // --- database -----------------------------------------------------------
   const proceed = await confirm({
     ...io,
-    message: `Create the database at ${displayPath(clusterDir())}?`,
+    message: `Create the database at ${platform.displayPath(server.clusterDir())}?`,
     initialValue: true,
   });
   if (isCancel(proceed)) return cancelled(io);

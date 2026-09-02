@@ -8,18 +8,18 @@
  */
 
 import { existsSync } from "node:fs";
-import { configPath, displayPath, profileDir, profileSource } from "../../../platform/profile.js";
-import { clusterDir } from "../../../platform/postgres/server.js";
+import { platform } from "../../../domain/project.js";
+import { server } from "../../../domain/project.js";
 
 export function environmentBanner(): string {
   const lines: string[] = [];
 
-  const source = profileSource() === "COSTINGLY_HOME" ? "COSTINGLY_HOME" : "default";
-  lines.push(`  Profile             ${displayPath(profileDir())}  (${source})`);
-  lines.push(`  Database            ${displayPath(clusterDir())}`);
+  const source = platform.profileSource() === "home variable" ? platform.homeVar : "default";
+  lines.push(`  Profile             ${platform.displayPath(platform.profileDir())}  (${source})`);
+  lines.push(`  Database            ${platform.displayPath(server.clusterDir())}`);
   lines.push(
-    existsSync(configPath())
-      ? `  Config              ${displayPath(configPath())}`
+    existsSync(platform.configPath())
+      ? `  Config              ${platform.displayPath(platform.configPath())}`
       : "  Config              (not set up — run `costingly init`)",
   );
 

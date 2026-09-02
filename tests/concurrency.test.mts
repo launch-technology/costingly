@@ -37,7 +37,7 @@ const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 // From dist/, not src/: the CLI child processes below run the built code, and
 // both sides must agree on which build they are talking to.
-const { db, closeDb, serverStatus, stopServer, clusterDir, adminDataSource } =
+const { db, closeDb, server, adminDataSource } =
   (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 
 /** Run the CLI as a separate OS process. */
@@ -66,7 +66,7 @@ const { loadMigrations } =
 // database and runs the migrations — so it has to happen before anything asks
 // whether the server is up.
 await db.query(`SELECT 1`);
-eq(await serverStatus(), "running", "server is running");
+eq(await server.status(), "running", "server is running");
 // Compared against what is actually in migrations/, not a hardcoded list: the
 // claim being tested is "the first connection applied ALL of them by itself",
 // and a literal here would turn every new migration into a failing test that
@@ -121,8 +121,8 @@ ok(
 // Stop the server, then launch 6 processes simultaneously. Exactly one should
 // win the start race; the other five must succeed anyway, not error.
 await closeDb();
-eq(await stopServer(), true, "server stopped for the stampede test");
-eq(await serverStatus(), "stopped", "server really is stopped");
+eq(await server.stop(), true, "server stopped for the stampede test");
+eq(await server.status(), "stopped", "server really is stopped");
 
 const stampede = await Promise.all(Array.from({ length: 6 }, () => cli("status")));
 eq(
@@ -134,20 +134,20 @@ const stampedeNoise = stampede
   .flatMap((r) => [r.stderr])
   .filter((s) => s.trim() !== "");
 eq(stampedeNoise, [], "and none of them printed an error");
-eq(await serverStatus(), "running", "exactly one of them started the server");
+eq(await server.status(), "running", "exactly one of them started the server");
 
 // --- 5. auto-restart after stop -------------------------------------------
-await stopServer();
-eq(await serverStatus(), "stopped", "stopped again");
+await server.stop();
+eq(await server.status(), "stopped", "stopped again");
 const revived = await cli("status");
 eq(revived.code, 0, "a plain command auto-starts a stopped server");
-eq(await serverStatus(), "running", "and the server is up afterwards");
+eq(await server.status(), "running", "and the server is up afterwards");
 
 // --- 6. costingly stop / restart via the CLI ------------------------------
 const stopped = await cli("stop");
 eq(stopped.code, 0, "`costingly stop` exits 0");
 ok(/stopped/i.test(stopped.stdout), "`costingly stop` says so");
-eq(await serverStatus(), "stopped", "`costingly stop` really stops it");
+eq(await server.status(), "stopped", "`costingly stop` really stops it");
 const again = await cli("stop");
 ok(/not running/i.test(again.stdout), "`costingly stop` twice is not an error");
 
@@ -159,13 +159,13 @@ eq(survived.rows[0]!.c, "2", "data survived repeated stop/start cycles");
 // not own the table, which is the no-DDL boundary working as intended.
 await adminDataSource("costingly").query(`DROP TABLE _probe`);
 await closeDb();
-await stopServer().catch(() => {});
+await server.stop().catch(() => {});
 const { rm } = await import("node:fs/promises");
 // maxRetries: Windows can still hold handles on the cluster directory for a
 // moment after the postmaster exits, which unlink-while-open unix does not.
 await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 
 console.log(out.join("\n"));
-console.log(`\ncluster: ${clusterDir()}`);
+console.log(`\ncluster: ${server.clusterDir()}`);
 console.log(fail === 0 ? `\nAll ${out.length} checks passed.` : `\n${fail} FAILED.`);
 process.exit(fail === 0 ? 0 : 1);

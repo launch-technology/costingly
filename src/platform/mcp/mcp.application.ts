@@ -8,7 +8,7 @@
  * A concrete server is a subclass supplying three things — what it is called,
  * what it is for, and its tools. Tools arrive as registrar functions rather than
  * being defined here, which is the whole boundary: this file cannot name a
- * costingly tool, and the compiler says so if it ever tries.
+ * concrete tool, and the compiler says so if it ever tries.
  *
  * The transport is injected rather than created, so the same application can be
  * driven over stdio by a desktop host and over an in-memory pair by a test.

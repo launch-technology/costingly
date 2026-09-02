@@ -52,13 +52,13 @@ const dbModule = await import("../src/domain/data/default-database.js");
 const crypto = await import("../src/domain/crypto.js");
 const configMod = await import("../src/domain/config.js");
 const index = await import("../src/index.js");
-const server = await import("../src/platform/postgres/server.js");
+const project = await import("../src/domain/project.js");
 
 check("all modules load under Node ESM", () => {
   assert(typeof dbModule.db.query === "function", "db.query missing");
   assert(typeof dbModule.db.transaction === "function", "db.transaction missing");
-  assert(typeof server.clusterDir === "function", "server.clusterDir missing");
-  assert(typeof server.ensureServerRunning === "function", "server.ensureServerRunning missing");
+  assert(typeof project.server.clusterDir === "function", "server.clusterDir missing");
+  assert(typeof project.server.ensureRunning === "function", "server.ensureRunning missing");
   assert(typeof index.syncAllItems === "function", "syncAllItems not exported from index");
   assert(typeof index.createLinkToken === "function", "createLinkToken not exported from index");
   assert(typeof configMod.getSecret === "function", "config.getSecret missing");

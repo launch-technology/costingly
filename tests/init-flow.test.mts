@@ -53,11 +53,11 @@ process.env["COSTINGLY_HOME"] = join(dir, "profile");
 
 const { runInit } = await import("../src/apps/cli/commands/init.command.js");
 const { readConfigFile } = await import("../src/domain/config.js");
-const { configPath } = await import("../src/platform/profile.js");
+const { platform: projectConfig } = await import("../src/domain/project.js");
 const { closeDb } = await import("../src/domain/data/default-database.js");
 
 /** Where init will write: `<COSTINGLY_HOME>/config.json`. */
-const configIn = (): string => configPath();
+const configIn = (): string => projectConfig.configPath();
 const readConfig = async (_p?: string) => readConfigFile();
 
 const out: string[] = [];

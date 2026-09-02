@@ -1,10 +1,10 @@
 /**
  * A local PostgreSQL cluster, managed by us.
  *
- * This module knows nothing about costingly. It is handed a `ClusterConfig` and
+ * This module knows nothing about the project. It is handed a `ClusterConfig` and
  * drives PostgreSQL against it — which is what makes it liftable into any other
  * project that needs an embedded Postgres without inheriting a profile system,
- * a config file format or a CLI. `db/server.ts` is the costingly-shaped binding
+ * a config file format or a CLI. `server.ts` is the profile-shaped binding
  * that supplies the config; everything platform-specific lives here.
  *
  * Two deliberate choices shape this file:
@@ -393,7 +393,7 @@ export class PostgresCluster {
     // default written above it.
     await writeFile(
       join(this.config.dataDir, "pg_hba.conf"),
-      `# Managed by costingly. First match wins, so the rejections come last.\n` +
+      `# Managed automatically. First match wins, so the rejections come last.\n` +
         `local   all   all                  scram-sha-256\n` +
         `host    all   all   127.0.0.1/32   scram-sha-256\n` +
         `host    all   all   ::1/128        scram-sha-256\n` +

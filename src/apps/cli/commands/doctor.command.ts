@@ -15,8 +15,8 @@
 import type { Command } from "commander";
 import { stat } from "node:fs/promises";
 import { describeConfig } from "../../../domain/config.js";
-import { clusterDir, databaseCredentials, serverLogPath, serverStatus } from "../../../platform/postgres/server.js";
-import { configPath, displayPath, profileDir, profileSource } from "../../../platform/profile.js";
+import { server } from "../../../domain/project.js";
+import { platform } from "../../../domain/project.js";
 import { packageVersion } from "../../../platform/package.js";
 
 export function registerDoctorCommand(program: Command): void {
@@ -57,18 +57,18 @@ export async function runDoctor(): Promise<void> {
   console.log("");
 
   // --- profile --------------------------------------------------------------
-  const profile = await describePath(profileDir());
-  line("Profile", displayPath(profileDir()), profile.exists ? OK : "not created yet");
+  const profile = await describePath(platform.profileDir());
+  line("Profile", platform.displayPath(platform.profileDir()), profile.exists ? OK : "not created yet");
   console.log(
     `  ${" ".repeat(12)} ${
-      profileSource() === "COSTINGLY_HOME"
+      platform.profileSource() === "home variable"
         ? "(COSTINGLY_HOME is set)"
         : "(platform default — COSTINGLY_HOME not set)"
     }`,
   );
 
   // --- config ---------------------------------------------------------------
-  const config = await describePath(configPath());
+  const config = await describePath(platform.configPath());
   if (!config.exists) {
     line("config.json", "missing — run `costingly init`", NO);
   } else {
@@ -83,8 +83,8 @@ export async function runDoctor(): Promise<void> {
   }
 
   // --- cluster --------------------------------------------------------------
-  const cluster = await describePath(clusterDir());
-  const state = await serverStatus();
+  const cluster = await describePath(server.clusterDir());
+  const state = await server.status();
   line(
     "cluster",
     cluster.exists ? `pg18/  ${state === "uninitialised" ? "not initialised" : "initialised"}` : "not created yet",
@@ -95,11 +95,11 @@ export async function runDoctor(): Promise<void> {
   // --- listener -------------------------------------------------------------
   // The port is allocated rather than configured, so printing it is the only way
   // a user can point psql or a GUI client at the right database.
-  const { host, port } = await databaseCredentials();
+  const { host, port } = await server.credentials();
   line("listener", `${host}:${port}`, OK);
 
   // --- log ------------------------------------------------------------------
-  const logFile = await describePath(serverLogPath());
+  const logFile = await describePath(server.logPath());
   line(
     "log",
     logFile.exists ? `pg18.log  (${Math.round((logFile.size ?? 0) / 1024)} KB)` : "none yet",

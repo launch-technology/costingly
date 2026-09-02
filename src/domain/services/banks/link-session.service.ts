@@ -45,7 +45,7 @@ import type { Server } from "node:http";
 
 import { publicDir } from "../../../platform/package.js";
 import { get } from "../../config.js";
-import { ports } from "../../../platform/ports.js";
+import { ports } from "../../project.js";
 import {
   createLinkToken,
   exchangePublicToken,

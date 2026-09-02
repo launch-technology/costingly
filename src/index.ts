@@ -21,26 +21,11 @@ export {
   type StoredConfig,
   type ResolvedValue,
 } from "./domain/config.js";
-export {
-  profileDir,
-  profileSource,
-  configPath,
-  displayPath,
-  APP_NAME,
-  type ProfileSource,
-} from "./platform/profile.js";
-export { updateConfigSync } from "./platform/config-store.js";
+export { costingly, platform, configStore, ports, server } from "./domain/project.js";
+export type { PlatformConfig, ProjectIdentity, ProfileSource } from "./platform/platform-config.js";
+export type { ConfigStore } from "./platform/config-store.js";
 export { encrypt, decrypt, generateEncryptionKey } from "./domain/crypto.js";
-export {
-  ensureServerRunning,
-  stopServer,
-  serverStatus,
-  describeServer,
-  clusterDir,
-  serverLogPath,
-  DATABASE_NAME,
-  type ServerState,
-} from "./platform/postgres/server.js";
+export type { PostgresServer, ServerState } from "./platform/postgres/server.js";
 export {
   describeDatabase,
   type DatabaseDoc,

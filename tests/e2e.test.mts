@@ -54,7 +54,7 @@ const { getPlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/domain/services/banks/link.service.js");
 const { syncAllItems } = await import("../src/domain/services/banks/sync.service.js");
 const { listAllItems } = await import("../src/domain/data/repositories/items.repository.js");
-const { stopServer } = await import("../src/platform/postgres/server.js");
+const { server } = await import("../src/domain/project.js");
 const { readFile, rm } = await import("node:fs/promises");
 
 // Register the migration loader the way cli/main.ts does, then let the first
@@ -69,7 +69,7 @@ const { loadMigrations } = await import("../src/platform/postgres/migrations.js"
  * longer exists, and the next run inherits the mess.
  */
 async function wipeScratchCluster(): Promise<void> {
-  await stopServer().catch(() => {});
+  await server.stop().catch(() => {});
   // One folder holds config, cluster, socket and log — so one rm clears it all,
   // except the config we just planted, which the next line restores.
   await rm(`${HOME}/pg18`, { recursive: true, force: true });

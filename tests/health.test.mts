@@ -24,10 +24,10 @@ const SECRET = "plaid-secret-must-never-be-printed";
 process.env["PLAID_SECRET"] = SECRET;
 process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
-const { db, closeDb, stopServer } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
 const { checkDatabase, restartDatabase } = await import("../src/domain/services/database/database-health.service.js");
 const { formatHealth } = await import("../src/apps/mcp/tools/check-database.utils.js");
-const { serverStatus } = await import("../src/platform/postgres/server.js");
+
 
 const out: string[] = [];
 let fail = 0;
@@ -41,7 +41,7 @@ function eq(a: unknown, b: unknown, what: string): void {
 const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 async function wipe(): Promise<void> {
-  await stopServer().catch(() => {});
+  await server.stop().catch(() => {});
   // maxRetries: Windows can still hold handles on the cluster directory for a
   // moment after the postmaster exits, which unlink-while-open unix does not.
   await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
@@ -86,15 +86,15 @@ for (const absent of ["transaction", "Sources", "Covering", "Synced"]) {
 // ===========================================================================
 
 await closeDb();
-await stopServer();
-eq(await serverStatus(), "stopped", "server really is stopped");
+await server.stop();
+eq(await server.status(), "stopped", "server really is stopped");
 
 const afterStop = await checkDatabase();
 ok(true, "checkDatabase() with the server stopped RETURNED instead of throwing");
 // Connecting restarts it, which is what a real tool call would do too. The
 // tool answers "can costingly reach its data", and the answer here is yes.
 ok(afterStop.connection.ok, "the probe started the server again and connected");
-eq(await serverStatus(), "running", "and left it running");
+eq(await server.status(), "running", "and left it running");
 
 // ===========================================================================
 // 4. Restart
@@ -105,7 +105,7 @@ const restart = await restartDatabase();
 eq(restart.wasRunning, true, "restart_database saw a running server");
 eq(restart.ok, true, "RESTART BROUGHT THE DATABASE BACK");
 ok(restart.elapsedMs > 0, "and reported how long it took");
-eq(await serverStatus(), "running", "the server is running afterwards");
+eq(await server.status(), "running", "the server is running afterwards");
 
 // Data has to survive it — that is the difference between a restart and a reset.
 await db.query(
@@ -139,7 +139,7 @@ ok(restartText.includes("moments ago"),
 // ===========================================================================
 
 await closeDb();
-await stopServer();
+await server.stop();
 await rm(`${HOME}/pg18`, { recursive: true, force: true });
 await mkdir(HOME, { recursive: true });
 

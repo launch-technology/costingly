@@ -25,7 +25,7 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { db, closeDb, stopServer } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
 const { describeDatabase } = await import("../src/domain/data/repositories/schema.repository.js");
 const { renderDatabaseDoc } = await import("../src/apps/mcp/tools/describe-database.utils.js");
 
@@ -41,7 +41,7 @@ function eq(a: unknown, b: unknown, what: string): void {
 const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 async function wipe(): Promise<void> {
-  await stopServer().catch(() => {});
+  await server.stop().catch(() => {});
   // maxRetries: Windows can still hold handles on the cluster directory for a
   // moment after the postmaster exits, which unlink-while-open unix does not.
   await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });

@@ -18,7 +18,7 @@
 import type { Command } from "commander";
 import { generateSeedDataset } from "../../../domain/services/seed/seed.generator.js";
 import { applySeed, SeedRefused } from "../../../domain/services/seed/seed.service.js";
-import { profileDir, displayPath } from "../../../platform/profile.js";
+import { platform } from "../../../domain/project.js";
 import { CliError } from "../errors.js";
 
 interface SeedOptions {
@@ -66,7 +66,7 @@ export async function runSeed(options: SeedOptions): Promise<void> {
     throw new CliError("--end-date must look like 2026-08-09.");
   }
 
-  console.log(`Profile: ${displayPath(profileDir())}`);
+  console.log(`Profile: ${platform.displayPath(platform.profileDir())}`);
 
   const dataset = generateSeedDataset({
     years,

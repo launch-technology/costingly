@@ -3,12 +3,12 @@
  *
  * Reading, merging and writing the profile's config file, plus the two sections
  * that belong to the machinery rather than to any application: the database
- * logins costingly generated for itself, and the ports the allocator recorded.
+ * logins the project generated for itself, and the ports the allocator recorded.
  *
  * Deliberately knows nothing about Plaid keys or encryption keys. Those are one
  * application's settings and live with that application — see config.ts, which
  * layers them on top of this. The split is what lets the file mechanics be
- * reused by a second application without carrying costingly's key set.
+ * reused by a second application without carrying another's key set.
  *
  * Every write is atomic and owner-only, and every write MERGES: the file holds
  * sections written by code that knows nothing about the section next to it, and
@@ -18,7 +18,7 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { configPath, displayPath } from "./profile.js";
+import type { PlatformConfig } from "./platform-config.js";
 
 /** Owner read/write only. This file holds live credentials. */
 export const FILE_MODE = 0o600;
@@ -28,7 +28,7 @@ export interface DatabaseLogin {
   password: string;
 }
 
-/** The database roles costingly created, and how to authenticate as them. */
+/** The database roles the project created, and how to authenticate as them. */
 export interface DatabaseLogins {
   superuser: DatabaseLogin;
   app: DatabaseLogin;
@@ -61,11 +61,11 @@ export type ConfigFileShape = StoredSections & Record<string, unknown>;
  * next to the work every command does anyway.
  *
  * A file that exists but cannot be parsed is a hard error. Silently treating
- * corrupt JSON as "no config" would send the user to `costingly init` and have
- * them overwrite a file that might hold the only copy of their encryption key.
+ * corrupt JSON as "no config" would send the user to setup and have them
+ * overwrite a file that might hold the only copy of their encryption key.
  */
-export function readStoredFile(): ConfigFileShape {
-  const path = configPath();
+function readStoredFileAt(config: PlatformConfig): ConfigFileShape {
+  const path = config.configPath();
   let text: string;
   try {
     text = readFileSync(path, "utf8");
@@ -81,10 +81,10 @@ export function readStoredFile(): ConfigFileShape {
     return parsed as ConfigFileShape;
   } catch (error) {
     throw new Error(
-      `Could not read ${displayPath(path)}:\n  ${error instanceof Error ? error.message : String(error)}\n\n` +
-        `Fix the file, or move it aside and run \`costingly init\` to create a new one.\n` +
+      `Could not read ${config.displayPath(path)}:\n  ${error instanceof Error ? error.message : String(error)}\n\n` +
+        `Fix the file, or move it aside and run \`${config.identity.name} init\` to create a new one.\n` +
         `If it holds the only copy of your encryption key, do NOT delete it — a lost key\n` +
-        `means re-linking every bank.`,
+        `means re-linking every connected account.`,
     );
   }
 }
@@ -104,7 +104,7 @@ const BUSY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
  * Rename over a destination another process may have open.
  *
  * On Windows a rename onto an existing file fails with EPERM when anyone else
- * holds a handle to it — and several costingly processes starting at once do
+ * holds a handle to it — and several of a project's processes starting at once
  * exactly that: each reads config.json to find the port, and the ones that lose
  * the race to bind it write a different port back. Measured: six concurrent
  * cold starts failed this way roughly two runs in five.
@@ -153,12 +153,12 @@ function sleepSync(ms: number): void {
  * per-invocation override, and persisting one would silently turn a temporary
  * setting into permanent state.
  */
-export function updateConfigSync(patch: Record<string, unknown>): void {
-  const path = configPath();
-  // readStoredFile() throws on unparseable JSON rather than treating it as
+function updateConfigSyncAt(config: PlatformConfig, patch: Record<string, unknown>): void {
+  const path = config.configPath();
+  // readStoredFileAt() throws on unparseable JSON rather than treating it as
   // empty. That matters more here than anywhere else: silently starting from {}
   // would drop an existing encryption key and orphan every stored access token.
-  const merged = { ...readStoredFile(), ...patch };
+  const merged = { ...readStoredFileAt(config), ...patch };
 
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temp = join(dirname(path), `.config.${process.pid}.tmp`);
@@ -183,12 +183,15 @@ export function updateConfigSync(patch: Record<string, unknown>): void {
  * chmod happens on the temp file *before* the rename, so the config is never
  * momentarily world-readable at its final path.
  */
-export async function updateConfigFile(patch: Record<string, unknown>): Promise<void> {
-  const path = configPath();
+async function updateConfigFileAt(
+  config: PlatformConfig,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const path = config.configPath();
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
 
   const temp = join(dirname(path), `.config.${process.pid}.tmp`);
-  const body = `${JSON.stringify({ ...readStoredFile(), ...patch }, null, 2)}\n`;
+  const body = `${JSON.stringify({ ...readStoredFileAt(config), ...patch }, null, 2)}\n`;
   try {
     await writeFile(temp, body, { mode: FILE_MODE });
     await chmod(temp, FILE_MODE);
@@ -214,8 +217,8 @@ export async function updateConfigFile(patch: Record<string, unknown>): Promise<
 // ---------------------------------------------------------------------------
 
 /** The ports the allocator has recorded, ignoring any entry that is malformed. */
-export function readPorts(): Record<string, number> {
-  const raw = readStoredFile().ports;
+function readPortsAt(config: PlatformConfig): Record<string, number> {
+  const raw = readStoredFileAt(config).ports;
   if (raw === undefined || typeof raw !== "object") return {};
 
   const clean: Record<string, number> = {};
@@ -230,10 +233,6 @@ export function readPorts(): Record<string, number> {
   return clean;
 }
 
-/** Merges, so it can never drop a port belonging to another service. */
-export function writePorts(ports: Record<string, number>): void {
-  updateConfigSync({ ports });
-}
 
 // ---------------------------------------------------------------------------
 // Database logins
@@ -246,8 +245,8 @@ export function writePorts(ports: Record<string, number>): void {
  * what the cluster actually has: renaming a role in a later version would
  * otherwise leave existing clusters unreachable by a name that no longer exists.
  */
-export function readDatabaseLogins(): DatabaseLogins | undefined {
-  const raw = readStoredFile().database;
+function readDatabaseLoginsAt(config: PlatformConfig): DatabaseLogins | undefined {
+  const raw = readStoredFileAt(config).database;
   if (raw === undefined || typeof raw !== "object") return undefined;
 
   const ok = (l: unknown): l is DatabaseLogin =>
@@ -264,7 +263,38 @@ export function readDatabaseLogins(): DatabaseLogins | undefined {
   return { superuser: raw.superuser, app: raw.app };
 }
 
-/** Merges, so it cannot disturb any application settings stored beside it. */
-export function writeDatabaseLogins(database: DatabaseLogins): void {
-  updateConfigSync({ database });
+// ---------------------------------------------------------------------------
+// The store
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything above, bound to one project's config file.
+ *
+ * A factory rather than module-level functions so a caller can hold two stores
+ * over two profiles at once. Tests previously had to mutate `process.env` to
+ * reach a second profile, which meant they could only ever exercise the global
+ * path.
+ */
+export interface ConfigStore {
+  read(): ConfigFileShape;
+  update(patch: Record<string, unknown>): void;
+  updateAsync(patch: Record<string, unknown>): Promise<void>;
+  readPorts(): Record<string, number>;
+  /** Merges, so it can never drop a port belonging to another service. */
+  writePorts(ports: Record<string, number>): void;
+  readDatabaseLogins(): DatabaseLogins | undefined;
+  /** Merges, so it cannot disturb any application settings stored beside it. */
+  writeDatabaseLogins(database: DatabaseLogins): void;
+}
+
+export function createConfigStore(config: PlatformConfig): ConfigStore {
+  return {
+    read: () => readStoredFileAt(config),
+    update: (patch) => updateConfigSyncAt(config, patch),
+    updateAsync: (patch) => updateConfigFileAt(config, patch),
+    readPorts: () => readPortsAt(config),
+    writePorts: (ports) => updateConfigSyncAt(config, { ports }),
+    readDatabaseLogins: () => readDatabaseLoginsAt(config),
+    writeDatabaseLogins: (database) => updateConfigSyncAt(config, { database }),
+  };
 }

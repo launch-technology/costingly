@@ -15,8 +15,8 @@
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
 import { get } from "../../../domain/config.js";
-import { clusterDir } from "../../../platform/postgres/server.js";
-import { displayPath } from "../../../platform/profile.js";
+import { server } from "../../../domain/project.js";
+import { platform } from "../../../domain/project.js";
 
 /**
  * Which database is about to be modified.
@@ -26,7 +26,7 @@ import { displayPath } from "../../../platform/profile.js";
  * question this gate exists to answer.
  */
 export function describeDatabase(): string {
-  return `${displayPath(clusterDir())}  (on this machine)`;
+  return `${platform.displayPath(server.clusterDir())}  (on this machine)`;
 }
 
 export interface ConfirmOptions {

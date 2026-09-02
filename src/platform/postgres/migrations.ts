@@ -7,7 +7,7 @@
  *
  * WHY THIS RUNS ITSELF
  *
- * `costingly migrate` used to be a step a person ran. That works at a terminal
+ * A `migrate` command used to be a step a person ran. That works at a terminal
  * and fails completely for a bundled install, which has no terminal and no hook
  * between "user clicks install" and "user asks a question" — the first tool call
  * IS the setup. So this happens on the first database connection, next to the
@@ -46,7 +46,6 @@ import { join } from "node:path";
 import { migrationsDir } from "../package.js";
 import type { Executor } from "./types/executor.js";
 import type { DataSource } from "./types/data-source.js";
-import { DATABASE_NAME } from "./server.js";
 
 export interface Migration {
   /** Filename without extension — "0001-initial". The ledger key. */
@@ -59,7 +58,7 @@ export interface Migration {
  * MCP server and a CLI sync, say — would otherwise both try to apply the same
  * pending files.
  */
-const LOCK_ID = 0x0c05_7147; // "costingly", squinting
+const LOCK_ID = 0x0c05_7147; // arbitrary but fixed
 
 const LEDGER = `
   CREATE TABLE IF NOT EXISTS schema_migrations (

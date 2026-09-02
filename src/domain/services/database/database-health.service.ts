@@ -33,8 +33,8 @@
  */
 
 import { db } from "../../data/default-database.js";
-import { clusterDir, databaseCredentials, serverStatus } from "../../../platform/postgres/server.js";
-import { profileDir, profileSource, displayPath } from "../../../platform/profile.js";
+
+import { platform, server } from "../../project.js";
 import { stat } from "node:fs/promises";
 
 /** How long to wait for the probe before calling the connection dead. */
@@ -43,7 +43,7 @@ const PROBE_TIMEOUT_MS = 15_000;
 export interface DatabaseHealth {
   profile: {
     path: string;
-    /** "COSTINGLY_HOME" or "platform default". */
+    /** The home variable's name when it chose the profile, else "platform default". */
     chosenBy: string;
     exists: boolean;
   };
@@ -110,16 +110,17 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 }
 
 export async function checkDatabase(): Promise<DatabaseHealth> {
-  const { host, port } = await databaseCredentials();
+  const { host, port } = await server.credentials();
   const health: DatabaseHealth = {
     profile: {
-      path: displayPath(profileDir()),
-      chosenBy: profileSource(),
-      exists: await exists(profileDir()),
+      path: platform.displayPath(platform.profileDir()),
+      chosenBy:
+        platform.profileSource() === "home variable" ? platform.homeVar : "platform default",
+      exists: await exists(platform.profileDir()),
     },
     cluster: {
-      path: displayPath(clusterDir()),
-      exists: await exists(clusterDir()),
+      path: platform.displayPath(server.clusterDir()),
+      exists: await exists(server.clusterDir()),
       state: "unknown",
       listenAddress: `${host}:${port}`,
       startedAt: null,
@@ -130,7 +131,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
   };
 
   try {
-    health.cluster.state = await serverStatus();
+    health.cluster.state = await server.status();
   } catch (error) {
     health.cluster.error = message(error);
   }
@@ -200,7 +201,7 @@ export interface RestartOutcome {
  */
 export async function restartDatabase(): Promise<RestartOutcome> {
   const { closeDb } = await import("../../data/default-database.js");
-  const { stopServer } = await import("../../../platform/postgres/server.js");
+  const { server: pg } = await import("../../project.js");
 
   const started = Date.now();
 
@@ -211,7 +212,7 @@ export async function restartDatabase(): Promise<RestartOutcome> {
 
   let wasRunning = false;
   try {
-    wasRunning = await stopServer();
+    wasRunning = await pg.stop();
   } catch (error) {
     return { wasRunning: false, ok: false, elapsedMs: Date.now() - started, error: message(error) };
   }

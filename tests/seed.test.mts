@@ -20,7 +20,7 @@ import { rm } from "node:fs/promises";
 const HOME = "/tmp/costingly-seed";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { db, closeDb, stopServer } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
 const { generateSeedDataset } = await import("../src/domain/services/seed/seed.generator.js");
 const { applySeed, assertSeedable, SeedRefused } = await import("../src/domain/services/seed/seed.service.js");
 const { listSyncableItems, listAllItems, saveItem } = await import("../src/domain/data/repositories/items.repository.js");
@@ -51,7 +51,7 @@ async function throws(run: () => Promise<unknown>, what: string): Promise<unknow
 }
 
 async function wipe(): Promise<void> {
-  await stopServer().catch(() => {});
+  await server.stop().catch(() => {});
   // maxRetries: Windows can still hold handles on the cluster directory for a
   // moment after the postmaster exits, which unlink-while-open unix does not.
   await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });

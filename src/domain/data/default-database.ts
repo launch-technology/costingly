@@ -11,6 +11,7 @@
 
 import { ConnectionFactory } from "../../platform/postgres/connection-factory.js";
 import { Database } from "../../platform/postgres/database.js";
+import { platform, server } from "../project.js";
 import { loadMigrations } from "../../platform/postgres/migrations.js";
 import type { DataSource } from "../../platform/postgres/types/data-source.js";
 
@@ -25,9 +26,15 @@ function resolve(): Database {
   const existing = globalForDb.__costinglyDatabase;
   if (existing) return existing;
 
-  // Costingly's schema: the numbered .sql files this package ships. The
-  // provisioner supplies the mechanism; this names the content.
-  const created = new Database(new ConnectionFactory(), { migrations: loadMigrations });
+  // The last link in the chain that starts in project.ts: identity → config →
+  // store → ports → server → this. The provisioner supplies the mechanism;
+  // `migrations` names the content — the numbered .sql files this package ships.
+  const created = new Database(
+    new ConnectionFactory(server),
+    server,
+    { migrations: loadMigrations },
+    platform.databaseName,
+  );
   globalForDb.__costinglyDatabase = created;
   return created;
 }

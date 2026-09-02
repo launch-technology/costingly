@@ -12,8 +12,8 @@
  *
  * TWO KINDS OF SOURCE, AND THEY ARE NOT SYMMETRIC
  *
- *   app     pooled, as u_app, against the costingly database. Provisions the
- *           whole stack on first use.
+ *   app     pooled, as the runtime role, against the project's database.
+ *           Provisions the whole stack on first use.
  *   admin   unpooled, as the superuser, against whichever database is named.
  *           Provisions NOTHING.
  *
@@ -30,7 +30,7 @@ import { DataSourceRegistry } from "./data-source-registry.js";
 import { PooledDataSource } from "./pooled-data-source.js";
 import { TransientDataSource } from "./transient-data-source.js";
 import type { DataSource } from "./types/data-source.js";
-import { DATABASE_NAME } from "./server.js";
+import type { PostgresServer } from "./server.js";
 
 const APP = "app";
 
@@ -40,25 +40,27 @@ export class Database {
 
   constructor(
     private readonly factory: ConnectionFactory,
+    postgres: PostgresServer,
     schema: SchemaDefinition,
+    private readonly databaseName: string,
   ) {
     const admin = (name: string): DataSource => this.admin(name);
-    const server = new LocalPostgres(admin);
-    const provisioner = new SchemaProvisioner(admin, schema);
+    const cluster = new LocalPostgres(admin, postgres, databaseName);
+    const provisioner = new SchemaProvisioner(admin, schema, postgres, databaseName);
 
     // The two phases, in the only order that works: a schema cannot be applied
     // to a database that does not exist, and neither can happen through the
     // pool, which authenticates as a role the schema creates.
     //
     // Lazy by construction: both are inside the closure the pooled source calls
-    // on its first query, never on the way to building this object. `costingly
-    // doctor` has to work when the cluster will not start, so having a Database
+    // on its first query, never on the way to building this object. A diagnostic
+    // command has to work when the cluster will not start, so having a Database
     // must never mean having started one.
     this.pooled = new PooledDataSource(async () => {
-      await server.ensureRunning();
+      await cluster.ensureRunning();
       await provisioner.apply();
       return this.factory.createAppPool();
-    }, "local PostgreSQL (managed by costingly)");
+    }, "local PostgreSQL");
 
     this.registry.register(APP, this.pooled);
   }
@@ -75,7 +77,7 @@ export class Database {
    * between calls, so this caches an object rather than a resource — what it
    * buys is that `all()` can see every source that exists, not a saving.
    */
-  admin(database: string = DATABASE_NAME): DataSource {
+  admin(database: string = this.databaseName): DataSource {
     const name = `admin:${database}`;
     return (
       this.registry.find(name) ??
@@ -110,7 +112,7 @@ export class Database {
    * Release every connection this process holds, so it can exit.
    *
    * Does NOT stop the server — that is shared and long-lived, and stopping it
-   * is what `costingly stop` is for. Sources reopen on their next query, which
+   * is a separate command. Sources reopen on their next query, which
    * is what makes this safe to call from a `finally`.
    */
   async shutdown(): Promise<void> {

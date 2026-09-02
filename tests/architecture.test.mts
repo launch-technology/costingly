@@ -15,11 +15,8 @@
  *
  * WHY THE LAYER MAP IS DATA
  *
- * The tree is mid-migration: `LAYERS` names where each root folder sits today,
- * and each phase of the restructure updates that table rather than this logic.
- * A rule that is not yet true belongs in PENDING, where it is listed but not
- * asserted — so the target is visible in the same file as the current state,
- * and turning one on is a one-line change.
+ * `LAYERS` names where each root folder sits, so a future move updates that
+ * table rather than this logic.
  *
  * See ARCHITECTURE.md for what the layers mean and why.
  */
@@ -301,6 +298,22 @@ for (const file of files.filter((f) => f.layer === "app")) {
   }
 }
 none(appWrites, "no interface writes through a repository — writes go via a service");
+
+// --- platform names no project ----------------------------------------------
+//
+// The whole point of the layer. platform/ is handed a ProjectIdentity and
+// resolves paths, a database name and an environment variable from it — so the
+// word "costingly" appearing anywhere under it, in code OR in a comment, means
+// something has been assumed rather than supplied.
+//
+// This is what makes extracting platform/ a folder move rather than a rewrite.
+none(
+  files
+    .filter((f) => f.layer === "platform")
+    .filter((f) => /costingly/i.test(f.text))
+    .map((f) => f.path),
+  "platform/ never names a project",
+);
 
 // --- the barrel is for consumers of the package, not for src ----------------
 // src/index.ts declares what costingly exposes if it is ever imported as a

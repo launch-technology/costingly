@@ -12,7 +12,7 @@
  */
 
 import { applyPendingMigrations, type Migration } from "./migrations.js";
-import { DATABASE_NAME, databaseCredentials } from "./server.js";
+import type { PostgresServer } from "./server.js";
 import type { DataSource } from "./types/data-source.js";
 
 /** What an application says its database should look like. */
@@ -28,11 +28,13 @@ export class SchemaProvisioner {
   constructor(
     private readonly admin: (database: string) => DataSource,
     private readonly schema: SchemaDefinition,
+    private readonly server: PostgresServer,
+    private readonly databaseName: string,
   ) {}
 
   /** Bring the schema up to date and make the runtime role usable. */
   async apply(): Promise<void> {
-    await applyPendingMigrations(this.admin(DATABASE_NAME), await this.schema.migrations());
+    await applyPendingMigrations(this.admin(this.databaseName), await this.schema.migrations());
     await this.applyAppPassword();
   }
 
@@ -50,7 +52,7 @@ export class SchemaProvisioner {
    * changed upstream and this needs revisiting before it becomes an injection.
    */
   private async applyAppPassword(): Promise<void> {
-    const { logins } = await databaseCredentials();
+    const { logins } = await this.server.credentials();
     const { user, password } = logins.app;
 
     if (!/^[A-Za-z0-9_-]+$/.test(password) || !/^[a-z_][a-z0-9_]*$/.test(user)) {
@@ -60,7 +62,7 @@ export class SchemaProvisioner {
       );
     }
 
-    await this.admin(DATABASE_NAME).transaction(async (tx) => {
+    await this.admin(this.databaseName).transaction(async (tx) => {
       // Serialised across processes. ALTER ROLE writes a pg_authid row, and six
       // CLI commands starting at once produce "tuple concurrently updated".
       //

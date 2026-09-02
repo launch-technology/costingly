@@ -11,8 +11,8 @@
  */
 
 import type { Command } from "commander";
-import { clusterDir, stopServer } from "../../../platform/postgres/server.js";
-import { displayPath } from "../../../platform/profile.js";
+import { server } from "../../../domain/project.js";
+import { platform } from "../../../domain/project.js";
 
 export function registerStopCommand(program: Command): void {
   program
@@ -31,10 +31,10 @@ is not affected — this only stops the process.`,
 }
 
 export async function runStop(): Promise<void> {
-  const wasRunning = await stopServer();
+  const wasRunning = await server.stop();
   console.log(
     wasRunning
-      ? `Database stopped.  ${displayPath(clusterDir())}`
+      ? `Database stopped.  ${platform.displayPath(server.clusterDir())}`
       : "Database was not running.",
   );
 }

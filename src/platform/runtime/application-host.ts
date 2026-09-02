@@ -33,7 +33,7 @@ export interface LaunchOptions {
    * How to describe a failure, and what to exit with.
    *
    * Each interface words the same failure differently — a terminal gets
-   * `costingly init`, a model gets an explanation it can act on — so the mapping
+   * a setup hint, a model gets an explanation it can act on — so the mapping
    * belongs to the app, not here.
    */
   reportError?: ErrorReporter;
@@ -82,7 +82,7 @@ export class ApplicationHost {
   /**
    * Exit quietly when a downstream pipe closes.
    *
-   * `costingly txns | head` closes stdout while we are still writing, and under
+   * `mycli txns | head` closes stdout while we are still writing, and under
    * MCP a closed stdout means the client is gone. Both surface as an unhandled
    * EPIPE and a stack trace in a log nobody asked for.
    */

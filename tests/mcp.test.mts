@@ -34,7 +34,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 // SAFETY: everything below wipes HOME. Refuse to run against anything else.
 if (HOME !== "/tmp/costingly-mcp") throw new Error("refusing to run against a real profile");
 
-const { db, closeDb, stopServer } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
 const { CostinglyMcpApplication } = await import("../src/apps/mcp/costingly-mcp.application.js");
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
@@ -51,7 +51,7 @@ function eq(a: unknown, b: unknown, what: string): void {
 const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 async function wipe(): Promise<void> {
-  await stopServer().catch(() => {});
+  await server.stop().catch(() => {});
   // maxRetries: Windows can still hold handles on the cluster directory for a
   // moment after the postmaster exits, which unlink-while-open unix does not.
   await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
