@@ -34,7 +34,7 @@ export async function runStop(): Promise<void> {
   const wasRunning = await server.stop();
   console.log(
     wasRunning
-      ? `Database stopped.  ${platform.displayPath(server.clusterDir())}`
+      ? `Database stopped.  ${platform.displayPath(server.dataDir())}`
       : "Database was not running.",
   );
 }

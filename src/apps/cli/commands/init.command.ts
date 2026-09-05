@@ -183,7 +183,7 @@ export async function runInit(io: PromptIO = {}): Promise<void> {
   // --- database -----------------------------------------------------------
   const proceed = await confirm({
     ...io,
-    message: `Create the database at ${platform.displayPath(server.clusterDir())}?`,
+    message: `Create the database at ${platform.displayPath(server.dataDir())}?`,
     initialValue: true,
   });
   if (isCancel(proceed)) return cancelled(io);

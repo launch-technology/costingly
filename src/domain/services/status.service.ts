@@ -179,7 +179,7 @@ async function checkProfile(): Promise<ProfileStatus> {
   const [dir, config, cluster] = await Promise.all([
     describePath(path),
     describePath(platform.configPath()),
-    describePath(server.clusterDir()),
+    describePath(server.dataDir()),
   ]);
 
   return {

@@ -124,8 +124,8 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
       exists: await exists(platform.profileDir()),
     },
     cluster: {
-      path: platform.displayPath(server.clusterDir()),
-      exists: await exists(server.clusterDir()),
+      path: platform.displayPath(server.dataDir()),
+      exists: await exists(server.dataDir()),
       state: "unknown",
       listenAddress: where === undefined ? "not allocated yet" : `${where.host}:${where.port}`,
       startedAt: null,

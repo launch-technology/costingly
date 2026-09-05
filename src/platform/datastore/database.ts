@@ -23,10 +23,10 @@
  * itself forever.
  */
 
-import { ConnectionFactory } from "./connection-factory.js";
-import { DatabaseNotSetUpError } from "./errors.js";
-import { PgDatabaseService } from "./services/pg-database-service.js";
-import type { Migration } from "./migrations.js";
+import { ConnectionFactory } from "../postgres/connection-factory.js";
+import { DatabaseNotSetUpError } from "../postgres/errors.js";
+import { PgDatabaseService } from "../postgres/services/pg-database-service.js";
+import type { Migration } from "../postgres/migrations.js";
 
 /**
  * What an application says its database should look like.
@@ -40,11 +40,11 @@ export interface SchemaDefinition {
   /** Every migration, in the order they must be applied. */
   migrations(): Promise<Migration[]>;
 }
-import { DataSourceRegistry } from "./data-source-registry.js";
-import { PooledDataSource } from "./pooled-data-source.js";
-import { TransientDataSource } from "./transient-data-source.js";
-import type { DataSource } from "./types/data-source.js";
-import type { PostgresServer } from "./server.js";
+import { DataSourceRegistry } from "../postgres/data-source-registry.js";
+import { PooledDataSource } from "../postgres/pooled-data-source.js";
+import { TransientDataSource } from "../postgres/transient-data-source.js";
+import type { DataSource } from "../postgres/types/data-source.js";
+import type { Datastore } from "./types/datastore.js";
 
 const APP = "app";
 
@@ -52,11 +52,11 @@ export class Database {
   private readonly registry = new DataSourceRegistry();
   private readonly pooled: PooledDataSource;
   private readonly databases: PgDatabaseService;
-  private readonly postgres: PostgresServer;
+  private readonly postgres: Datastore;
 
   constructor(
     private readonly factory: ConnectionFactory,
-    postgres: PostgresServer,
+    postgres: Datastore,
     private readonly schema: SchemaDefinition,
     private readonly databaseName: string,
   ) {

@@ -22,7 +22,8 @@ import {
   type ProjectIdentity,
 } from "../platform/platform-config.js";
 import { createPorts } from "../platform/ports.js";
-import { createPostgresServer, type PostgresServer } from "../platform/postgres/server.js";
+import { createDatastore } from "../platform/datastore/services/datastore-service.js";
+import type { Datastore } from "../platform/datastore/types/datastore.js";
 
 /**
  * Who we are.
@@ -55,4 +56,9 @@ export const configStore: ConfigStore = createConfigStore(platform);
 export const ports = createPorts(platform, configStore);
 
 /** This profile's Postgres cluster. */
-export const server: PostgresServer = createPostgresServer(platform, configStore, ports);
+/**
+ * This profile's datastore.
+ *
+ * Still exported as `server` for now; the callers have not been renamed.
+ */
+export const server: Datastore = createDatastore(platform, configStore, ports);

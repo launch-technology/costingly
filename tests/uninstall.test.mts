@@ -216,7 +216,7 @@ await rm(stillServing, { recursive: true, force: true });
 // A real listener, not a stub: proves the probe itself detects one.
 const { createServer } = await import("node:net");
 const { createConfigStore } = await import("../src/platform/config-store.js");
-const { createPostgresServer } = await import("../src/platform/postgres/server.js");
+const { createDatastore } = await import("../src/platform/datastore/services/datastore-service.js");
 const { createPorts } = await import("../src/platform/ports.js");
 
 const probeHome = "/tmp/costingly-uninstall-probe";
@@ -235,7 +235,7 @@ const probePort = await new Promise<number>((done) => {
 const probeConfig = platformAt(probeHome);
 const probeStore = createConfigStore(probeConfig);
 probeStore.writePorts({ database: probePort });
-const probeServer = createPostgresServer(probeConfig, probeStore, createPorts(probeConfig, probeStore));
+const probeServer = createDatastore(probeConfig, probeStore, createPorts(probeConfig, probeStore));
 
 eq(await probeServer.isServing(), true, "isServing() sees a real listener on the recorded port");
 await new Promise<void>((done) => listener.close(() => done()));
@@ -250,7 +250,7 @@ await rm(probeHome, { recursive: true, force: true });
 // a postmaster running and holding handles inside the directory.
 await database.ensureReady();
 ok(await exists(costinglyPlatform.configPath()), "a real profile was created");
-ok(await exists(server.clusterDir()), "with a cluster in it");
+ok(await exists(server.dataDir()), "with a cluster in it");
 eq(await server.status(), "running", "and a running server");
 
 // --local-only: no Plaid, no credentials, no network.

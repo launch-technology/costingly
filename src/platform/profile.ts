@@ -38,7 +38,7 @@ import { readdir, rm, rmdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import type { PlatformConfig } from "./platform-config.js";
-import type { PostgresServer } from "./postgres/server.js";
+import type { Datastore } from "./datastore/types/datastore.js";
 
 /** A cluster directory, named for the major version it belongs to. */
 const CLUSTER_DIR = /^pg\d+$/;
@@ -133,7 +133,7 @@ export function projectParentOf(config: PlatformConfig, profileDir: string): str
  */
 export async function removeProfile(
   config: PlatformConfig,
-  server: PostgresServer,
+  datastore: Datastore,
 ): Promise<ProfileRemoval> {
   const profileDir = resolve(config.profileDir());
 
@@ -147,8 +147,8 @@ export async function removeProfile(
   await assertIsProfile(profileDir);
 
   // --- step 2: stop it, and prove it ---------------------------------------
-  const serverWasRunning = await server.stop();
-  if (await server.isServing()) {
+  const serverWasRunning = await datastore.stop();
+  if (await datastore.isServing()) {
     throw new Error(
       `Refusing to delete ${profileDir}: the database is still running.\n\n` +
         `It was asked to stop, but something is still answering on this profile's\n` +

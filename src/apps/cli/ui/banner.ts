@@ -16,7 +16,7 @@ export function environmentBanner(): string {
 
   const source = platform.profileSource() === "home variable" ? platform.homeVar : "default";
   lines.push(`  Profile             ${platform.displayPath(platform.profileDir())}  (${source})`);
-  lines.push(`  Database            ${platform.displayPath(server.clusterDir())}`);
+  lines.push(`  Database            ${platform.displayPath(server.dataDir())}`);
   lines.push(
     existsSync(platform.configPath())
       ? `  Config              ${platform.displayPath(platform.configPath())}`

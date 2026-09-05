@@ -13,13 +13,63 @@ apps/       UX per interface — CLI commands and their formatting,
 domain/     costingly's logic — services (including the Plaid Link page both
             interfaces need), repositories, the schema, the Plaid source
    ↓
-platform/   runtime, local Postgres, the pipeline engine, config, crypto,
+platform/   runtime, the datastore, the pipeline engine, config, crypto,
             profile, ports. No costingly knowledge at all.
 ```
 
 `platform/` could be repurposed as-is for a second RAG pipeline over a different
 API. `domain/` is what makes this one costingly. `apps/` is how a human or a
 model reaches it.
+
+## The four components
+
+The layers say where code lives. This says what the pieces *are* — the words to
+use when talking about the system, in code, in comments and in conversation.
+
+| Component | What it is |
+| --- | --- |
+| **interface** | How someone reaches costingly: the CLI, or the MCP server. One folder each under `apps/`. |
+| **datastore** | Where the data lives, and everything about reaching it. Happens to be PostgreSQL. |
+| **pipeline** | What fills the datastore: pull from a source, write to a sink, advance a checkpoint. |
+| **profile** | One installation's identity and settings — its directory, its config file, its port, its credentials. |
+
+Say *"apply the migrations to the datastore"*, not *"run the SQL against
+Postgres"*. The first is true whatever the datastore turns out to be; the second
+names an implementation detail that only one folder is entitled to know.
+
+### Why datastore and not database
+
+`database` is a precise PostgreSQL word — one namespace of tables inside a
+cluster, and a cluster holds several. Using it for "the place our data lives"
+would collide with the vocabulary the README pins down. `datastore` is the
+thing; `database` is one PostgreSQL noun inside it.
+
+That distinction has a folder boundary:
+
+```
+platform/datastore/   THIS profile's datastore, and the connections to it.
+  types/datastore.ts     the Datastore interface — what the domain is written against
+  services/              datastore-service (identity + lifecycle), database-service
+        ↓
+platform/postgres/    How to operate ANY PostgreSQL. Knows nothing about
+  services/              cluster, server, database, binaries              profiles,
+  types/                 DataSource, Executor, Transaction                config
+  …                      the pg driver adapters, migrations, credentials  files or
+                                                                          this app.
+```
+
+The `Datastore` interface is what everything above the platform depends on, so
+the domain never learns which engine backs it. `platform/postgres/` is written
+against plain values and its own types, so it never learns that profiles exist —
+`ConnectionFactory` takes a `CredentialSource` (two functions) rather than a
+`Datastore`, precisely so the dependency cannot invert.
+
+Both directions are enforced in `tests/architecture.test.mts`: nothing under
+`platform/postgres/` may import a profile, a config store or a port allocator,
+and nothing there may import `platform/datastore/`.
+
+That is what makes `platform/postgres/` liftable into another project whole,
+rather than dragging costingly's profile system along with it.
 
 ## The rules
 
@@ -36,8 +86,8 @@ or a tool: a `status` listing is not a use case, and routing it through a servic
 would add a file that only forwards. A write is different — it has invariants and
 both interfaces must get the same one — so it goes through a service.
 
-**R4 — The pipeline ends at the database.** Ingestion and serving have different
-triggers and different failure modes. `Pipeline` means Plaid → Postgres and
+**R4 — The pipeline ends at the datastore.** Ingestion and serving have different
+triggers and different failure modes. `Pipeline` means Plaid → the datastore and
 nothing downstream of it; the whole stack is the *foundation*, not the pipeline.
 
 **R5 — One interface's UX belongs to that interface. Shared UX is a service.**
@@ -56,18 +106,26 @@ Each phase is a platform mechanism driven by domain content.
 
 | Phase | Platform provides | Domain supplies |
 | --- | --- | --- |
-| 1. Install and run Postgres | `LocalPostgres`, ports, credentials | — |
-| 2. Apply the schema | `SchemaProvisioner`, `SchemaDefinition` | the numbered `.sql` migrations |
+| 1. Create and run the datastore | `PgClusterService`, `PgServerService`, the profile's port and credentials | — |
+| 2. Apply the schema | `PgDatabaseService`, `SchemaDefinition` | the numbered `.sql` migrations |
 | 3. Move the data | `Pipeline`, `Source`, `Sink`, `CheckpointStore` | `PlaidSource`, `TransactionsSink`, `ItemCursorStore` |
+
+Phase 1 is two operations, not one, and the distinction is load-bearing:
+`initdb` **creates a cluster**, `pg_ctl start` **runs a server** against one.
+A single `ensureRunning()` covering both meant every caller that wanted to
+start a stopped server could silently create one instead — which is how a status
+report came to recreate a profile that had just been deleted, and how
+`uninstall` built a database in order to describe what it was about to remove.
+Creating is `provision()`; starting is `start()`, and it cannot create.
 
 Phases 1 and 2 are complete and useful with phase 3 absent. The reverse is not
 true — which is what "the database is the hub" means.
 
-The composition of all three is `domain/data/default-database.ts`: it builds a
-`Database` from a `ConnectionFactory` and costingly's `SchemaDefinition`, and
-exports the `db` every service and repository is handed. There is no separate
-`Foundation` class — it would only forward to `Database`, and `ensureReady()`
-already lives there.
+The composition runs `domain/project.ts` → `domain/data/default-database.ts`:
+identity resolves a profile, the profile builds a datastore, and the datastore
+plus costingly's `SchemaDefinition` builds the `Database` whose `db` every
+service and repository is handed. There is no separate `Foundation` class — it
+would only forward to `Database`, and `ensureReady()` already lives there.
 
 Seeding is deliberately NOT a pipeline. `costingly seed` generates a dataset and
 applies it in one transaction; there is no external source, no checkpoint and
@@ -83,12 +141,14 @@ Documentation is what people read after the leak. Two mechanisms do the work.
 file in the program must match the `include` pattern, so an upward import fails
 with `TS6307` naming the file.
 
-**`tests/architecture.test.mts`, for everything types cannot say.** Twelve rules:
-no `commander` or `@clack/prompts` below `apps/`; `pg` in one folder; one Plaid client;
-no interface writing through a repository; no interface importing another; the
-barrel unused from inside `src/`; every root folder one of the three names. It
-scans import lines as text rather than walking an AST, deliberately — a check
-people avoid touching stops being a check.
+**`tests/architecture.test.mts`, for everything types cannot say.** Fourteen
+rules: no `commander` or `@clack/prompts` below `apps/`; `pg` in one folder; one
+Plaid client; no interface writing through a repository; no interface importing
+another; the barrel unused from inside `src/`; every root folder one of the three
+names; and the two that keep `platform/postgres/` liftable — it may not import a
+profile, a config store or a port allocator, and it may not import
+`platform/datastore/`. It scans import lines as text rather than walking an AST,
+deliberately — a check people avoid touching stops being a check.
 
 This file exists so that when one of those fails, the reader knows whether to
 fix the code or change the rule.

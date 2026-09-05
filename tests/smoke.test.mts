@@ -57,7 +57,7 @@ const project = await import("../src/domain/project.js");
 check("all modules load under Node ESM", () => {
   assert(typeof dbModule.db.query === "function", "db.query missing");
   assert(typeof dbModule.db.transaction === "function", "db.transaction missing");
-  assert(typeof project.server.clusterDir === "function", "server.clusterDir missing");
+  assert(typeof project.server.dataDir === "function", "server.dataDir missing");
   // provision and start are separate on purpose: initdb makes a cluster,
   // pg_ctl start runs a server against one, and one function doing both let
   // any caller that wanted the second silently do the first.

@@ -10,7 +10,7 @@
  */
 
 import { ConnectionFactory } from "../../platform/postgres/connection-factory.js";
-import { Database } from "../../platform/postgres/database.js";
+import { Database } from "../../platform/datastore/database.js";
 import { platform, server } from "../project.js";
 import { loadMigrations } from "../../platform/postgres/migrations.js";
 import type { DataSource } from "../../platform/postgres/types/data-source.js";

@@ -12,7 +12,7 @@
 
 import type { Client, Pool } from "pg";
 import { connectionStringFor } from "./credentials.js";
-import type { PostgresServer } from "./server.js";
+import type { DbCredentials } from "./credentials.js";
 
 // ---------------------------------------------------------------------------
 // Type parsing
@@ -26,8 +26,24 @@ import type { PostgresServer } from "./server.js";
 const DATE_OID = 1082;
 const keepAsSent = (value: string): string => value;
 
+/** How this factory obtains the details it needs. Two functions, no datastore. */
+export interface CredentialSource {
+  /** Everything needed to connect, deciding a port and logins if required. */
+  credentials(): Promise<DbCredentials>;
+  /** What is already recorded, or undefined. Decides nothing. */
+  recordedCredentials(): Promise<DbCredentials | undefined>;
+}
+
 export class ConnectionFactory {
-  constructor(private readonly server: PostgresServer) {}
+  /**
+   * Takes a credential source rather than a datastore.
+   *
+   * It needs two values, not a lifecycle — and depending on the whole
+   * `Datastore` interface would make this file import from
+   * `platform/datastore/`, reversing the one dependency that keeps
+   * `platform/postgres/` liftable.
+   */
+  constructor(private readonly server: CredentialSource) {}
 
   /**
    * A pool for the application database, as u_app.

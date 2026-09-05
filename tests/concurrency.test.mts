@@ -171,6 +171,6 @@ const { rm } = await import("node:fs/promises");
 await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 
 console.log(out.join("\n"));
-console.log(`\ncluster: ${server.clusterDir()}`);
+console.log(`\ncluster: ${server.dataDir()}`);
 console.log(fail === 0 ? `\nAll ${out.length} checks passed.` : `\n${fail} FAILED.`);
 process.exit(fail === 0 ? 0 : 1);

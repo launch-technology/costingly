@@ -224,6 +224,34 @@ none(
   `only ${PG_HOME} imports pg directly`,
 );
 
+// --- postgres knows nothing about profiles or config files ------------------
+//
+// The property that makes platform/postgres/ liftable into another project
+// whole. It is handed a data directory, a port and a way to connect; WHICH
+// directory and WHICH port is decided one layer up, in platform/datastore/.
+//
+// Without this rule the next person needing a path inside a pg service reaches
+// for PlatformConfig, and the folder quietly acquires a profile system.
+const PROFILE_MODULES = ["platform-config", "config-store", "port-allocator"];
+none(
+  files
+    .filter((f) => f.path.startsWith("platform/postgres/"))
+    .filter((f) => f.imports.some((i) => PROFILE_MODULES.some((m) => i.includes(m))))
+    .map((f) => f.path),
+  "platform/postgres/ never imports a profile or a config store",
+);
+
+// --- and the dependency points one way --------------------------------------
+// datastore/ implements the port that postgres/ declares. postgres/ reaching
+// back would make the two inseparable, which is the whole thing being avoided.
+none(
+  files
+    .filter((f) => f.path.startsWith("platform/postgres/"))
+    .filter((f) => f.imports.some((i) => i.includes("datastore")))
+    .map((f) => f.path),
+  "platform/postgres/ never imports platform/datastore/",
+);
+
 // --- repositories take an executor, never reach for one ---------------------
 // The property that makes it impossible for a repository statement to escape
 // the transaction its siblings are in.

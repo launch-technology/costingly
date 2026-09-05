@@ -36,7 +36,7 @@ import { platform } from "../../../domain/project.js";
  * question this gate exists to answer.
  */
 export function describeDatabase(): string {
-  return `${platform.displayPath(server.clusterDir())}  (on this machine)`;
+  return `${platform.displayPath(server.dataDir())}  (on this machine)`;
 }
 
 export interface ConfirmOptions {
