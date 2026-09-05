@@ -1,23 +1,148 @@
 /**
- * `costingly status` — what is linked and how fresh it is.
+ * `costingly status` — the health of everything costingly owns.
  *
- *   costingly status          human-readable summary
- *   costingly status --json   machine-readable, for monitoring
+ *   costingly status          human-readable, three sections
+ *   costingly status --json   the same facts, machine-readable
  *
- * Read-only, and deliberately never decrypts an access token — answering
- * "what do I have connected?" should not require touching the credentials.
+ * One view of three artifacts: the profile directory, the local database, and
+ * Plaid with the banks linked through it. Each self-reports and each degrades
+ * on its own — an unreachable Plaid still leaves two full sections.
+ *
+ * NEVER FAILS, NEVER WRITES.
+ *
+ * Not failing, because the broken case is the one people run this for. A status
+ * command that throws when the database is down has inverted its own purpose.
+ *
+ * Not writing, because this is also how someone confirms an uninstall. Every
+ * fact is read through paths that provision nothing — see status.service.ts. It
+ * replaced `costingly doctor`, which reported the same machinery and quietly
+ * recreated a profile that had just been deleted while doing it.
+ *
+ * It also never decrypts an access token. The bank list is metadata, and the
+ * Plaid check asks about the API rather than about any one login.
  */
 
-import { db } from "../../../domain/data/default-database.js";
 import type { Command } from "commander";
-import {
-  listWithAccounts,
-  type ItemAccountListing,
-} from "../../../domain/data/repositories/items.repository.js";
-import { server } from "../../../domain/project.js";
-import { money, ago } from "../ui/format.js";
 
-type Row = ItemAccountListing;
+import {
+  costinglyStatus,
+  type CostinglyStatus,
+  type PlaidStatus,
+  type ProfileStatus,
+} from "../../../domain/services/status.service.js";
+import type { DatabaseHealth } from "../../../domain/services/database/database-health.service.js";
+import type { ItemAccountListing } from "../../../domain/data/repositories/items.repository.js";
+import { ago, money, truncate } from "../ui/format.js";
+
+const OK = "✓";
+const NO = "✗";
+const WARN = "⚠";
+
+/** Whether `stat().mode` means anything here. It does not on Windows. */
+const POSIX_MODES = process.platform !== "win32";
+
+/** Widest institution name before it is cut. Longer ones collide with the next column. */
+const NAME_WIDTH = 24;
+
+/** Section bodies are indented under a left-hand label of this width. */
+const LABEL = 12;
+
+function line(label: string, value: string): void {
+  console.log(`  ${label.padEnd(LABEL)}${value}`);
+}
+
+/** A continuation line under the previous label. */
+function detail(value: string): void {
+  console.log(`  ${" ".repeat(LABEL)}${value}`);
+}
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
+
+function renderProfile(profile: ProfileStatus): void {
+  line(
+    "Profile",
+    profile.exists
+      ? `${profile.path}   ${OK}${profile.createdAt ? `  created ${profile.createdAt}` : ""}`
+      : `${profile.path}   not created yet`,
+  );
+  detail(
+    profile.chosenBy === "platform default"
+      ? "platform default"
+      : `chosen by ${profile.chosenBy}`,
+  );
+
+  if (!profile.exists) {
+    detail("nothing is installed — run `costingly init` to create it");
+    return;
+  }
+
+  // The mode matters and is not a style preference: anything looser than 0600
+  // means another account on this machine can read the encryption key.
+  //
+  // Windows has no POSIX modes — `stat` reports 0666 there no matter what the
+  // ACL actually allows — so checking would warn on every Windows install about
+  // a number that means nothing. Silence is the honest output; the real
+  // protection there is the ACL, which this cannot see.
+  const mode = POSIX_MODES ? profile.config.mode : null;
+  const modeNote =
+    mode === null ? "" : mode === 0o600 ? ` ${OK} 0600` : ` ${WARN} ${mode.toString(8)} — expected 0600`;
+
+  detail(
+    `config.json ${profile.config.exists ? `present${modeNote}` : `missing ${NO}`}` +
+      `   ·   cluster ${profile.clusterExists ? "present" : "not created yet"}`,
+  );
+
+  // Only the gaps. Listing every value that IS set turns the common case into a
+  // wall of text saying nothing is wrong.
+  const missing = profile.values.filter((value) => value.source === "missing");
+  if (missing.length > 0) {
+    detail(`missing settings ${NO}  ${missing.map((value) => value.key).join(", ")}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Database
+// ---------------------------------------------------------------------------
+
+function renderDatabase(health: DatabaseHealth): void {
+  const { cluster, connection } = health;
+
+  const headline = connection.ok
+    ? `running   ${OK}   ${cluster.listenAddress}`
+    : cluster.state === "uninitialised"
+      ? "no database yet"
+      : `${cluster.state}   ${NO}`;
+
+  line("Database", headline);
+
+  if (connection.ok) {
+    if (cluster.startedAt !== null) {
+      detail(`up ${formatDuration(cluster.uptimeSeconds ?? 0)}, since ${cluster.startedAt}`);
+    }
+    detail(
+      health.migrationsApplied === null
+        ? `schema could not be read ${WARN}`
+        : `schema ${health.migrationsApplied.length} migration(s) applied`,
+    );
+    return;
+  }
+
+  // The failure is the report. A stopped server is a normal state and gets an
+  // instruction rather than an error.
+  if (cluster.state === "stopped") {
+    detail("the server is not running — any command that needs it will start it");
+  }
+  if (cluster.error !== undefined) detail(`pg_ctl: ${cluster.error}`);
+  if (connection.error !== undefined && cluster.state !== "uninitialised") {
+    detail(connection.error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Plaid and the banks
+// ---------------------------------------------------------------------------
 
 /**
  * Flag the states that need the user to do something.
@@ -26,69 +151,77 @@ type Row = ItemAccountListing;
  * so every other branch here would tell the user to run a sync that will never
  * touch them — the one instruction guaranteed to be wrong.
  */
-function statusNote(status: string, neverSynced: boolean, source: string): string {
-  if (source === "seed") return "  ·  sample data — not a real bank, never synced";
-  if (status === "login_required") return "  ⚠  NEEDS RE-LINK — run `costingly link`";
-  if (status !== "active") return `  ⚠  status: ${status}`;
-  if (neverSynced) return "  ·  never synced — run `costingly sync` for the backfill";
+function bankNote(status: string, neverSynced: boolean, source: string): string {
+  if (source === "seed") return "   ·  sample data, never synced";
+  if (status === "login_required") return `   ${WARN}  NEEDS RE-LINK — run \`costingly link\``;
+  if (status !== "active") return `   ${WARN}  status: ${status}`;
+  if (neverSynced) return "   ·  never synced — run `costingly sync`";
   return "";
 }
 
-/**
- * Machine-readable form, for scripts and monitoring.
- *
- * `needsAttention` is the field worth alerting on: true when a bank has fallen
- * out of 'active' or has never completed a sync.
- */
-function emitJson(byItem: Map<string, Row[]>): void {
-  const items = [...byItem.values()].map((itemRows) => {
-    const head = itemRows[0]!;
-    const accounts = itemRows.filter((row) => row.account_id !== null);
-    return {
-      itemId: head.item_id,
-      institutionName: head.institution_name,
-      status: head.status,
-      neverSynced: head.never_synced,
-      source: head.source,
-      lastSyncedAt: head.last_synced_at?.toISOString() ?? null,
-      // Seeded banks are never actionable: there is nothing to re-link and
-      // nothing to sync, so alerting on them would be permanent noise.
-      needsAttention:
-        head.source !== "seed" && (head.status !== "active" || head.never_synced),
-      accounts: accounts.map((row) => ({
-        accountId: row.account_id,
-        name: row.account_name,
-        mask: row.mask,
-        type: row.type,
-        subtype: row.subtype,
-        currency: row.currency,
-        // Kept as strings: these are NUMERIC, and parsing to a JS float would
-        // reintroduce the rounding NUMERIC exists to avoid.
-        currentBalance: row.current_balance,
-        transactionCount: Number(row.txn_count),
-        firstDate: row.first_date,
-        lastDate: row.last_date,
-      })),
-    };
-  });
+function renderPlaid(plaid: PlaidStatus, banks: ItemAccountListing[] | null, banksError?: string): void {
+  const headline = plaid.reachable
+    ? `reachable   ${OK}   ${plaid.environment}`
+    : plaid.configured
+      ? `unreachable   ${NO}   ${plaid.environment}`
+      : `not configured   ${NO}`;
 
-  console.log(
-    JSON.stringify(
-      {
-        items,
-        accounts: items.reduce((total, item) => total + item.accounts.length, 0),
-        transactions: items.reduce(
-          (total, item) =>
-            total + item.accounts.reduce((sum, account) => sum + account.transactionCount, 0),
-          0,
-        ),
-        needsAttention: items.some((item) => item.needsAttention),
-      },
-      null,
-      2,
-    ),
-  );
+  line("Plaid", headline);
+  if (!plaid.reachable && plaid.error !== undefined) detail(plaid.error);
+
+  if (banks === null) {
+    detail(
+      banksError === undefined
+        ? "banks unknown — the database could not be read"
+        : `banks unknown — ${banksError}`,
+    );
+    return;
+  }
+
+  if (banks.length === 0) {
+    detail("no banks linked — run `costingly link` to connect one");
+    return;
+  }
+
+  // The join comes back flat, one row per account. Group it back per bank.
+  const byItem = new Map<string, ItemAccountListing[]>();
+  for (const row of banks) {
+    const existing = byItem.get(row.item_id);
+    if (existing) existing.push(row);
+    else byItem.set(row.item_id, [row]);
+  }
+
+  console.log("");
+  for (const rows of byItem.values()) {
+    const head = rows[0]!;
+    const name = truncate(head.institution_name ?? "(unknown institution)", NAME_WIDTH);
+    detail(
+      `${name.padEnd(NAME_WIDTH + 2)}` +
+        `${`synced ${ago(head.last_synced_at)}`.padEnd(18)}` +
+        bankNote(head.status, head.never_synced, head.source),
+    );
+
+    for (const row of rows) {
+      if (row.account_id === null) {
+        detail("  (no accounts stored — run `costingly sync`)");
+        continue;
+      }
+      const label = `${row.account_name ?? "(unnamed)"} ••${row.mask ?? "????"}`;
+      const count = Number(row.txn_count);
+      detail(
+        `  ${label.padEnd(30)}${money(row.current_balance, row.currency).padStart(14)}` +
+          `${String(count).padStart(8)} txns`,
+      );
+    }
+  }
+
+  const accounts = banks.filter((row) => row.account_id !== null).length;
+  const transactions = banks.reduce((sum, row) => sum + Number(row.txn_count), 0);
+  console.log("");
+  detail(`${byItem.size} bank(s), ${accounts} account(s), ${transactions} transaction(s)`);
 }
+
+// ---------------------------------------------------------------------------
 
 interface StatusOptions {
   json?: boolean;
@@ -97,101 +230,49 @@ interface StatusOptions {
 export function registerStatusCommand(program: Command): void {
   program
     .command("status")
-    .description("What's linked, balances, how fresh it is")
+    .description("Health of the profile, the database, and Plaid")
     .helpGroup("Looking at your data:")
     .option("--json", "emit JSON instead of a human-readable summary")
     .addHelpText(
       "after",
       `
-Never decrypts an access token — this only reads metadata.
+Reports on three things: the profile directory, the local database, and Plaid
+with the banks linked through it. Each is reported independently, so one being
+broken never hides the other two.
 
-  costingly status --json | jq '.needsAttention'`,
+Has no side effects — it starts nothing, creates nothing and decrypts nothing,
+so it is also how you confirm an uninstall left nothing behind.
+
+  costingly status --json | jq '.database.connection.ok'`,
     )
     .action(async (options: StatusOptions) => {
       await runStatus(options);
     });
 }
 
-/**
- * Where the data actually lives.
- *
- * Worth printing every time: the server is a process that can be up or down,
- * and "is it running?" is the first question when something behaves oddly.
- */
-async function databaseLine(): Promise<string> {
-  return server.describe();
-}
-
 export async function runStatus(options: StatusOptions): Promise<void> {
-  const rows = await listWithAccounts(db);
-
-  if (rows.length === 0) {
-    if (options.json) {
-      console.log(
-        JSON.stringify(
-          { items: [], accounts: 0, transactions: 0, needsAttention: false },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-    console.log(`\n${await databaseLine()}`);
-    console.log("\nNo banks linked yet. Run `costingly link` to connect one.");
-    return;
-  }
-
-  // Group the flat join back into one block per bank.
-  const byItem = new Map<string, Row[]>();
-  for (const row of rows) {
-    const existing = byItem.get(row.item_id);
-    if (existing) existing.push(row);
-    else byItem.set(row.item_id, [row]);
-  }
+  const status: CostinglyStatus = await costinglyStatus();
 
   if (options.json) {
-    emitJson(byItem);
+    console.log(JSON.stringify(status, null, 2));
     return;
   }
 
-  let totalAccounts = 0;
-  let totalTxns = 0;
-
   console.log("");
-  for (const itemRows of byItem.values()) {
-    const head = itemRows[0]!;
-    const name = head.institution_name ?? "(unknown institution)";
+  line("costingly", status.version);
+  console.log("");
+  renderProfile(status.profile);
+  console.log("");
+  renderDatabase(status.database);
+  console.log("");
+  renderPlaid(status.plaid, status.banks, status.banksError);
+  console.log("");
+}
 
-    console.log(`${name}${statusNote(head.status, head.never_synced, head.source)}`);
-    console.log(`  item ${head.item_id}  ·  last synced: ${ago(head.last_synced_at)}`);
-
-    for (const row of itemRows) {
-      if (row.account_id === null) {
-        console.log("    (no accounts stored — run `costingly sync`)");
-        continue;
-      }
-      totalAccounts += 1;
-      const count = Number(row.txn_count);
-      totalTxns += count;
-
-      const label = `${row.account_name ?? "(unnamed)"} ••${row.mask ?? "????"}`;
-      const kind = `${row.type ?? "?"}/${row.subtype ?? "?"}`;
-      const span =
-        count > 0 && row.first_date && row.last_date
-          ? `${row.first_date} → ${row.last_date}`
-          : "no transactions";
-
-      console.log(
-        `    ${label.padEnd(30)} ${kind.padEnd(22)} ` +
-          `${money(row.current_balance, row.currency).padStart(14)}  ` +
-          `${String(count).padStart(5)} txns  ${span}`,
-      );
-    }
-    console.log("");
-  }
-
-  console.log(
-    `${byItem.size} bank(s), ${totalAccounts} account(s), ${totalTxns} transaction(s)`,
-  );
-  console.log(await databaseLine());
+/** "45s", "3h 12m", "2d 5h" — enough precision to judge, no more. */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86_400)}d ${Math.floor((seconds % 86_400) / 3600)}h`;
 }

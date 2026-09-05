@@ -18,8 +18,8 @@ import { registerStatusCommand } from "./commands/status.command.js";
 import { registerTransactionsCommand } from "./commands/transactions.command.js";
 import { registerUnlinkCommand } from "./commands/unlink.command.js";
 import { registerResetCommand } from "./commands/reset.command.js";
+import { registerUninstallCommand } from "./commands/uninstall.command.js";
 import { registerStopCommand } from "./commands/stop.command.js";
-import { registerDoctorCommand } from "./commands/doctor.command.js";
 import { registerSeedCommand } from "./commands/seed.command.js";
 
 /**
@@ -52,10 +52,10 @@ Per-command flags:  costingly <command> --help
   registerStatusCommand(program);
   registerTransactionsCommand(program);
   registerStopCommand(program);
-  registerDoctorCommand(program);
   registerSeedCommand(program);
   registerUnlinkCommand(program);
   registerResetCommand(program);
+  registerUninstallCommand(program);
 
   return program;
 }

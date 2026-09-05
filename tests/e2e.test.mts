@@ -77,6 +77,20 @@ async function wipeScratchCluster(): Promise<void> {
   await rm(`${HOME}/pg18.log`, { force: true });
 }
 
+/**
+ * Take the whole throwaway profile with us, config included.
+ *
+ * `wipeScratchCluster` deliberately spares config.json — the run needs it, and
+ * it is planted again on the way in. On the way OUT there is nothing to spare
+ * it for, and leaving it behind means a git-ignored copy of the sandbox Plaid
+ * keys and an encryption key sitting in a world-readable temp directory until
+ * someone notices. A suite cleans up after itself.
+ */
+async function removeScratchProfile(): Promise<void> {
+  await wipeScratchCluster();
+  await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+}
+
 await wipeScratchCluster();
 
 const out: string[] = [];
@@ -186,5 +200,5 @@ await close2();
 
 console.log(out.join("\n"));
 console.log(fail === 0 ? `\nAll ${out.filter(l => l.startsWith("  ok") || l.startsWith("  FAIL")).length} checks passed.` : `\n${fail} FAILED.`);
-await wipeScratchCluster();
+await removeScratchProfile();
 process.exit(fail === 0 ? 0 : 1);

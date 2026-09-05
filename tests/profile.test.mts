@@ -20,7 +20,7 @@ const displayPath = (p: string): string => config.displayPath(p);
 const APP_NAME = costingly.name;
 
 const { homedir, platform } = await import("node:os");
-const { join, resolve, isAbsolute, sep } = await import("node:path");
+const { basename, join, resolve, isAbsolute, sep } = await import("node:path");
 
 const out: string[] = [];
 let fail = 0;
@@ -64,6 +64,28 @@ eq(profileDir(), resolve("/tmp/profile-unit"), "COSTINGLY_HOME overrides the pla
 eq(profileSource(), "home variable", "reports the home variable as the source");
 eq(config.homeVar, "COSTINGLY_HOME", "and the variable is named after the project");
 eq(configPath(), join(resolve("/tmp/profile-unit"), "config.json"), "config.json lives inside the profile");
+
+// --- the profile's NAME ----------------------------------------------------
+// What a destructive command makes you type, so it has to identify THIS
+// profile and no other.
+eq(config.profileName(), "profile-unit", "an overridden profile is named for its directory");
+process.env["COSTINGLY_HOME"] = "/tmp/another-one";
+eq(config.profileName(), "another-one", "and follows the variable when it moves");
+
+// The reason this is not simply basename(profileDir()). On Windows the
+// platform default ends in a generic component — .../costingly/Data — which
+// names nothing and would be identical for every project on the machine.
+delete process.env["COSTINGLY_HOME"];
+eq(config.profileName(), APP_NAME, "the default profile is named for the project");
+if (platform() === "win32") {
+  eq(basename(profileDir()), "Data", "…precisely because the Windows default basename is generic");
+  ok(config.profileName() !== basename(profileDir()), "so the name is NOT the directory basename");
+}
+
+// A root path has no basename; asking the user to type "" would be unanswerable.
+process.env["COSTINGLY_HOME"] = resolve("/");
+eq(config.profileName(), APP_NAME, "a root path falls back to the project name");
+process.env["COSTINGLY_HOME"] = "/tmp/profile-unit";
 
 // A relative value must not follow the process around.
 process.env["COSTINGLY_HOME"] = "./.dev";

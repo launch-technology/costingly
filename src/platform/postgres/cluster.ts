@@ -54,8 +54,20 @@ export interface ClusterConfig {
   host: string;
   /** TCP port. Allocated by the caller; the cluster is told, never chooses. */
   port: number;
-  /** The bootstrap superuser initdb creates, and its password. */
-  superuser: { user: string; password: string };
+  /**
+   * The bootstrap superuser initdb creates, and its password.
+   *
+   * A FUNCTION, not a value, and the laziness is load-bearing. Supplying these
+   * usually means generating a password and writing it to the project's config
+   * on first use — so an eager field made every cluster operation a write,
+   * including `status()`, `stop()` and `runningPort()`, none of which need an
+   * identity at all. A read-only health check that creates credentials as a
+   * side effect of asking whether the server is up is not a health check.
+   *
+   * Called only where an identity is genuinely required: creating the cluster,
+   * and building a connection string.
+   */
+  superuser: () => { user: string; password: string };
 }
 
 export interface RunResult {
@@ -213,7 +225,7 @@ export class PostgresCluster {
 
   /** Superuser connection string. The only identity this class knows about. */
   connectionString(database = this.config.databaseName): string {
-    const { user, password } = this.config.superuser;
+    const { user, password } = this.config.superuser();
     return (
       `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}` +
       `@${encodeURIComponent(this.config.host)}:${this.config.port}/${encodeURIComponent(database)}`
@@ -294,8 +306,26 @@ export class PostgresCluster {
     );
   }
 
+  /**
+   * Ask the server to shut down. True if it was running and now is not.
+   *
+   * ALWAYS ATTEMPTS, even when `status()` says there is nothing to stop.
+   * `status()` runs `pg_ctl status`, which decides by reading postmaster.pid —
+   * and a data directory that was deleted under a live server has no pid file
+   * while the postmaster carries on from its open handles. Short-circuiting on
+   * that answer meant the one case where stopping mattered most was the case
+   * where it was never tried.
+   *
+   * `pg_ctl` cannot do better: every `stop` form takes only `-D DATADIR` and
+   * finds the postmaster through that file alone. So a caller that is about to
+   * DELETE this directory must not treat "stopped" as proof — see
+   * `PostgresServer.isServing()`, which asks the port instead.
+   */
   async stop(): Promise<boolean> {
-    if ((await this.status()) !== "running") return false;
+    const before = await this.status();
+    // Nothing was ever created here, so there is no server and no pid file to
+    // be wrong about.
+    if (before === "uninitialised") return false;
 
     const { pg_ctl } = await binaries();
     // `fast` rolls back open transactions and disconnects clients rather than
@@ -317,7 +347,12 @@ export class PostgresCluster {
         `Could not stop the local database.\n\n${(result.stderr || result.stdout).trim()}`,
       );
     }
-    return true;
+
+    // A non-zero exit with nothing running is `pg_ctl` reporting "no server
+    // running" — either it really was stopped, or its pid file is gone. Which
+    // of those is true cannot be answered from here, so the honest return is
+    // what the state looked like before, and the port check is what decides.
+    return result.code === 0 || before === "running";
   }
 
 
@@ -345,11 +380,11 @@ export class PostgresCluster {
     const passwordFile = join(this.config.dataDir, "..", `.initdb-${randomUUID()}`);
     let result: RunResult;
     try {
-      await writeFile(passwordFile, `${this.config.superuser.password}\n`, { mode: 0o600 });
+      await writeFile(passwordFile, `${this.config.superuser().password}\n`, { mode: 0o600 });
 
       result = await run(initdb, [
         `--pgdata=${this.config.dataDir}`,
-        `--username=${this.config.superuser.user}`,
+        `--username=${this.config.superuser().user}`,
         `--pwfile=${passwordFile}`,
         // Both transports authenticate. Nothing is trusted for being local.
         "--auth-local=scram-sha-256",

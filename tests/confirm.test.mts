@@ -1,6 +1,10 @@
 /**
  * Verify the confirmation gate: it must reject anything except the exact
- * environment name, and it must show which environment/database is targeted.
+ * profile name, and it must show which profile and database are targeted.
+ *
+ * The phrase is the PROFILE, not the Plaid environment. Every install is
+ * "production", so that word discriminated nothing and let muscle memory carry
+ * from a throwaway profile straight onto the real one.
  */
 
 import { fileURLToPath } from "node:url";
@@ -42,7 +46,16 @@ eq(described.includes("on this machine"), true, "says it is local");
 process.env["COSTINGLY_HOME"] = "/tmp/other-profile";
 eq(describeDatabase().includes(expectedCluster("/tmp/other-profile")), true,
    "follows the profile, so it cannot name the wrong database");
+
+// --- the phrase is the profile, and it distinguishes profiles -------------
+// The property the gate depends on: two profiles on one machine never share a
+// name, so confirming one cannot be muscle memory for confirming another.
+eq(platform.profileName(), "other-profile", "the phrase names the overridden profile");
+process.env["COSTINGLY_HOME"] = "/tmp/confirm-profile";
+eq(platform.profileName(), "confirm-profile", "and follows the profile when it moves");
+
 delete process.env["COSTINGLY_HOME"];
+eq(platform.profileName(), "costingly", "the default profile is named for the project");
 
 // --- the typed-phrase gate ------------------------------------------------
 // Drive clack's text prompt directly, the same way the picker tests do.
@@ -55,9 +68,9 @@ async function askWith(keystrokes: string[]): Promise<unknown> {
   const pending = text({
     input,
     output,
-    message: 'Type "production" to confirm:',
+    message: 'Type "costingly" to confirm:',
     validate: (value: string) =>
-      value === "production" ? undefined : 'Type exactly "production", or press Ctrl-C to abort.',
+      value === "costingly" ? undefined : 'Type exactly "costingly", or press Ctrl-C to abort.',
   });
   for (const key of keystrokes) {
     await new Promise((resolve) => setImmediate(resolve));
@@ -77,16 +90,17 @@ async function settles(keystrokes: string[]): Promise<unknown> {
   return Promise.race([askWith(keystrokes), timeout]);
 }
 
-eq(await askWith(["production", ENTER]), "production", "exact phrase is accepted");
+eq(await askWith(["costingly", ENTER]), "costingly", "exact phrase is accepted");
 eq(isCancel(await askWith([CTRL_C])), true, "ctrl-c cancels");
 
 // A rejected value must leave the prompt open rather than falling through.
-eq(await settles(["sandbox", ENTER]), PENDING, "the OTHER environment name is rejected");
+eq(await settles(["confirm-profile", ENTER]), PENDING, "ANOTHER profile's name is rejected");
+eq(await settles(["production", ENTER]), PENDING, "the old Plaid-environment phrase no longer works");
 eq(await settles(["y", ENTER]), PENDING, "a reflexive y does not satisfy the gate");
 eq(await settles(["yes", ENTER]), PENDING, "yes does not satisfy the gate");
 eq(await settles([ENTER]), PENDING, "bare enter does not satisfy the gate");
-eq(await settles(["Production", ENTER]), PENDING, "wrong capitalisation is rejected");
-eq(await settles(["production ", ENTER]), PENDING, "trailing space is rejected");
+eq(await settles(["Costingly", ENTER]), PENDING, "wrong capitalisation is rejected");
+eq(await settles(["costingly ", ENTER]), PENDING, "trailing space is rejected");
 
 console.log(results.join("\n"));
 console.log(failures === 0 ? `\nAll ${results.length} checks passed.` : `\n${failures} FAILED.`);

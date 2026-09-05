@@ -37,9 +37,11 @@ const ORDER = [
   "views",
   "seed",
   "health",
+  "status",
   "readonly",
   "mcp",
   "init-flow",
+  "uninstall",
   "concurrency",
   "e2e",
 ];

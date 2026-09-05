@@ -26,7 +26,7 @@ export function registerResetCommand(program: Command): void {
   program
     .command("reset")
     .description("Delete all local data")
-    .helpGroup("Destructive — each asks you to type the environment name:")
+    .helpGroup("Destructive — each asks you to type the profile name:")
     .option("--data-only", "keep the bank links; delete transactions and reset cursors")
     .option(
       "--revoke",

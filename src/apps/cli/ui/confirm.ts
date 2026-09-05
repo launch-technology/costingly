@@ -4,12 +4,22 @@
  * The design goal is that you cannot destroy production data by muscle memory.
  * So it does three things:
  *
- *   1. States the environment and the exact database being targeted, loudly.
- *      "I thought I was pointed at the docker container" is the failure mode
- *      this exists to prevent.
+ *   1. States which profile and which database are being targeted, loudly.
+ *      "I thought I was pointed at the sandbox" is the failure mode this exists
+ *      to prevent.
  *   2. Shows what will actually be destroyed, counted from the database.
- *   3. Requires typing the environment name — not "y". A confirmation you can
+ *   3. Requires typing the profile's name — not "y". A confirmation you can
  *      satisfy with a reflex is not a confirmation.
+ *
+ * WHY THE PROFILE AND NOT THE PLAID ENVIRONMENT
+ *
+ * The phrase used to be `plaidEnv`, which was the wrong thing to guard twice
+ * over. It named a concept costingly does not have — costingly has profiles,
+ * not environments — and it did not discriminate: nearly every install is
+ * "production", so every user typed the same word and muscle memory carried
+ * straight across profiles. The profile IS the blast radius, so it is what the
+ * user is asked to name. The Plaid environment is still shown, because which
+ * one you are pointed at is worth knowing before you destroy anything.
  */
 
 import { text, isCancel, cancel } from "@clack/prompts";
@@ -47,14 +57,15 @@ export interface ConfirmOptions {
  * refuses unless --yes was passed explicitly.
  */
 export async function confirmDestructive(options: ConfirmOptions): Promise<boolean> {
-  const environment = get("plaidEnv").toUpperCase();
-  const width = Math.max(...options.facts.map(([label]) => label.length), "Environment".length);
+  const profile = platform.profileName();
+  const width = Math.max(...options.facts.map(([label]) => label.length), "Plaid".length);
 
   console.log("");
   console.log(`  ⚠  ${options.action.toUpperCase()}`);
   console.log("");
-  console.log(`     ${"Environment".padEnd(width)}   ${environment}`);
+  console.log(`     ${"Profile".padEnd(width)}   ${profile}`);
   console.log(`     ${"Database".padEnd(width)}   ${describeDatabase()}`);
+  console.log(`     ${"Plaid".padEnd(width)}   ${get("plaidEnv").toUpperCase()}`);
   for (const [label, value] of options.facts) {
     console.log(`     ${label.padEnd(width)}   ${value}`);
   }
@@ -78,14 +89,13 @@ export async function confirmDestructive(options: ConfirmOptions): Promise<boole
     return false;
   }
 
-  // Typing the environment name means a production wipe cannot be confirmed
-  // with the same keystrokes as a sandbox one.
-  const phrase = get("plaidEnv");
+  // Typing the profile's name means a wipe of the real profile cannot be
+  // confirmed with the same keystrokes as a wipe of a throwaway one.
   const answer = await text({
-    message: `Type "${phrase}" to confirm:`,
-    placeholder: phrase,
+    message: `Type "${profile}" to confirm:`,
+    placeholder: profile,
     validate: (value) =>
-      value === phrase ? undefined : `Type exactly "${phrase}", or press Ctrl-C to abort.`,
+      value === profile ? undefined : `Type exactly "${profile}", or press Ctrl-C to abort.`,
   });
 
   if (isCancel(answer)) {

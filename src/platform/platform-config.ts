@@ -27,7 +27,7 @@
 
 import envPaths from "env-paths";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 
 /** What a project tells the platform about itself. */
 export interface ProjectIdentity {
@@ -72,6 +72,20 @@ export interface PlatformConfig {
 
   /** Whether the home variable chose the profile, or the platform default did. */
   profileSource(): ProfileSource;
+
+  /**
+   * A short name for THIS profile, distinct from any other on the machine.
+   *
+   * What a destructive command asks the user to type. The full path is too long
+   * to retype and the directory's own basename is no good either — the
+   * platform-native default ends in a generic component ("Data" on Windows),
+   * which names nothing and would be identical for every project.
+   *
+   * So: the default profile is named for the project, and an overridden one for
+   * the directory the user chose. Two profiles on one machine therefore never
+   * share a name, which is the property the confirmation depends on.
+   */
+  profileName(): string;
 
   /**
    * A path with the home directory shortened to `~`.
@@ -124,6 +138,14 @@ export function resolvePlatform(
     profileDir,
     configPath: () => join(profileDir(), "config.json"),
     profileSource: () => (override() !== undefined ? "home variable" : "platform default"),
+    profileName: () => {
+      const set = override();
+      if (set === undefined) return identity.name;
+      // A root path ("C:\", "/") has no basename. Falling back to the project
+      // name keeps the confirmation answerable rather than asking for "".
+      const chosen = basename(resolve(set));
+      return chosen === "" ? identity.name : chosen;
+    },
     displayPath: (path: string): string => {
       const home = homedir();
       return path === home || path.startsWith(`${home}${sep}`)

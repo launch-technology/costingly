@@ -61,6 +61,33 @@ export class ConnectionFactory {
     return pool;
   }
 
+  /**
+   * One connected superuser client built from ALREADY-RECORDED credentials.
+   *
+   * The difference from `connectAsSuperuser` is what it refuses to do: no port
+   * allocation, no password generation, no writes of any kind. A profile that
+   * has never been set up produces an error describing that, which is the
+   * answer a health check wants — rather than a working connection to a
+   * database the act of asking brought into existence.
+   */
+  async connectAsRecordedSuperuser(): Promise<Client> {
+    const credentials = await this.server.recordedCredentials();
+    if (credentials === undefined) {
+      throw new Error("This profile has no database yet — nothing has been set up.");
+    }
+
+    const pgPkg = (await import("pg")).default;
+    const client = new pgPkg.Client({
+      connectionString: connectionStringFor(credentials, "superuser"),
+      // Short: the caller is reporting on a database, not waiting for one. A
+      // server that is up answers in milliseconds; anything slower is itself
+      // the finding.
+      connectionTimeoutMillis: 5_000,
+    });
+    await client.connect();
+    return client;
+  }
+
   /** One connected superuser client against `database`. The caller closes it. */
   async connectAsSuperuser(database: string): Promise<Client> {
     const pgPkg = (await import("pg")).default;

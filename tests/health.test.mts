@@ -51,17 +51,54 @@ await wipe();
 const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
 
 // ===========================================================================
+// 0. INSPECTING MUST NOT CREATE
+// ===========================================================================
+//
+// Runs first, on a profile that has just been wiped, because it is the only
+// point at which "nothing exists" is still true — everything below deliberately
+// builds a database.
+//
+// The bug this pins down: `clusterConfig()` used to evaluate the superuser
+// login eagerly, and supplying that login GENERATES a password and writes it to
+// config.json. So merely asking `status()` whether the server was up recreated
+// part of a profile that had just been deleted — and a diagnostic that
+// resurrects what it reports on cannot be used to confirm a cleanup.
+
+const { existsSync } = await import("node:fs");
+const { platform: costinglyPlatform } = await import("../src/domain/project.js");
+
+eq(existsSync(HOME), false, "the profile really is gone before we look at it");
+
+const stateBefore = await server.status();
+eq(stateBefore, "uninitialised", "status() reports an absent cluster");
+eq(existsSync(HOME), false, "…and status() created NOTHING");
+
+eq(await server.endpoint(), undefined, "endpoint() reports no port rather than inventing one");
+eq(existsSync(HOME), false, "…and endpoint() created NOTHING");
+
+eq(await server.stop(), false, "stop() on an absent cluster is a no-op");
+eq(existsSync(costinglyPlatform.configPath()), false, "…and wrote no config.json");
+
+// ===========================================================================
 // 1. Nothing exists yet — the very first thing a broken install looks like
 // ===========================================================================
 
-const fresh = await checkDatabase();
+const absent = await checkDatabase();
 ok(true, "checkDatabase() on a non-existent profile RETURNED instead of throwing");
-eq(fresh.profile.chosenBy, "COSTINGLY_HOME", "it reports what chose the profile");
-ok(fresh.profile.path.includes("costingly-health"), "it names the profile directory");
+eq(absent.profile.chosenBy, "COSTINGLY_HOME", "it reports what chose the profile");
+ok(absent.profile.path.includes("costingly-health"), "it names the profile directory");
 
-// The connection attempt creates everything, because opening the database is
-// what builds it. That is the real behaviour and the report should reflect it.
-ok(fresh.connection.ok, "connecting created and started the cluster");
+// It reports what is not there, and — the point of section 0 — leaves it not
+// there. Checking is not a way of creating.
+eq(absent.connection.ok, false, "it cannot connect, and says so");
+eq(absent.cluster.state, "uninitialised", "the cluster is reported as absent");
+eq(existsSync(HOME), false, "AND CHECKING CREATED NOTHING");
+
+// Now build it for real, the way anything using the database does.
+await db.query(`SELECT 1`);
+
+const fresh = await checkDatabase();
+ok(fresh.connection.ok, "once the database exists, the check connects");
 eq(fresh.migrationsApplied, (await loadMigrations()).map((m) => m.id),
    "every migration is reported as applied");
 ok((fresh.cluster.uptimeSeconds ?? -1) >= 0, "uptime is reported once connected");
@@ -91,10 +128,12 @@ eq(await server.status(), "stopped", "server really is stopped");
 
 const afterStop = await checkDatabase();
 ok(true, "checkDatabase() with the server stopped RETURNED instead of throwing");
-// Connecting restarts it, which is what a real tool call would do too. The
-// tool answers "can costingly reach its data", and the answer here is yes.
-ok(afterStop.connection.ok, "the probe started the server again and connected");
-eq(await server.status(), "running", "and left it running");
+// It reports the state it found and leaves it alone. Starting a stopped server
+// is `restart_database`'s job — a tool called `check` that silently fixed what
+// it was asked to inspect would deny its caller the chance to decide.
+eq(afterStop.connection.ok, false, "it reports that it cannot connect");
+eq(afterStop.cluster.state, "stopped", "and reports the server as stopped");
+eq(await server.status(), "stopped", "CHECKING DID NOT START IT");
 
 // ===========================================================================
 // 4. Restart

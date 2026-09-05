@@ -32,7 +32,9 @@
  * "which am I looking at?" is the first question in every confused session.
  */
 
-import { db } from "../../data/default-database.js";
+// `db` is for restartDatabase(), whose job IS to bring the database up.
+// checkDatabase() uses `database.inspector()` instead — see the comment there.
+import { database, db } from "../../data/default-database.js";
 
 import { platform, server } from "../../project.js";
 import { stat } from "node:fs/promises";
@@ -110,7 +112,10 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 }
 
 export async function checkDatabase(): Promise<DatabaseHealth> {
-  const { host, port } = await server.credentials();
+  // endpoint(), not credentials(): the latter allocates a port and generates
+  // logins when the profile has none, so asking where the server listens used
+  // to CREATE the profile being asked about.
+  const where = await server.endpoint();
   const health: DatabaseHealth = {
     profile: {
       path: platform.displayPath(platform.profileDir()),
@@ -122,7 +127,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
       path: platform.displayPath(server.clusterDir()),
       exists: await exists(server.clusterDir()),
       state: "unknown",
-      listenAddress: `${host}:${port}`,
+      listenAddress: where === undefined ? "not allocated yet" : `${where.host}:${where.port}`,
       startedAt: null,
       uptimeSeconds: null,
     },
@@ -136,10 +141,15 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
     health.cluster.error = message(error);
   }
 
-  // Deliberately goes through the normal query path, which starts the server if
-  // it is stopped. The question this tool answers is "can costingly reach its
-  // data?", and auto-start is part of how it does — probing at a lower level
-  // would report a failure a real tool call would not have hit.
+  // Goes through the INSPECTION path, which starts nothing and provisions
+  // nothing. The normal query path would start a stopped server and apply
+  // migrations on the way — so a check run against a profile that had just
+  // been deleted rebuilt it, and reported the database it had itself created.
+  // A tool named `check` may not do that.
+  //
+  // The consequence is deliberate: a stopped server is REPORTED as stopped
+  // rather than quietly started. Deciding what to do about that belongs to the
+  // caller, which is the whole point of separating this from restartDatabase().
   //
   // pg_postmaster_start_time() rather than SELECT 1: same round trip, and it
   // costs nothing to learn how long the server has been up. A near-zero uptime
@@ -148,7 +158,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
   const started = Date.now();
   try {
     const { rows } = await withTimeout(
-      db.query<{ started_at: string; uptime: string }>(
+      database.inspector().query<{ started_at: string; uptime: string }>(
         // Formatted in SQL rather than cast to text: the raw value carries
         // microseconds and a timezone offset, which is noise in a line whose
         // only job is "roughly when did this start".
@@ -167,7 +177,9 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
   }
 
   try {
-    const { rows } = await db.query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`);
+    const { rows } = await database
+      .inspector()
+      .query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`);
     health.migrationsApplied = rows.map((r) => r.id);
   } catch (error) {
     // Connected but the ledger is unreadable — an un-migrated database, most

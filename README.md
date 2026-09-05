@@ -129,9 +129,10 @@ Back it up, move it, or delete it as a unit. Nothing costingly owns lives
 anywhere else — in particular nothing is written into the package directory, so
 rebuilding or reinstalling never touches data.
 
-`costingly doctor` prints the resolved profile, what chose it, and whether each
-piece is healthy. It never connects to the database, so it still works when the
-server won't start.
+`costingly status` prints the resolved profile, what chose it, and whether each
+piece is healthy. It has no side effects — it starts nothing and creates
+nothing — so it works when the server won't start, and it is also how you
+confirm an uninstall left nothing behind.
 
 **`COSTINGLY_HOME` moves the whole profile.** That single variable is how you
 get a second environment — a checkout, a sandbox, a fresh directory per test:
@@ -234,11 +235,11 @@ costingly sync                # full history backfill
 Keep the same encryption key unless you have a reason to rotate it — changing it
 makes any surviving stored token undecryptable.
 
-> Deleting the whole profile is the bluntest option: `costingly stop`, then
-> remove the directory `costingly doctor` reports. That takes the config and the
-> encryption key with it, so the next run starts at `costingly init`. Quote the
-> path — on macOS it contains a space. `costingly reset` keeps both and only
-> empties the tables.
+> Deleting the whole profile is the bluntest option, and `costingly uninstall`
+> does it properly: it removes each bank at Plaid, stops the server, proves it
+> stopped, then deletes the directory. That takes the config and the encryption
+> key with it, so the next run starts at `costingly init`. `costingly reset`
+> keeps both and only empties the tables.
 
 ---
 
@@ -284,9 +285,9 @@ seven days ending at that pinned `--end-date`.
 It flags anything needing attention — an item that has never synced, or one whose
 login expired and needs re-linking. It never decrypts an access token.
 
-`costingly doctor` answers the other question: where everything lives and whether
-it is healthy. It never connects to the database, so unlike `status` it still
-works when the server refuses to start.
+The same command answers where everything lives and whether it is healthy. Each
+of the three sections reports independently, so a dead database or an
+unreachable Plaid never hides the others.
 
 ### Recent transactions for one account
 
@@ -372,8 +373,8 @@ psql "postgresql:///costingly?host=$COSTINGLY_HOME/pg18-run"
 There is no password: the socket lives in a directory only your account can
 read, and the server uses peer authentication, so the OS decides who you are.
 
-`psql` is not bundled — use one you already have. `costingly doctor` prints the
-socket path if you need it.
+`psql` is not bundled — use one you already have. `costingly status` prints the
+host and port if you need them.
 
 Recent transactions with their account and institution:
 
@@ -443,7 +444,6 @@ costingly/
 ├── cli/                     # the costingly binary
 │   ├── index.ts             # entry: argv parsing, pool teardown
 │   ├── <command>.ts         # one file per subcommand
-│   ├── doctor.ts            # where everything is, without touching the database
 │   ├── paths.ts             # locates schema.sql / public/ in any layout
 │   ├── confirm.ts           # destructive-command gate
 │   └── format.ts            # money / dates / truncation
@@ -478,7 +478,7 @@ flags.
 | `costingly unlink` | Remove one bank and its data (**destructive**) |
 | `costingly reset` | Delete all local data (**destructive**) |
 | `costingly stop` | Shut down the database server (data untouched) |
-| `costingly doctor` | Where everything lives and whether it's healthy |
+| `costingly uninstall` | Remove everything on this machine (**destructive**) |
 
 Global flags: `--version`, `--help`. To use a different profile, set
 `COSTINGLY_HOME`.
@@ -495,8 +495,7 @@ Settings resolve in this order, first hit wins:
 
 There is no file discovery and nothing relative to the current directory: the
 profile is named by `COSTINGLY_HOME` or the platform default, and the config
-lives inside it. `costingly doctor` shows every value and which layer supplied
-it.
+lives inside it. `costingly status` reports any setting that is missing.
 
 A `.env` in the current directory is loaded if present, purely as a way to set
 environment variables in development or CI. costingly never writes one and never
@@ -603,7 +602,7 @@ Only failures print output — a green run stays quiet.
   do not expose them on a network.
 - **Back up the encryption key** somewhere durable (a password manager). It lives
   in `config.json` as `encryptionKey`; losing it means re-linking every bank.
-- **`costingly doctor` never prints secrets** — it reports them as set or unset.
+- **`costingly status` never prints secrets** — it reports them as set or unset.
   It is safe to paste into an issue.
 
 ## Troubleshooting
@@ -612,10 +611,10 @@ Only failures print output — a green run stays quiet.
 | --- | --- |
 | `ITEM_LOGIN_REQUIRED` | The bank needs re-authentication. The item's `status` is set to `login_required` and it is skipped until repaired — re-link it via `costingly link`. |
 | Sync reports 0 transactions on a new item | Plaid is still pulling history in the background (`NOT_READY`). Run `costingly sync` again shortly. |
-| `Failed to decrypt access token` | The encryption key does not match the one the tokens were stored with. Check `costingly doctor`. |
+| `Failed to decrypt access token` | The encryption key does not match the one the tokens were stored with. Check `costingly status`. |
 | `INVALID_API_KEYS` | Wrong Plaid credentials. Re-run `costingly init`, which verifies them against Plaid before saving anything. |
 | `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` | Handled automatically — pagination restarts from the stored cursor, up to 5 times. |
 | `The database has not been set up yet` | The cluster exists but has no schema. Run `costingly migrate` (or `costingly init`). |
-| Commands hang or the server won't start | `costingly doctor` first — it works without the database. Then read the postmaster log it points at. |
+| Commands hang or the server won't start | `costingly status` first — it reports without starting anything. Then read the postmaster log it points at. |
 | `socket path is too long` | The profile is nested too deeply; unix sockets cap near 104 bytes. Set `COSTINGLY_HOME` somewhere shorter. |
 | `costingly: command not found` after `nvm use` | `npm link` installs into one Node version's `bin`. Re-run `npm link` under the version you switched to. |

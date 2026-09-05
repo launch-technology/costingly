@@ -91,6 +91,26 @@ export class Database {
     );
   }
 
+  /**
+   * A DataSource that only LOOKS: no provisioning, no allocation, no writes.
+   *
+   * Both other sources bring things into being on first use — the app source
+   * starts the cluster and applies the schema, the admin source allocates a
+   * port and generates logins. That is right for work, and wrong for a report:
+   * a health check that provisions cannot answer "is anything here?", because
+   * by the time it replies the answer is yes.
+   *
+   * Fails loudly on a profile that was never set up, and the failure is the
+   * finding. Nothing is registered or cached — this holds no connection between
+   * calls and has no lifetime to manage.
+   */
+  inspector(): DataSource {
+    return new TransientDataSource(
+      () => this.factory.connectAsRecordedSuperuser(),
+      "local PostgreSQL (inspection only)",
+    );
+  }
+
   /** True once something has actually opened the application pool. */
   isOpen(): boolean {
     return this.pooled.isOpen();

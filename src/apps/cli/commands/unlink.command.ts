@@ -55,7 +55,7 @@ export function registerUnlinkCommand(program: Command): void {
   program
     .command("unlink")
     .description("Remove one bank and its data")
-    .helpGroup("Destructive — each asks you to type the environment name:")
+    .helpGroup("Destructive — each asks you to type the profile name:")
     .argument("[bank...]", "bank name to match (skips the picker)")
     .option("--revoke", "also invalidate the access token at Plaid (/item/remove)")
     .option("-y, --yes", "skip the confirmation prompt (for scripts)")
