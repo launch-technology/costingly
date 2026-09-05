@@ -128,6 +128,36 @@ check("bad key length is rejected", () => {
   process.env.ENCRYPTION_KEY = key;
 });
 
+// --- the two version fields agree ----------------------------------------
+//
+// `package.json` is what npm and `npm version` know about. `manifest.json` is
+// what Claude Desktop reads, and its version is the one shown to a user — so a
+// drift produces a bundle that reports itself as a release it is not, which is
+// worse than no version at all because it is confidently wrong. A beta user
+// saying "I'm on 1.5.0" then names code that does not exist.
+//
+// Asserted HERE rather than fixed at build time on purpose. The bundle build
+// used to rewrite the mismatch silently, which meant the manual step could stop
+// happening and nothing would say so. A check that fails is the only kind that
+// tells you the process is working.
+{
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const read = (name: string): { version?: string } =>
+    JSON.parse(readFileSync(`${root}${name}`, "utf8")) as { version?: string };
+
+  check("package.json and manifest.json declare the same version", () => {
+    const pkg = read("package.json").version;
+    const manifest = read("manifest.json").version;
+    assert(
+      pkg === manifest,
+      `package.json is ${String(pkg)} but manifest.json is ${String(manifest)}.\n` +
+        `          Update manifest.json to match — Claude Desktop shows ITS version.`,
+    );
+  });
+}
+
 // Config and profile resolution have their own suites (config.mts,
 // profile.mts). This file stays what its header claims: does everything load,
 // and does crypto behave.

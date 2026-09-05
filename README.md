@@ -3,24 +3,25 @@
 Syncs bank and credit-card transactions from [Plaid](https://plaid.com) into a
 Postgres database on your own machine.
 
-Not published yet — this document is for working on it.
+Beta. Distributed as a Claude Desktop extension and as this source tree — see
+[Installing](#installing).
 
 **There is no database to install.** costingly ships real PostgreSQL 18 binaries
 as an npm dependency and manages the cluster itself: `initdb` on first use,
-`pg_ctl` to start it, and it stays running afterwards. It listens on a unix
-socket, never a TCP port, and uses peer authentication, so there is no password
-anywhere and nothing is reachable over the network.
+`pg_ctl` to start it, and it stays running afterwards. It listens on loopback
+only — `127.0.0.1`, on a port it allocates itself — so nothing is reachable from
+the network, and the generated password never leaves your profile directory.
 
-**Everything it owns lives in one profile directory** — config, cluster, socket,
-log. `COSTINGLY_HOME` names it; with that unset it falls back to the platform's
+**Everything it owns lives in one profile directory** — config, cluster, log.
+`COSTINGLY_HOME` names it; with that unset it falls back to the platform's
 data directory (`~/Library/Application Support/costingly` on macOS,
 `~/.local/share/costingly` on Linux). That single variable is how development, a
 sandbox, and a per-test throwaway all get their own fully isolated environment.
 
-**`src/` is framework-agnostic** — it depends only on `plaid`, `pg` and Node
-built-ins. `cli/` may import from `src/`, never the reverse. That boundary is
-what would let the sync logic move to another host without dragging commander,
-express and clack along.
+**Three layers, dependencies pointing down only** — `apps/` (a CLI and an MCP
+server) on `domain/` (costingly's own logic) on `platform/` (the runtime, the
+local Postgres, the pipeline engine, which know nothing about costingly). The
+compiler and a test suite both enforce it; see [Project layout](#project-layout).
 
 ---
 
@@ -64,6 +65,22 @@ spend for a period (refunds cancel charges); flip the sign at read time with
 
 ---
 
+## Installing
+
+Two ways, and they can share one profile on the same machine.
+
+**The Claude Desktop extension.** Download `costingly-<version>.mcpb` from the
+[releases page](../../releases) and double-click it. Claude Desktop asks for your
+Plaid keys during install. This gives you the MCP server — ask Claude about your
+spending in plain language — and nothing else: no terminal command, and no way
+to uninstall from inside the app yet, so read
+[Uninstalling](#uninstalling) before you commit to it.
+
+**From source**, which additionally gives you the `costingly` command. See below.
+
+> This is a beta. It is not on npm; the extension and this repository are the
+> only distributions.
+
 ## Local setup
 
 **Prerequisites:** Node 20+, and Plaid API keys from the
@@ -91,7 +108,7 @@ safe to re-run: an existing encryption key is never replaced, because that
 would make every stored access token permanently undecryptable.
 
 `npm link` symlinks this directory, so `costingly` works from anywhere and picks
-up `schema.sql` and `public/` from the project. After editing source, run
+up `migrations/` and `public/` from the project. After editing source, run
 `npm run build` — the link points at `dist/`, which does not rebuild itself.
 
 To give this checkout its own database rather than sharing your everyday one,
@@ -119,15 +136,28 @@ Everything costingly owns lives in **one folder** — its profile:
 ```
 
 ```
-<profile>/config.json    credentials and encryption key, mode 0600
+<profile>/config.json    credentials and encryption key
 <profile>/pg18/          the cluster
-<profile>/pg18-run/      the unix socket
 <profile>/pg18.log       the postmaster log
 ```
 
 Back it up, move it, or delete it as a unit. Nothing costingly owns lives
 anywhere else — in particular nothing is written into the package directory, so
 rebuilding or reinstalling never touches data.
+
+**What protects `config.json` differs by platform**, and it is worth knowing
+because that file holds your encryption key and your Plaid credentials.
+
+On macOS and Linux it is written `0600` — owner-only — so it stays private
+wherever the profile is, including a world-readable directory.
+
+On Windows there are no POSIX modes and the request is ignored, so the file is
+protected by the ACL it inherits from its directory. In the default location
+(`%LOCALAPPDATA%`) that grants only you, SYSTEM and Administrators, which is
+equivalent. But it means **the location decides**: if you point `COSTINGLY_HOME`
+at a shared folder, a network drive or a cloud-synced directory, the file
+inherits that folder's permissions and costingly does not narrow them. Keep the
+profile somewhere only you can read.
 
 `costingly status` prints the resolved profile, what chose it, and whether each
 piece is healthy. It has no side effects — it starts nothing and creates
@@ -146,17 +176,18 @@ encryption key. Nothing in one can read the other.
 
 **The server starts itself.** The first command that needs the database starts
 the postmaster, and it stays running afterwards so that a sync, a `status` and
-anything else can use it at the same time. Nothing binds a TCP port, so it
-cannot collide with a Postgres you already run and is not reachable over the
-network. To shut it down:
+anything else can use it at the same time. The port is allocated rather than
+fixed — the search starts at 54320, well clear of the 5432 a Postgres you
+already run would be on — and it binds loopback only, so nothing on the network
+can reach it. To shut it down:
 
 ```bash
 costingly stop      # data untouched; the next command starts it again
 ```
 
-The database needs no configuration at all. The connection is derived from the
-profile — a unix socket inside it, peer authentication, no host, no port and no
-password — so there is nothing to set and nothing that can disagree with where
+The database needs no configuration at all. The port is allocated on first use
+and recorded in the profile, and the roles and their passwords are generated
+there too — so there is nothing to set and nothing that can disagree with where
 the cluster actually is.
 
 ---
@@ -198,8 +229,9 @@ rows still go, so a dead credential can't wedge the database.
 ```
   ⚠  DELETE ALL LOCAL DATA
 
-     Environment       PRODUCTION
+     Profile           costingly
      Database          ~/Library/Application Support/costingly/pg18  (on this machine)
+     Plaid             PRODUCTION
      Banks             3
      Accounts          7
      Transactions      4182
@@ -209,14 +241,14 @@ rows still go, so a dead credential can't wedge the database.
      • Stored access tokens are destroyed — `costingly link` is required for every bank.
      • Each token is also invalidated at Plaid (/item/remove). Irreversible.
 
-Type "production" to confirm:
+Type "costingly" to confirm:
 ```
 
-You type the **environment name**, not `y`. A confirmation you can satisfy by
-reflex is not a confirmation, and this way a production wipe cannot be confirmed
-with the same keystrokes as a sandbox one. The database line names the cluster
-about to be emptied, which is what catches the "I thought I was pointed at the
-sandbox profile" mistake.
+You type the **profile's name**, not `y`. A confirmation you can satisfy by
+reflex is not a confirmation, and the profile is the blast radius — so wiping a
+throwaway profile cannot build the muscle memory that wipes your real one. The
+database line names the cluster about to be emptied, which is what catches the
+"I thought I was pointed at the sandbox" mistake.
 
 `-y` / `--yes` skips the prompt for scripts. Without it, a non-interactive shell
 refuses outright rather than guessing.
@@ -235,11 +267,75 @@ costingly sync                # full history backfill
 Keep the same encryption key unless you have a reason to rotate it — changing it
 makes any surviving stored token undecryptable.
 
-> Deleting the whole profile is the bluntest option, and `costingly uninstall`
-> does it properly: it removes each bank at Plaid, stops the server, proves it
-> stopped, then deletes the directory. That takes the config and the encryption
-> key with it, so the next run starts at `costingly init`. `costingly reset`
-> keeps both and only empties the tables.
+> `costingly reset` keeps the profile and only empties the tables. To remove
+> costingly entirely, see [Uninstalling](#uninstalling).
+
+---
+
+## Uninstalling
+
+```bash
+costingly uninstall               # remove the Items at Plaid, then delete the profile
+costingly uninstall --local-only  # delete the profile; never contact Plaid
+```
+
+Four steps, each gated on the one before:
+
+1. **Remove each bank at Plaid** (`/item/remove`), so nothing keeps billing
+2. **Stop the database server**
+3. **Prove it stopped** — if anything still answers on the profile's port, it
+   aborts here and deletes nothing
+4. **Delete the profile directory** — config, encryption key, cluster, log
+
+It cannot remove the program itself, and says so when it finishes.
+
+**Revoking is the default here, unlike `reset`.** Uninstall destroys the access
+tokens *and* the key that decrypts them, and Plaid can neither reissue a token
+nor look one up from an `item_id`. An Item whose token is gone can never be used
+again — only paid for. `--local-only` leaves exactly that behind, which is
+sometimes what you want (re-installing shortly) and is never silent about it.
+
+### Doing it by hand
+
+If you installed only the Claude Desktop extension, you have no CLI. The
+sequence matters:
+
+1. **Quit Claude Desktop.**
+2. **Check the database is really stopped.** It will not be. `pg_ctl` starts the
+   postmaster detached so it survives whichever process launched it — quitting
+   the app does not stop it.
+
+   ```bash
+   # macOS / Linux
+   ps ax | grep '[p]ostgres.*costingly'
+   ```
+   ```powershell
+   # Windows
+   Get-Process postgres -ErrorAction SilentlyContinue
+   ```
+3. **Stop it** — the postmaster is the process with no `--forkchild` argument;
+   the others are its children and will follow it down.
+
+   ```bash
+   kill -INT <pid>                                  # macOS / Linux
+   ```
+   ```powershell
+   & "<extension>\node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe" kill INT <pid>
+   ```
+
+   Do not force-kill it (`kill -9`, `taskkill /F`): that skips the shutdown that
+   releases shared memory, and does not bring the child processes down with it.
+4. **Delete the profile directory** — the paths under
+   [Where the data lives](#where-the-data-lives).
+5. **Remove the Items at Plaid** yourself, at [my.plaid.com](https://my.plaid.com/)
+   or the [Plaid dashboard](https://dashboard.plaid.com/activity/usage). Nothing
+   revoked them, and they keep billing until you do.
+
+> **Do not skip to step 4.** Deleting the directory under a running server does
+> not fail — on Windows the files unlink while the postmaster holds them open,
+> so it keeps serving a database that no longer exists on disk, and
+> `postmaster.pid` goes with the rest, leaving nothing that can stop it. That is
+> the exact failure `costingly uninstall` refuses to perform.
 
 ---
 
@@ -356,22 +452,21 @@ Last 7 day(s) · balance $1,919.50
 
 Note the sign: this view flips Plaid's convention so it reads like a bank
 statement (**negative = money out**). The database itself stores Plaid's
-convention, where those same amounts are positive — see the top of `schema.sql`.
+convention, where those same amounts are positive — see the top of
+`migrations/0001-initial.sql`.
 
 ### Running your own SQL
 
-It is a normal Postgres server, so any Postgres client works — point it at the
-socket directory:
+It is a normal Postgres server, so any Postgres client works. `costingly status`
+prints the port and the profile; the roles and their passwords are in
+`config.json` inside it.
 
 ```bash
-psql "postgresql:///costingly?host=$HOME/Library/Application Support/costingly/pg18-run"
-
-# or, from any profile:
-psql "postgresql:///costingly?host=$COSTINGLY_HOME/pg18-run"
+costingly status                    # Database  running ✓  127.0.0.1:54320
+psql "postgresql://u_app@127.0.0.1:54320/costingly"
 ```
 
-There is no password: the socket lives in a directory only your account can
-read, and the server uses peer authentication, so the OS decides who you are.
+The listener is bound to `127.0.0.1`, so it is reachable from this machine only.
 
 `psql` is not bundled — use one you already have. `costingly status` prints the
 host and port if you need them.
@@ -427,40 +522,53 @@ SELECT COUNT(*) FROM transactions;
 
 ## Project layout
 
+Three layers, and dependencies point **down only**.
+
 ```
 costingly/
-├── src/                     # framework-agnostic core
-│   ├── profile.ts           # where the profile is (COSTINGLY_HOME / env-paths)
-│   ├── config.ts            # the config.json store
-│   ├── server.ts            # the Postgres cluster: initdb, pg_ctl, socket
-│   ├── db.ts                # pooled pg.Pool, withTransaction()
-│   ├── crypto.ts            # AES-256-GCM for access tokens
-│   ├── plaid.ts             # Plaid client + error helpers
-│   ├── items.ts             # item/account persistence
-│   ├── link.ts              # link token + public token exchange
-│   ├── sync.ts              # syncAllItems() — the heart
-│   ├── remove.ts            # unlink / reset primitives
-│   └── index.ts             # barrel export
-├── cli/                     # the costingly binary
-│   ├── index.ts             # entry: argv parsing, pool teardown
-│   ├── <command>.ts         # one file per subcommand
-│   ├── paths.ts             # locates schema.sql / public/ in any layout
-│   ├── confirm.ts           # destructive-command gate
-│   └── format.ts            # money / dates / truncation
+├── src/
+│   ├── apps/                # one folder per interface — UX lives here
+│   │   ├── cli/             # commander + clack: commands/, ui/, utils/
+│   │   └── mcp/             # the MCP server: tools/ and their prose
+│   ├── domain/              # what makes this costingly
+│   │   ├── config.ts        # Plaid keys + encryption key
+│   │   ├── crypto.ts        # AES-256-GCM for access tokens
+│   │   ├── project.ts       # the ONLY file below apps/ naming this project
+│   │   ├── data/            # repositories, the Plaid client, the database
+│   │   ├── pipelines/plaid/ # Source, Sink and CheckpointStore for Plaid
+│   │   └── services/        # link, sync, unlink, reset, uninstall, status
+│   ├── platform/            # reusable: no costingly knowledge at all
+│   │   ├── platform-config.ts   # identity -> profile paths
+│   │   ├── config-store.ts      # config.json as a file
+│   │   ├── profile.ts           # removing a profile, safely
+│   │   ├── postgres/            # the cluster, pools, migrations, types
+│   │   ├── pipeline/            # Pipeline, Source, Sink, CheckpointStore
+│   │   ├── runtime/             # Application, ApplicationHost, ResourceScope
+│   │   └── mcp/                 # McpApplication lifecycle
+│   └── index.ts             # barrel — for consumers, never used inside src/
+├── migrations/              # numbered .sql, applied in order
 ├── tests/                   # standalone suites + runner (never published)
 ├── scripts/                 # dev-only, e.g. setup-sandbox (never published)
 ├── public/index.html        # the Plaid Link page
 ├── dist/                    # build output — what `bin` points at (gitignored)
-├── schema.sql
+├── manifest.json            # the MCP bundle descriptor
 └── package.json
 ```
 
-`src/` never imports from `cli/`. That boundary is what lets `src/` move to
-another host without dragging commander, express or clack along.
+**`apps` → `domain` → `platform`, never upward, and the two apps never import
+each other.** `platform/` could be lifted into a different project as-is — it is
+handed an identity and resolves everything from it, so the word "costingly"
+appears nowhere below `domain/project.ts`.
 
-`package.json` `files` publishes `dist`, `schema.sql` and `public` only — so
+That is enforced, not just documented: `tsconfig.platform.json` and
+`tsconfig.domain.json` run in `npm run typecheck` and fail an upward import with
+`TS6307`, and `tests/architecture.test.mts` checks the rules types cannot
+express. See [ARCHITECTURE.md](ARCHITECTURE.md) for why the layers are where
+they are — including the two extractions that were tried and rejected.
+
+`package.json` `files` publishes `dist`, `migrations` and `public` only — so
 `tests/` and `scripts/` exist for contributors and never reach a tarball.
-`schema.sql` and `public/` are read at runtime, which is why they must ship.
+`migrations/` and `public/` are read at runtime, which is why they must ship.
 
 ### Commands
 
@@ -470,7 +578,7 @@ flags.
 
 | Command | Does |
 | --- | --- |
-| `costingly migrate` | Apply `schema.sql` (idempotent) |
+| `costingly migrate` | Apply pending migrations (idempotent) |
 | `costingly link` | Start the local Plaid Link server |
 | `costingly sync` | Sync all banks; exits 1 if any failed |
 | `costingly status` | Linked banks, balances, freshness (`--json` for monitoring) |
@@ -548,6 +656,7 @@ In sandbox, Plaid Link accepts `user_good` / `pass_good`, and `1234` for MFA.
 | `npm test` | Run every suite |
 | `npm test -- <name>` | Run only suites matching `<name>` |
 | `npm run setup:sandbox` | Create the `.dev-sandbox` profile the e2e tests need |
+| `npm run build:bundle` | Pack `build/costingly-<version>.mcpb` for Claude Desktop |
 
 `npm link` points the global `costingly` at `dist/`, which does not rebuild
 itself — so after editing source, run `npm run build` before the command
@@ -586,12 +695,44 @@ Only failures print output — a green run stays quiet.
 
 ## Security notes
 
+### What this trusts
+
+Worth being explicit, because this holds credentials to your bank data.
+
+**It trusts your user account.** Everything costingly protects is protected
+against *other* accounts on the machine and against a leaked copy of the
+database file. Nothing is protected against someone already running as you: the
+encryption key sits beside the ciphertext it decrypts, because a key you have to
+type on every sync is a key nobody keeps.
+
+**It trusts Plaid.** Your bank credentials are entered inside Plaid's own window
+and never reach this program. What costingly stores is an `access_token` — a
+permanent bearer credential Plaid honours until it is revoked.
+
+**Your Plaid keys are account-wide.** The `client_id` and secret in
+`config.json` authenticate against your whole Plaid account, not just costingly.
+Anything holding them can act on every Item you own, including ones other
+software created.
+
+**The model can read your transactions.** That is the point of the MCP server.
+It reaches them only through `role_readonly` on three views, inside a read-only
+transaction, with a statement timeout and a row cap — `access_token_enc` is not
+reachable from any of it. But merchant names and descriptions are text written
+by third parties and reach the model as output; the server's instructions tell
+it to treat them as data, never as instructions.
+
+**Nothing leaves the machine except calls to Plaid.** No telemetry, no analytics,
+no remote logging. The database binds `127.0.0.1` only.
+
+### The details
+
 - **Access tokens are encrypted at rest** with AES-256-GCM (`iv.tag.ciphertext`,
   base64). GCM is authenticated, so a tampered or wrongly-keyed value fails
   loudly instead of decrypting to garbage.
-- **Secrets live only in the profile.** `config.json` is written mode 0600 inside a
-  0700 directory — outside the repo and outside the published package, so there is
-  nothing to commit or publish by accident.
+- **Secrets live only in the profile** — outside the repo and outside the
+  published package, so there is nothing to commit or publish by accident. On
+  macOS and Linux `config.json` is mode 0600 in a 0700 directory; on Windows see
+  [Where the data lives](#where-the-data-lives) for what protects it there.
 - **Read-only.** Only the `transactions` product is requested — no `auth`
   (account/routing numbers), no `identity`, no `transfer`.
 - **Errors are never logged raw.** The Plaid SDK is axios-based and its error
@@ -616,5 +757,4 @@ Only failures print output — a green run stays quiet.
 | `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` | Handled automatically — pagination restarts from the stored cursor, up to 5 times. |
 | `The database has not been set up yet` | The cluster exists but has no schema. Run `costingly migrate` (or `costingly init`). |
 | Commands hang or the server won't start | `costingly status` first — it reports without starting anything. Then read the postmaster log it points at. |
-| `socket path is too long` | The profile is nested too deeply; unix sockets cap near 104 bytes. Set `COSTINGLY_HOME` somewhere shorter. |
 | `costingly: command not found` after `nvm use` | `npm link` installs into one Node version's `bin`. Re-run `npm link` under the version you switched to. |
