@@ -11,6 +11,7 @@ import type { Command } from "commander";
 import { TransactionsUpdateStatus } from "plaid";
 import { syncAllItems } from "../../../domain/services/banks/sync.service.js";
 import type { ItemSyncResult } from "../../../domain/services/banks/sync.types.js";
+import { isMissingSchema, isNotSetUp } from "../../../platform/postgres/errors.js";
 import { CliError } from "../errors.js";
 
 function label(result: ItemSyncResult): string {
@@ -57,8 +58,14 @@ Re-running is safe: a run with nothing to do writes nothing.`,
       try {
         await runSync();
       } catch (error) {
+        // Recognised setup failures are rethrown untouched, so main.ts can give
+        // them their proper wording. Wrapping them here would bury "costingly is
+        // not set up — run costingly init" inside "Sync failed: ...", which is
+        // the least useful place for the one instruction that fixes it.
+        if (isNotSetUp(error) || isMissingSchema(error)) throw error;
+
         // syncAllItems() absorbs per-item failures, so reaching here means
-        // something global broke — an unreachable database, missing config, and so on.
+        // something global broke — an unreachable database, bad config, and so on.
         throw new CliError(
           `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
         );

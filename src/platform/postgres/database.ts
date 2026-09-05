@@ -24,8 +24,22 @@
  */
 
 import { ConnectionFactory } from "./connection-factory.js";
-import { LocalPostgres } from "./local-postgres.js";
-import { SchemaProvisioner, type SchemaDefinition } from "./schema-provisioner.js";
+import { DatabaseNotSetUpError } from "./errors.js";
+import { PgDatabaseService } from "./services/pg-database-service.js";
+import type { Migration } from "./migrations.js";
+
+/**
+ * What an application says its database should look like.
+ *
+ * The MECHANISM for applying these is the platform's; the CONTENT is not, which
+ * is why they arrive as a definition rather than being read from a folder the
+ * platform picks. A second application supplies its own and reuses everything
+ * else.
+ */
+export interface SchemaDefinition {
+  /** Every migration, in the order they must be applied. */
+  migrations(): Promise<Migration[]>;
+}
 import { DataSourceRegistry } from "./data-source-registry.js";
 import { PooledDataSource } from "./pooled-data-source.js";
 import { TransientDataSource } from "./transient-data-source.js";
@@ -37,28 +51,47 @@ const APP = "app";
 export class Database {
   private readonly registry = new DataSourceRegistry();
   private readonly pooled: PooledDataSource;
+  private readonly databases: PgDatabaseService;
+  private readonly postgres: PostgresServer;
 
   constructor(
     private readonly factory: ConnectionFactory,
     postgres: PostgresServer,
-    schema: SchemaDefinition,
+    private readonly schema: SchemaDefinition,
     private readonly databaseName: string,
   ) {
-    const admin = (name: string): DataSource => this.admin(name);
-    const cluster = new LocalPostgres(admin, postgres, databaseName);
-    const provisioner = new SchemaProvisioner(admin, schema, postgres, databaseName);
+    this.databases = new PgDatabaseService((name: string) => this.admin(name));
+    this.postgres = postgres;
 
-    // The two phases, in the only order that works: a schema cannot be applied
-    // to a database that does not exist, and neither can happen through the
-    // pool, which authenticates as a role the schema creates.
+    // CREATING IS NOT A SIDE EFFECT OF READING
     //
-    // Lazy by construction: both are inside the closure the pooled source calls
-    // on its first query, never on the way to building this object. A diagnostic
-    // command has to work when the cluster will not start, so having a Database
-    // must never mean having started one.
+    // This closure used to call `ensureRunning()` and `apply()` unconditionally,
+    // which meant every SELECT in the codebase carried the authority to run
+    // `initdb`, write a cluster to the user's disk and generate credentials.
+    // Nothing distinguished a caller that wanted a database built from one that
+    // only wanted to look — so a status report recreated a profile that had just
+    // been deleted, and `uninstall` built a database in order to describe what it
+    // was about to remove.
+    //
+    // Now: an absent cluster is refused. Creating one is `ensureReady()`, which
+    // callers invoke deliberately.
+    //
+    // STARTING a stopped server stays implicit, and the distinction is the whole
+    // point. Starting resumes something that already exists and creates nothing;
+    // after a reboot the next command should just work, which is what
+    // "the server starts itself" has always meant.
     this.pooled = new PooledDataSource(async () => {
-      await cluster.ensureRunning();
-      await provisioner.apply();
+      if ((await this.postgres.status()) === "uninitialised") {
+        throw new DatabaseNotSetUpError(
+          "There is no database here yet.\n\n" +
+            "Nothing has been created in this profile, and reading from it will not " +
+            "create it — that is a deliberate step.",
+        );
+      }
+      // START, never provision. The service split makes that a property of the
+      // call rather than of this comment: `start()` cannot run initdb.
+      await this.postgres.start();
+      await this.databases.waitUntilAccepting();
       return this.factory.createAppPool();
     }, "local PostgreSQL");
 
@@ -117,14 +150,36 @@ export class Database {
   }
 
   /**
-   * Everything in phases one and two, done once and cached.
+   * Create this database if it does not exist, and make it usable.
    *
-   * Idempotent, and safe to call concurrently — the pooled source joins one
-   * attempt rather than starting a second. A CLI command awaits this before
-   * doing anything; a long-lived server fires it at startup without awaiting,
-   * so the handshake is not held up by a cold install.
+   * THE ONLY THING IN THE CODEBASE THAT CREATES A DATABASE. `initdb`, the
+   * cluster, the schema and the runtime role's password all happen here and
+   * nowhere else, so "what can bring a database into being?" has exactly one
+   * answer and every caller of it is deliberate.
+   *
+   * Idempotent, and safe to call concurrently: `ensureRunning` re-checks the
+   * real state after a lost race, and the migration and password steps take
+   * advisory locks. Calling it on a working profile costs one status check and
+   * a query.
+   *
+   * The order is the only one that works — a schema cannot be applied to a
+   * cluster that does not exist, and neither can happen through the pool, which
+   * authenticates as a role the schema creates. The final query is what proves
+   * the result rather than assuming it.
    */
   async ensureReady(): Promise<void> {
+    await this.postgres.provision();
+    await this.postgres.start();
+    await this.databases.waitUntilAccepting();
+
+    await this.databases.create(this.databaseName);
+    await this.databases.migrate(this.databaseName, await this.schema.migrations());
+
+    // The migration creates the runtime role but cannot set its password —
+    // migration files are committed and secrets are not.
+    const { logins } = await this.postgres.credentials();
+    await this.databases.setRolePassword(this.databaseName, logins.app.user, logins.app.password);
+
     await this.app.query("SELECT 1");
   }
 

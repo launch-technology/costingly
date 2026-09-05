@@ -20,9 +20,13 @@ import type { ConfigStore, DatabaseLogins } from "../config-store.js";
 import type { PlatformConfig } from "../platform-config.js";
 import type { PortService } from "../port-allocator.js";
 import { ROLE_APP, ROLE_SUPERUSER, type DbCredentials } from "./credentials.js";
-import { PG_MAJOR, PostgresCluster, type ClusterConfig } from "./cluster.js";
+import { OsService } from "../services/os-service.js";
+import { PG_MAJOR, PgBinariesService } from "./services/pg-binaries-service.js";
+import { PgClusterService } from "./services/pg-cluster-service.js";
+import { PgServerService } from "./services/pg-server-service.js";
 
-export type { ServerState } from "./cluster.js";
+/** Cluster absent, or present with the server up or down. */
+export type ServerState = "running" | "stopped" | "uninitialised";
 
 /** Loopback only. Never 0.0.0.0 — that would put the data on the network. */
 const HOST = "127.0.0.1";
@@ -30,37 +34,6 @@ const HOST = "127.0.0.1";
 /** 24 random bytes. Long enough that nothing is gained by making it longer. */
 function generatePassword(): string {
   return randomBytes(24).toString("base64url");
-}
-
-/** How long to wait for a connection before calling the port dead. */
-const PROBE_TIMEOUT_MS = 1_000;
-
-/**
- * Does anything accept a TCP connection on this port?
- *
- * Deliberately not a Postgres handshake: the question is whether something is
- * holding the port, and a server whose data directory was deleted may fail a
- * handshake while very much still running. Connect, then hang up.
- *
- * A refusal, a timeout, or any error is "no". This decides whether a delete may
- * proceed, so the only answer that stops it is a connection that actually
- * opened.
- */
-async function answersOn(port: number): Promise<boolean> {
-  const { createConnection } = await import("node:net");
-
-  return new Promise<boolean>((resolve) => {
-    const socket = createConnection({ host: HOST, port });
-    const settle = (answer: boolean): void => {
-      socket.destroy();
-      resolve(answer);
-    };
-
-    socket.setTimeout(PROBE_TIMEOUT_MS);
-    socket.once("connect", () => settle(true));
-    socket.once("timeout", () => settle(false));
-    socket.once("error", () => settle(false));
-  });
 }
 
 /** Everything a project needs from its cluster, bound to one profile. */
@@ -120,9 +93,30 @@ export interface PostgresServer {
    */
   recordedCredentials(): Promise<DbCredentials | undefined>;
 
-  status(): ReturnType<PostgresCluster["status"]>;
+  /** Cluster absent, or present with its server up or down. */
+  status(): Promise<ServerState>;
+
+  /** Ask the server to shut down. True if one was running. */
   stop(): Promise<boolean>;
-  ensureRunning(): Promise<void>;
+
+  /**
+   * Create the cluster if it is not there. THE ONLY MEMBER THAT RUNS initdb.
+   *
+   * Separated from `start()` because they are operations on different things —
+   * `initdb` makes a cluster, `pg_ctl start` runs a server against one — and a
+   * single function doing both meant every caller that wanted to start a
+   * stopped server could create one instead.
+   */
+  provision(): Promise<void>;
+
+  /**
+   * Start the server. Creates nothing; fails if there is no cluster.
+   *
+   * Safe for any caller, including one that merely wants to read: starting
+   * resumes something that already exists, so the data is unchanged and the
+   * decision to have a database was made earlier by somebody else.
+   */
+  start(): Promise<void>;
 
   /**
    * Is anything actually answering on this profile's port?
@@ -183,24 +177,16 @@ export function createPostgresServer(
    * suite changes it between assertions. A cached instance would answer for
    * whichever profile happened to be active first — the kind of bug that only
    * shows up as one suite quietly reading another suite's database.
-   *
-   * `status` and `stop` work from PGDATA alone, so they pass port 0: the value
-   * is never used and inventing one would imply a choice not yet made.
    */
-  const clusterConfig = (port: number): ClusterConfig => ({
-    dataDir: clusterDir(),
-    databaseName: config.databaseName,
-    logPath: logPath(),
-    host: HOST,
-    port,
-    // Passed unevaluated. `logins()` GENERATES and stores credentials when the
-    // profile has none, so calling it here would make `status()` and `stop()`
-    // write to config.json — which is how a read-only diagnostic came to
-    // recreate a profile that had just been deleted.
-    superuser: () => logins().superuser,
-  });
+  // One per composition: the binaries are the same for every cluster, and the
+  // OS service holds nothing per-call.
+  const binaries = new PgBinariesService(new OsService());
 
-  return {
+  const cluster = (): PgClusterService => new PgClusterService(clusterDir(), binaries);
+  const postmaster = (): PgServerService =>
+    new PgServerService(clusterDir(), logPath(), binaries);
+
+  const api: PostgresServer = {
     clusterDir,
     logPath,
 
@@ -212,13 +198,13 @@ export function createPostgresServer(
      * port, so it is safe to ask before one exists.
      */
     credentials: async (): Promise<DbCredentials> => {
-      const live = await new PostgresCluster(clusterConfig(0)).runningPort();
+      const live = await postmaster().runningPort();
       const port = live ?? (await ports().allocate("database"));
       return { host: HOST, port, database: config.databaseName, logins: logins() };
     },
 
     endpoint: async (): Promise<{ host: string; port: number } | undefined> => {
-      const live = await new PostgresCluster(clusterConfig(0)).runningPort();
+      const live = await postmaster().runningPort();
       const port = live ?? store.readPorts()["database"];
       return port === undefined ? undefined : { host: HOST, port };
     },
@@ -227,41 +213,58 @@ export function createPostgresServer(
       const stored = store.readDatabaseLogins();
       if (stored === undefined) return undefined;
 
-      const where = await new PostgresCluster(clusterConfig(0)).runningPort();
+      const where = await postmaster().runningPort();
       const port = where ?? store.readPorts()["database"];
       if (port === undefined) return undefined;
 
       return { host: HOST, port, database: config.databaseName, logins: stored };
     },
 
-    status: () => new PostgresCluster(clusterConfig(0)).status(),
-    stop: () => new PostgresCluster(clusterConfig(0)).stop(),
+    status: async (): Promise<ServerState> => {
+      // Two nouns, one answer: no cluster is a different state from a cluster
+      // whose server is down, and a caller has to be able to tell them apart.
+      if (!(await cluster().exists())) return "uninitialised";
+      return (await postmaster().isRunning()) ? "running" : "stopped";
+    },
+
+    stop: () => postmaster().stop(),
+
+    provision: async (): Promise<void> => {
+      if (await cluster().exists()) return;
+
+      const port = await ports().allocate("database");
+      try {
+        await cluster().create({ superuser: logins().superuser, host: HOST, port });
+      } catch (error) {
+        // Another process may have created it while we were trying to.
+        if (!(await cluster().exists())) throw error;
+      }
+    },
+
+    start: () => postmaster().start(),
 
     isServing: async (): Promise<boolean> => {
       // Both sources, because they disagree in exactly the case this exists
       // for: postmaster.pid names the port when it survives, and the config
       // records what the allocator last chose when it does not.
-      const fromPidFile = await new PostgresCluster(clusterConfig(0)).runningPort();
+      const fromPidFile = await postmaster().runningPort();
       const recorded = store.readPorts()["database"];
 
       for (const port of new Set([fromPidFile, recorded])) {
-        if (port !== undefined && (await answersOn(port))) return true;
+        if (port !== undefined && (await postmaster().isAnswering(HOST, port))) return true;
       }
       return false;
     },
 
-    ensureRunning: async (): Promise<void> => {
-      const live = await new PostgresCluster(clusterConfig(0)).runningPort();
-      const port = live ?? (await ports().allocate("database"));
-      return new PostgresCluster(clusterConfig(port)).ensureRunning();
-    },
 
     describe: async (): Promise<string> => {
-      const state = await new PostgresCluster(clusterConfig(0)).status();
+      const state = await api.status();
       const where = config.displayPath(clusterDir());
       if (state === "running") return `PostgreSQL ${PG_MAJOR} running at ${where}`;
       if (state === "stopped") return `PostgreSQL ${PG_MAJOR} stopped at ${where}`;
       return `No database yet — run \`${config.identity.name} init\``;
     },
   };
+
+  return api;
 }

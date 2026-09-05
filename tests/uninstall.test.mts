@@ -28,7 +28,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 process.env["PLAID_CLIENT_ID"] = "client-id-for-uninstall-suite";
 process.env["PLAID_SECRET"] = "secret-for-uninstall-suite";
 
-const { db, closeDb, server } = await import("../src/index.js");
+const { db, closeDb, server, database } = await import("../src/index.js");
 const { removeProfile, projectParentOf } = await import("../src/platform/profile.js");
 const { resolvePlatform } = await import("../src/platform/platform-config.js");
 const { platform: costinglyPlatform } = await import("../src/domain/project.js");
@@ -248,7 +248,7 @@ await rm(probeHome, { recursive: true, force: true });
 
 // Build a real profile: this creates the cluster, applies the schema and leaves
 // a postmaster running and holding handles inside the directory.
-await db.query("SELECT 1");
+await database.ensureReady();
 ok(await exists(costinglyPlatform.configPath()), "a real profile was created");
 ok(await exists(server.clusterDir()), "with a cluster in it");
 eq(await server.status(), "running", "and a running server");
@@ -262,10 +262,25 @@ eq(result.profile.existed, true, "the profile was there");
 eq(result.profile.serverWasRunning, true, "the RUNNING server was stopped on the way");
 eq(await exists(HOME), false, "the profile directory is gone, postmaster handles and all");
 
-// The assertion this suite exists for: after an uninstall, the next query
-// rebuilds everything — initdb, the database, the schema, the runtime role.
+// An uninstall STAYS uninstalled. Querying afterwards used to rebuild the
+// entire profile — which is what let a status report resurrect a deleted
+// profile, and what made `uninstall` itself create a database in order to
+// describe what it was about to delete.
+let refusedAfterUninstall = "";
+try {
+  await db.query("SELECT 1");
+} catch (error) {
+  refusedAfterUninstall = error instanceof Error ? error.message : String(error);
+}
+ok(refusedAfterUninstall.includes("no database here yet"),
+   "READING DOES NOT REBUILD — a query after uninstall is refused");
+eq(await exists(HOME), false, "…and the profile is still gone");
+
+// Reinstalling is deliberate, and it works: one explicit call rebuilds initdb,
+// the cluster, the schema and the runtime role.
+await database.ensureReady();
 const revived = await db.query<{ n: number }>("SELECT 1 AS n");
-eq(revived.rows[0]?.n, 1, "REINSTALL FROM SCRATCH: the next query rebuilds the whole profile");
+eq(revived.rows[0]?.n, 1, "REINSTALL FROM SCRATCH: ensureReady() rebuilds the whole profile");
 ok(await exists(costinglyPlatform.configPath()), "a fresh config.json was written");
 eq((await db.query("SELECT count(*)::int AS n FROM items")).rows.length, 1,
    "and the schema is back — items is queryable");

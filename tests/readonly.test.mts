@@ -28,7 +28,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 // their real database.
 if (HOME !== "/tmp/costingly-readonly") throw new Error("refusing to run against a real profile");
 
-const { db, closeDb, server } = await import("../src/index.js");
+const { db, closeDb, server, database } = await import("../src/index.js");
 const { queryReadOnly } = await import("../src/domain/services/query/readonly-query.service.js");
 
 const out: string[] = [];
@@ -61,6 +61,10 @@ async function wipe(): Promise<void> {
   await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 await wipe();
+
+// Explicit, because reading no longer creates. A suite that needs a database
+// now has to say so — which is the point of the change it is testing under.
+await database.ensureReady();
 
 // Register the migration loader the way cli/main.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.

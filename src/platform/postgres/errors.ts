@@ -22,10 +22,37 @@ function asPgError(error: unknown): PgError | null {
 /**
  * Postgres `undefined_table` — the schema has never been applied.
  *
- * On a fresh install this is the first thing anyone hits: the cluster starts
- * itself and the database is created automatically, so everything looks healthy
- * until the first real query.
+ * The cluster exists and accepts connections, but nothing has created the
+ * tables in it. A half-provisioned profile, or one whose migrations were
+ * interrupted.
  */
 export function isMissingSchema(error: unknown): boolean {
   return asPgError(error)?.code === "42P01";
+}
+
+/**
+ * There is no database here, and this caller is not allowed to make one.
+ *
+ * Thrown by the ordinary query path when the cluster has never been created.
+ * Creating one is a deliberate act — it runs `initdb`, writes a cluster to the
+ * user's disk and generates credentials — so it belongs to callers that asked
+ * for it, never to whichever `SELECT` happened to run first.
+ *
+ * Its own class rather than a message, because the difference between "not set
+ * up yet" and "set up and broken" is the difference between offering to install
+ * and reporting a fault, and no interface should have to match on prose to tell
+ * them apart.
+ */
+export class DatabaseNotSetUpError extends Error {
+  readonly notSetUp = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DatabaseNotSetUpError";
+  }
+}
+
+/** True if this failure means "nothing is installed", not "something broke". */
+export function isNotSetUp(error: unknown): error is DatabaseNotSetUpError {
+  return error instanceof DatabaseNotSetUpError;
 }

@@ -12,16 +12,24 @@
  */
 
 import { ApplicationHost } from "../../platform/runtime/application-host.js";
-import { isMissingSchema } from "../../platform/postgres/errors.js";
+import { isMissingSchema, isNotSetUp } from "../../platform/postgres/errors.js";
 import { CliApplication } from "./cli.application.js";
 import { CliError } from "./errors.js";
 
 /** What to tell someone at a terminal when the schema is not there yet. */
 const MISSING_SCHEMA_CLI = [
-  "The database has not been set up yet.",
+  "The database exists but has no tables yet.",
   "",
-  "  costingly init      set up credentials and create it",
-  "  costingly migrate   just create the tables",
+  "  costingly migrate   apply the schema",
+].join("\n");
+
+const NOT_SET_UP_CLI = [
+  "costingly is not set up on this machine yet.",
+  "",
+  "  costingly init      set up credentials and create the database",
+  "  costingly migrate   create the database only",
+  "",
+  "`costingly status` shows which profile is in use and what is missing.",
 ].join("\n");
 
 /**
@@ -36,9 +44,15 @@ function describeFailure(error: unknown): { message: string; exitCode: number } 
     return { message: error.message, exitCode: error.exitCode };
   }
 
-  // Postgres `undefined_table`. On a fresh install this is the very first thing
-  // a user hits — the cluster exists but has no schema — and the raw
-  // `relation "items" does not exist` is a terrible first impression.
+  // Nothing installed. Distinct from a missing schema: there is no cluster at
+  // all, and no command except the two below will make one — reading has not
+  // created a database since provisioning became deliberate.
+  if (isNotSetUp(error)) {
+    return { message: NOT_SET_UP_CLI, exitCode: 1 };
+  }
+
+  // Postgres `undefined_table`. The cluster exists but has no schema — a
+  // half-provisioned profile, or migrations interrupted partway.
   if (isMissingSchema(error)) {
     return { message: MISSING_SCHEMA_CLI, exitCode: 1 };
   }

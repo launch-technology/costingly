@@ -37,7 +37,7 @@ const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 // From dist/, not src/: the CLI child processes below run the built code, and
 // both sides must agree on which build they are talking to.
-const { db, closeDb, server, adminDataSource } =
+const { db, closeDb, server, adminDataSource, database } =
   (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
 
 /** Run the CLI as a separate OS process. */
@@ -62,10 +62,10 @@ async function cli(...args: string[]): Promise<{ code: number; stdout: string; s
 const { loadMigrations } =
   (await import(new URL("../dist/platform/postgres/migrations.js", import.meta.url).href)) as typeof import("../src/platform/postgres/migrations.js");
 
-// The first connection is what creates the cluster, starts it, creates the
-// database and runs the migrations — so it has to happen before anything asks
-// whether the server is up.
-await db.query(`SELECT 1`);
+// Provisioning is deliberate: reading no longer creates a database, so this
+// asks for one exactly as `costingly migrate` does. It has to happen before
+// anything asks whether the server is up.
+await database.ensureReady();
 eq(await server.status(), "running", "server is running");
 // Compared against what is actually in migrations/, not a hardcoded list: the
 // claim being tested is "the first connection applied ALL of them by itself",
@@ -120,11 +120,16 @@ ok(
 // --- 4. cold-start stampede ------------------------------------------------
 // Stop the server, then launch 6 processes simultaneously. Exactly one should
 // win the start race; the other five must succeed anyway, not error.
+//
+// `sync`, not `status`: status is deliberately passive — it reports on the
+// database without touching it — so it would neither start the server nor
+// exercise the race. sync reads through the pool, which is what starts a
+// stopped cluster.
 await closeDb();
 eq(await server.stop(), true, "server stopped for the stampede test");
 eq(await server.status(), "stopped", "server really is stopped");
 
-const stampede = await Promise.all(Array.from({ length: 6 }, () => cli("status")));
+const stampede = await Promise.all(Array.from({ length: 6 }, () => cli("sync")));
 eq(
   stampede.filter((r) => r.code === 0).length,
   6,
@@ -139,7 +144,7 @@ eq(await server.status(), "running", "exactly one of them started the server");
 // --- 5. auto-restart after stop -------------------------------------------
 await server.stop();
 eq(await server.status(), "stopped", "stopped again");
-const revived = await cli("status");
+const revived = await cli("sync");
 eq(revived.code, 0, "a plain command auto-starts a stopped server");
 eq(await server.status(), "running", "and the server is up afterwards");
 

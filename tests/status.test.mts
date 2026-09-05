@@ -25,7 +25,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 delete process.env["PLAID_CLIENT_ID"];
 delete process.env["PLAID_SECRET"];
 
-const { db, closeDb, server } = await import("../src/index.js");
+const { db, closeDb, server, database } = await import("../src/index.js");
 const { costinglyStatus } = await import("../src/domain/services/status.service.js");
 
 const out: string[] = [];
@@ -74,7 +74,7 @@ eq(existsSync(HOME), false, "…and after all of that, still nothing was created
 // 2. With a database — built explicitly, never as a side effect of reporting
 // ===========================================================================
 
-await db.query("SELECT 1");
+await database.ensureReady();
 
 const live = await costinglyStatus();
 eq(live.profile.exists, true, "the profile is now reported as present");

@@ -49,7 +49,7 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { db, closeDb } = await import("../src/domain/data/default-database.js");
+const { db, closeDb, database } = await import("../src/domain/data/default-database.js");
 const { getPlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/domain/services/banks/link.service.js");
 const { syncAllItems } = await import("../src/domain/services/banks/sync.service.js");
@@ -103,13 +103,17 @@ function ok(c: boolean, what: string): void { eq(c, true, what); }
 
 out.push(`  --    database: ${db.describe()}`);
 
+// Provisioning is deliberate now: reading no longer builds a database, so a
+// test that needs one asks for it exactly as a command does.
+await database.ensureReady();
+
 // migrate
 const t = await db.query<{ table_name: string }>(
   `SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY 1`);
 // schema_migrations is the ledger of which numbered files have run — internal
 // bookkeeping, never granted to role_readonly and absent from every view.
 eq(t.rows.map(r => r.table_name), ["accounts", "items", "schema_migrations", "transactions"],
-   "the migrations ran themselves, with no migrate step");
+   "ensureReady() created the cluster, the database and every table");
 
 // real sandbox link, no browser
 const plaid = getPlaidClient();

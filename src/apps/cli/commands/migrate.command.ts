@@ -8,7 +8,7 @@
  */
 
 import type { Command } from "commander";
-import { db } from "../../../domain/data/default-database.js";
+import { database, db } from "../../../domain/data/default-database.js";
 import { loadMigrations, runMigrations } from "../../../platform/postgres/migrations.js";
 import { CliError } from "../errors.js";
 
@@ -37,9 +37,14 @@ this is only useful for seeing what is pending or confirming there is nothing.`,
 export async function runMigrate(): Promise<void> {
   const migrations = await loadMigrations();
 
-  // Opening the connection has almost certainly applied these already — this is
-  // the same call the driver makes. Running it again is how the command reports
-  // rather than acts, and it is safe: the ledger makes it a no-op.
+  // One of the two commands allowed to bring a database into being — reading no
+  // longer does it, so this has to ask. On a profile that already has one this
+  // costs a status check and a query.
+  await database.ensureReady();
+
+  // ensureReady has applied these already; this is the same call it makes.
+  // Running it again is how the command REPORTS rather than acts, and it is
+  // safe: the ledger makes it a no-op.
   const applied = await db.transaction((tx) => runMigrations(tx, migrations));
 
   if (applied.length === 0) {

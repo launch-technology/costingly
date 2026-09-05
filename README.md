@@ -125,6 +125,40 @@ changes and takes seconds.
 > summary says `Plaid still preparing history`, wait a minute and run
 > `costingly sync` again.
 
+### Three PostgreSQL words, used here exactly as upstream uses them
+
+They get muddled constantly, and the distinction decides what a command is
+allowed to do, so they are worth pinning down once.
+
+| Term | What it is |
+| --- | --- |
+| **cluster** | A directory of data — PostgreSQL's `PGDATA`. Created once by `initdb`. Nothing to do with clustering across machines. |
+| **server** | The running postmaster process that serves one cluster. Started by `pg_ctl`. |
+| **database** | One namespace of tables inside a cluster. A cluster holds several. |
+
+So: **one cluster, served by one server, containing several databases.** A
+cluster with no server running is just files on disk; a server cannot exist
+without a cluster to serve.
+
+`initdb` creates a cluster. `pg_ctl start` runs a server against one. Those are
+different operations on different things, and conflating them is how a command
+that only meant to read ends up creating a database.
+
+Every costingly profile gets its **own** cluster, its own server and its own
+port, rather than sharing one cluster the way a typical PostgreSQL install does.
+That is what makes a profile movable and deletable as a single directory with
+nothing shared — the cost being one postmaster per profile.
+
+`initdb` puts four databases in every cluster; only one of them is ours:
+
+```
+costingly     created by costingly, copied from template1
+postgres      initdb's scratch database — where CREATE DATABASE is run from,
+              since a database cannot be created from inside itself
+template0     the pristine original, kept unconnectable so it stays that way
+template1     what CREATE DATABASE copies by default
+```
+
 ### Where the data lives
 
 Everything costingly owns lives in **one folder** — its profile:

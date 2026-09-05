@@ -24,7 +24,7 @@ const SECRET = "plaid-secret-must-never-be-printed";
 process.env["PLAID_SECRET"] = SECRET;
 process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
-const { db, closeDb, server } = await import("../src/index.js");
+const { db, closeDb, server, database } = await import("../src/index.js");
 const { checkDatabase, restartDatabase } = await import("../src/domain/services/database/database-health.service.js");
 const { formatHealth } = await import("../src/apps/mcp/tools/check-database.utils.js");
 
@@ -94,8 +94,8 @@ eq(absent.connection.ok, false, "it cannot connect, and says so");
 eq(absent.cluster.state, "uninitialised", "the cluster is reported as absent");
 eq(existsSync(HOME), false, "AND CHECKING CREATED NOTHING");
 
-// Now build it for real, the way anything using the database does.
-await db.query(`SELECT 1`);
+// Now build it for real. Explicit, because reading no longer creates one.
+await database.ensureReady();
 
 const fresh = await checkDatabase();
 ok(fresh.connection.ok, "once the database exists, the check connects");
