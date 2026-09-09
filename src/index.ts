@@ -25,7 +25,7 @@ export { costingly, platform, configStore, ports, server } from "./domain/projec
 export type { PlatformConfig, ProjectIdentity, ProfileSource } from "./platform/platform-config.js";
 export type { ConfigStore } from "./platform/config-store.js";
 export { encrypt, decrypt, generateEncryptionKey } from "./domain/crypto.js";
-export type { Datastore, DatastoreState } from "./platform/datastore/types/datastore.js";
+export type { Datastore, DatastoreState } from "./platform/datastore/datastore.js";
 export {
   describeDatabase,
   type DatabaseDoc,

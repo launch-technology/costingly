@@ -26,24 +26,42 @@ import type { DbCredentials } from "./credentials.js";
 const DATE_OID = 1082;
 const keepAsSent = (value: string): string => value;
 
-/** How this factory obtains the details it needs. Two functions, no datastore. */
+/** How this factory obtains the details it needs. One function, no datastore. */
 export interface CredentialSource {
-  /** Everything needed to connect, deciding a port and logins if required. */
-  credentials(): Promise<DbCredentials>;
-  /** What is already recorded, or undefined. Decides nothing. */
-  recordedCredentials(): Promise<DbCredentials | undefined>;
+  /**
+   * Everything needed to connect, or undefined if nothing is installed.
+   *
+   * A read. There used to be a second method here that decided a port and
+   * generated passwords when none existed, which meant opening a connection
+   * could quietly create half a profile.
+   */
+  credentials(): Promise<DbCredentials | undefined>;
+}
+
+/** Thrown when something tries to connect to a datastore that was never set up. */
+function notInstalled(): Error {
+  return new Error(
+    "There is no datastore here yet — nothing has been installed in this profile.",
+  );
 }
 
 export class ConnectionFactory {
   /**
    * Takes a credential source rather than a datastore.
    *
-   * It needs two values, not a lifecycle — and depending on the whole
+   * It needs one value, not a lifecycle — and depending on the whole
    * `Datastore` interface would make this file import from
    * `platform/datastore/`, reversing the one dependency that keeps
    * `platform/postgres/` liftable.
    */
   constructor(private readonly server: CredentialSource) {}
+
+  /** The credentials, or a clear failure. Every connection starts here. */
+  private async require(): Promise<DbCredentials> {
+    const credentials = await this.server.credentials();
+    if (credentials === undefined) throw notInstalled();
+    return credentials;
+  }
 
   /**
    * A pool for the application database, as u_app.
@@ -59,7 +77,7 @@ export class ConnectionFactory {
     types.setTypeParser(DATE_OID, keepAsSent);
 
     const pool = new PgPool({
-      connectionString: connectionStringFor(await this.server.credentials(), "app"),
+      connectionString: connectionStringFor(await this.require(), "app"),
       // No `ssl`: the listener is bound to loopback, so the bytes never leave
       // the machine and there is no network path to intercept.
       max: 10,
@@ -78,37 +96,23 @@ export class ConnectionFactory {
   }
 
   /**
-   * One connected superuser client built from ALREADY-RECORDED credentials.
+   * One connected superuser client against `database`. The caller closes it.
    *
-   * The difference from `connectAsSuperuser` is what it refuses to do: no port
-   * allocation, no password generation, no writes of any kind. A profile that
-   * has never been set up produces an error describing that, which is the
-   * answer a health check wants — rather than a working connection to a
-   * database the act of asking brought into existence.
+   * There used to be a second version of this for callers that must not write —
+   * a health check, an inspector. It is gone because the distinction is now in
+   * the credentials themselves: nothing here can create anything, so every
+   * caller gets the safe behaviour without asking for it.
+   *
+   * The timeout is short on purpose. Callers are either reporting on a datastore
+   * or working against one that is already up; a server that is running answers
+   * in milliseconds, and anything slower is itself the finding.
    */
-  async connectAsRecordedSuperuser(): Promise<Client> {
-    const credentials = await this.server.recordedCredentials();
-    if (credentials === undefined) {
-      throw new Error("This profile has no database yet — nothing has been set up.");
-    }
-
+  async connectAsSuperuser(database?: string): Promise<Client> {
+    const credentials = await this.require();
     const pgPkg = (await import("pg")).default;
     const client = new pgPkg.Client({
-      connectionString: connectionStringFor(credentials, "superuser"),
-      // Short: the caller is reporting on a database, not waiting for one. A
-      // server that is up answers in milliseconds; anything slower is itself
-      // the finding.
+      connectionString: connectionStringFor(credentials, "superuser", database),
       connectionTimeoutMillis: 5_000,
-    });
-    await client.connect();
-    return client;
-  }
-
-  /** One connected superuser client against `database`. The caller closes it. */
-  async connectAsSuperuser(database: string): Promise<Client> {
-    const pgPkg = (await import("pg")).default;
-    const client = new pgPkg.Client({
-      connectionString: connectionStringFor(await this.server.credentials(), "superuser", database),
     });
     await client.connect();
     return client;

@@ -13,7 +13,8 @@ import {
   type McpServerInfo,
   type ToolRegistrar,
 } from "../../platform/mcp/mcp.application.js";
-import { closeDb, database } from "../../domain/data/default-database.js";
+import { closeDb } from "../../domain/data/default-database.js";
+import { install } from "../../domain/services/install.service.js";
 import { stopLinkServer } from "../../domain/services/banks/link-session.service.js";
 import { registerDescribeDatabaseTool } from "./tools/describe-database.tool.js";
 import { registerQueryTool } from "./tools/query.tool.js";
@@ -124,7 +125,7 @@ export class CostinglyMcpApplication extends McpApplication {
    * earlier.
    */
   protected override warmUp(): void {
-    void database.ensureReady().catch((error: unknown) => {
+    void install().catch((error: unknown) => {
       // stderr, never stdout: stdout is the protocol channel. Claude Desktop
       // captures this into mcp-server-costingly.log.
       console.error(

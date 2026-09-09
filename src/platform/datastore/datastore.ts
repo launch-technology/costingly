@@ -6,7 +6,7 @@
  * database engine it is talking to, and `platform/postgres/` never learns that
  * profiles exist.
  *
- * IT DOES ASSUME A MANAGED, SERVER-BACKED DATASTORE. `provision`, `start`,
+ * IT DOES ASSUME A MANAGED, SERVER-BACKED DATASTORE. `install`, `start`,
  * `stop` and `isServing` only mean something for a datastore this application
  * installs and runs itself. That is deliberate rather than an oversight: the
  * whole point is that no user installs a database, so lifecycle is part of the
@@ -16,10 +16,29 @@
  * profile's identity to these operations.
  */
 
-import type { DbCredentials } from "../../postgres/credentials.js";
+import type { DbCredentials } from "../postgres/credentials.js";
+import type { Migration } from "../postgres/migrations.js";
+
+/**
+ * What an application says its datastore's schema should look like.
+ *
+ * The MECHANISM for applying these belongs to the datastore; the CONTENT does
+ * not, which is why they arrive as a definition rather than being read from a
+ * folder the platform picks.
+ */
+export interface SchemaDefinition {
+  /** Every migration, in the order they must be applied. */
+  migrations(): Promise<Migration[]>;
+}
 
 /** Cluster absent, or present with the server up or down. */
 export type DatastoreState = "running" | "stopped" | "uninitialised";
+
+/** Where a datastore accepts connections. */
+export interface Endpoint {
+  host: string;
+  port: number;
+}
 
 /** Everything a project needs from its cluster, bound to one profile. */
 export interface Datastore {
@@ -42,41 +61,30 @@ export interface Datastore {
   logPath(): string;
 
   /**
-   * Everything needed to connect, as either identity.
+   * Everything needed to connect, or undefined if this was never installed.
    *
-   * NOT free of side effects: it allocates a port if none is recorded, and
-   * generates and stores the logins if the profile has none. That is correct
-   * for anything about to connect, and wrong for anything merely reporting —
-   * see `endpoint()`.
+   * A READ. It does not allocate a port, generate a password or write anything —
+   * those decisions belong to `install()`, which is the only member entitled to
+   * make them.
+   *
+   * There used to be two of these: one that read and one that decided, with the
+   * deciding one holding the friendlier name. Callers that only wanted to look
+   * reached for it and quietly created half a profile, which is how a status
+   * report came to resurrect a profile that had just been deleted.
+   *
+   * `undefined` means not installed, and that is an answer rather than a gap to
+   * fill.
    */
-  credentials(): Promise<DbCredentials>;
+  credentials(): Promise<DbCredentials | undefined>;
 
   /**
-   * Where this profile listens, if that has already been decided. Never decides.
+   * Where this datastore listens, or undefined if that is not decided yet.
    *
-   * The read-only counterpart to `credentials()`. Returns undefined when no
-   * port has been recorded and none is running, which is the honest answer for
-   * a profile that has never been used — rather than allocating one and
-   * reporting it as though it meant something.
-   *
-   * A live postmaster's own pid file wins over the recorded value: the recorded
-   * port is where the allocator last intended to listen, which is not
-   * necessarily where a server that has been running for weeks actually does.
+   * A live server's own record of its port wins over the stored one: what was
+   * stored is where the allocator last intended to listen, which is not
+   * necessarily where a server that has been up for weeks actually is.
    */
-  endpoint(): Promise<{ host: string; port: number } | undefined>;
-
-  /**
-   * The connection details this profile has already recorded, or undefined.
-   *
-   * Same relationship to `credentials()` as `endpoint()` has: identical shape,
-   * decides nothing. Undefined means the profile has never been set up — no
-   * logins stored, or no port recorded — which is a fact worth reporting rather
-   * than a gap worth filling.
-   *
-   * For inspection only. Anything that intends to USE the database wants
-   * `credentials()`, because it is entitled to bring the profile into being.
-   */
-  recordedCredentials(): Promise<DbCredentials | undefined>;
+  endpoint(): Promise<Endpoint | undefined>;
 
   /** Cluster absent, or present with its server up or down. */
   status(): Promise<DatastoreState>;
@@ -85,14 +93,19 @@ export interface Datastore {
   stop(): Promise<boolean>;
 
   /**
-   * Create the cluster if it is not there. THE ONLY MEMBER THAT RUNS initdb.
+   * Bring the datastore into existence and make it usable. Idempotent.
    *
-   * Separated from `start()` because they are operations on different things —
-   * `initdb` makes a cluster, `pg_ctl start` runs a server against one — and a
-   * single function doing both meant every caller that wanted to start a
-   * stopped server could create one instead.
+   * THE ONLY MEMBER THAT CREATES ANYTHING. Everything it does — creating the
+   * store, starting it, waiting for it to answer, applying the schema, giving
+   * the runtime identity its password — happens here or not at all.
+   *
+   * One operation rather than several, because the ORDER is knowledge of
+   * whatever backs the datastore, not of the application: a caller sequencing
+   * these itself would have to know that a bound port is not a ready server,
+   * and that a database cannot be created from inside itself. Neither is true
+   * of datastores in general.
    */
-  provision(): Promise<void>;
+  install(schema: SchemaDefinition): Promise<void>;
 
   /**
    * Start the server. Creates nothing; fails if there is no cluster.
@@ -121,7 +134,4 @@ export interface Datastore {
    * a port this profile never used.
    */
   isServing(): Promise<boolean>;
-
-  /** Human-readable summary, for status output. */
-  describe(): Promise<string>;
 }

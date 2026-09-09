@@ -22,8 +22,8 @@ import {
   type ProjectIdentity,
 } from "../platform/platform-config.js";
 import { createPorts } from "../platform/ports.js";
-import { createDatastore } from "../platform/datastore/services/datastore-service.js";
-import type { Datastore } from "../platform/datastore/types/datastore.js";
+import { createDatastore } from "../platform/datastore/postgres-datastore.js";
+import type { Datastore } from "../platform/datastore/datastore.js";
 
 /**
  * Who we are.

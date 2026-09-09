@@ -49,7 +49,8 @@ mkdirSync(HOME, { recursive: true, mode: 0o700 });
 writeFileSync(`${HOME}/config.json`, JSON.stringify(sandboxConfig, null, 2));
 chmodSync(`${HOME}/config.json`, 0o600);
 
-const { db, closeDb, database } = await import("../src/domain/data/default-database.js");
+const { db, closeDb } = await import("../src/domain/data/default-database.js");
+const { install } = await import("../src/domain/services/install.service.js");
 const { getPlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/domain/services/banks/link.service.js");
 const { syncAllItems } = await import("../src/domain/services/banks/sync.service.js");
@@ -105,7 +106,7 @@ out.push(`  --    database: ${db.describe()}`);
 
 // Provisioning is deliberate now: reading no longer builds a database, so a
 // test that needs one asks for it exactly as a command does.
-await database.ensureReady();
+await install();
 
 // migrate
 const t = await db.query<{ table_name: string }>(

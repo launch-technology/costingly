@@ -33,7 +33,7 @@
  */
 
 // `db` is for restartDatabase(), whose job IS to bring the database up.
-// checkDatabase() uses `database.inspector()` instead — see the comment there.
+// checkDatabase() uses `database.admin()` instead — see the comment there.
 import { database, db } from "../../data/default-database.js";
 
 import { platform, server } from "../../project.js";
@@ -158,7 +158,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
   const started = Date.now();
   try {
     const { rows } = await withTimeout(
-      database.inspector().query<{ started_at: string; uptime: string }>(
+      database.admin().query<{ started_at: string; uptime: string }>(
         // Formatted in SQL rather than cast to text: the raw value carries
         // microseconds and a timezone offset, which is noise in a line whose
         // only job is "roughly when did this start".
@@ -178,7 +178,7 @@ export async function checkDatabase(): Promise<DatabaseHealth> {
 
   try {
     const { rows } = await database
-      .inspector()
+      .admin()
       .query<{ id: string }>(`SELECT id FROM schema_migrations ORDER BY id`);
     health.migrationsApplied = rows.map((r) => r.id);
   } catch (error) {

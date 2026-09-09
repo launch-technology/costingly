@@ -34,7 +34,8 @@ process.env["COSTINGLY_HOME"] = HOME;
 // SAFETY: everything below wipes HOME. Refuse to run against anything else.
 if (HOME !== "/tmp/costingly-mcp") throw new Error("refusing to run against a real profile");
 
-const { db, closeDb, server, database } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
+const { install } = await import("../src/domain/services/install.service.js");
 const { CostinglyMcpApplication } = await import("../src/apps/mcp/costingly-mcp.application.js");
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
@@ -60,7 +61,7 @@ await wipe();
 
 // Explicit, because reading no longer creates. A suite that needs a database
 // now has to say so — which is the point of the change it is testing under.
-await database.ensureReady();
+await install();
 
 // The first query builds the database — migrations included. Tests take the
 // same path a real install takes.

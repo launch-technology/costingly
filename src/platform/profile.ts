@@ -38,7 +38,7 @@ import { readdir, rm, rmdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import type { PlatformConfig } from "./platform-config.js";
-import type { Datastore } from "./datastore/types/datastore.js";
+import type { Datastore } from "./datastore/datastore.js";
 
 /** A cluster directory, named for the major version it belongs to. */
 const CLUSTER_DIR = /^pg\d+$/;

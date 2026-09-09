@@ -38,7 +38,7 @@ const TAG_BYTES = 16; // 128-bit auth tag
  * already unrecoverable, so a fresh key changes the failure message, not the
  * outcome. decrypt() names that case explicitly when it happens.
  */
-function ensureKey(): string {
+export function ensureKey(): string {
   const existing = getSecretIfSet("encryptionKey");
   if (existing !== undefined) return existing;
 

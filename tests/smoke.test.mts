@@ -58,10 +58,10 @@ check("all modules load under Node ESM", () => {
   assert(typeof dbModule.db.query === "function", "db.query missing");
   assert(typeof dbModule.db.transaction === "function", "db.transaction missing");
   assert(typeof project.server.dataDir === "function", "server.dataDir missing");
-  // provision and start are separate on purpose: initdb makes a cluster,
-  // pg_ctl start runs a server against one, and one function doing both let
-  // any caller that wanted the second silently do the first.
-  assert(typeof project.server.provision === "function", "server.provision missing");
+  // install and start are separate on purpose: install creates the datastore,
+  // start only resumes one that already exists, so no caller that wanted the
+  // second can silently do the first.
+  assert(typeof project.server.install === "function", "server.install missing");
   assert(typeof project.server.start === "function", "server.start missing");
   assert(typeof index.syncAllItems === "function", "syncAllItems not exported from index");
   assert(typeof index.createLinkToken === "function", "createLinkToken not exported from index");

@@ -37,8 +37,11 @@ const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 // From dist/, not src/: the CLI child processes below run the built code, and
 // both sides must agree on which build they are talking to.
-const { db, closeDb, server, adminDataSource, database } =
+const { db, closeDb, server, adminDataSource } =
   (await import(new URL("../dist/index.js", import.meta.url).href)) as typeof import("../src/index.js");
+const { install } = (await import(
+  new URL("../dist/domain/services/install.service.js", import.meta.url).href
+)) as typeof import("../src/domain/services/install.service.js");
 
 /** Run the CLI as a separate OS process. */
 async function cli(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -65,7 +68,7 @@ const { loadMigrations } =
 // Provisioning is deliberate: reading no longer creates a database, so this
 // asks for one exactly as `costingly migrate` does. It has to happen before
 // anything asks whether the server is up.
-await database.ensureReady();
+await install();
 eq(await server.status(), "running", "server is running");
 // Compared against what is actually in migrations/, not a hardcoded list: the
 // claim being tested is "the first connection applied ALL of them by itself",

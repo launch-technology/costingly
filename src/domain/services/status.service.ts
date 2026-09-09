@@ -18,8 +18,9 @@
  * Not writing, because this is also how a person confirms an uninstall. A
  * report that provisioned a cluster, allocated a port or generated credentials
  * on the way to describing them would answer "is it gone?" by putting it back.
- * That is why the database is read through `database.inspector()` and never
- * through `db`.
+ * That is why the datastore is read through `database.admin()` and never
+ * through `db`: connecting is now incapable of creating anything, but `db`
+ * still starts a stopped server, and a report must not.
  *
  * WHY PLAID CANNOT BE ASKED WHAT IS LINKED
  *
@@ -161,7 +162,7 @@ async function readBanks(
   if (!connected) return { banks: null };
 
   try {
-    return { banks: await listWithAccounts(database.inspector()) };
+    return { banks: await listWithAccounts(database.admin()) };
   } catch (error) {
     return { banks: null, error: describeError(error) };
   }

@@ -20,7 +20,8 @@ import { rm } from "node:fs/promises";
 const HOME = "/tmp/costingly-seed";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { db, closeDb, server, database } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
+const { install } = await import("../src/domain/services/install.service.js");
 const { generateSeedDataset } = await import("../src/domain/services/seed/seed.generator.js");
 const { applySeed, assertSeedable, SeedRefused } = await import("../src/domain/services/seed/seed.service.js");
 const { listSyncableItems, listAllItems, saveItem } = await import("../src/domain/data/repositories/items.repository.js");
@@ -60,7 +61,7 @@ await wipe();
 
 // Explicit, because reading no longer creates. A suite that needs a database
 // now has to say so — which is the point of the change it is testing under.
-await database.ensureReady();
+await install();
 
 const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
 

@@ -12,7 +12,6 @@
 import { ConnectionFactory } from "../../platform/postgres/connection-factory.js";
 import { Database } from "../../platform/datastore/database.js";
 import { platform, server } from "../project.js";
-import { loadMigrations } from "../../platform/postgres/migrations.js";
 import type { DataSource } from "../../platform/postgres/types/data-source.js";
 
 // Cached on globalThis because Next.js hot reloads re-evaluate modules and warm
@@ -29,12 +28,7 @@ function resolve(): Database {
   // The last link in the chain that starts in project.ts: identity → config →
   // store → ports → server → this. The provisioner supplies the mechanism;
   // `migrations` names the content — the numbered .sql files this package ships.
-  const created = new Database(
-    new ConnectionFactory(server),
-    server,
-    { migrations: loadMigrations },
-    platform.databaseName,
-  );
+  const created = new Database(new ConnectionFactory(server), server, platform.databaseName);
   globalForDb.__costinglyDatabase = created;
   return created;
 }

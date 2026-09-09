@@ -28,7 +28,8 @@ process.env["COSTINGLY_HOME"] = HOME;
 process.env["PLAID_CLIENT_ID"] = "client-id-for-uninstall-suite";
 process.env["PLAID_SECRET"] = "secret-for-uninstall-suite";
 
-const { db, closeDb, server, database } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
+const { install } = await import("../src/domain/services/install.service.js");
 const { removeProfile, projectParentOf } = await import("../src/platform/profile.js");
 const { resolvePlatform } = await import("../src/platform/platform-config.js");
 const { platform: costinglyPlatform } = await import("../src/domain/project.js");
@@ -216,7 +217,7 @@ await rm(stillServing, { recursive: true, force: true });
 // A real listener, not a stub: proves the probe itself detects one.
 const { createServer } = await import("node:net");
 const { createConfigStore } = await import("../src/platform/config-store.js");
-const { createDatastore } = await import("../src/platform/datastore/services/datastore-service.js");
+const { createDatastore } = await import("../src/platform/datastore/postgres-datastore.js");
 const { createPorts } = await import("../src/platform/ports.js");
 
 const probeHome = "/tmp/costingly-uninstall-probe";
@@ -248,7 +249,7 @@ await rm(probeHome, { recursive: true, force: true });
 
 // Build a real profile: this creates the cluster, applies the schema and leaves
 // a postmaster running and holding handles inside the directory.
-await database.ensureReady();
+await install();
 ok(await exists(costinglyPlatform.configPath()), "a real profile was created");
 ok(await exists(server.dataDir()), "with a cluster in it");
 eq(await server.status(), "running", "and a running server");
@@ -278,7 +279,7 @@ eq(await exists(HOME), false, "…and the profile is still gone");
 
 // Reinstalling is deliberate, and it works: one explicit call rebuilds initdb,
 // the cluster, the schema and the runtime role.
-await database.ensureReady();
+await install();
 const revived = await db.query<{ n: number }>("SELECT 1 AS n");
 eq(revived.rows[0]?.n, 1, "REINSTALL FROM SCRATCH: ensureReady() rebuilds the whole profile");
 ok(await exists(costinglyPlatform.configPath()), "a fresh config.json was written");

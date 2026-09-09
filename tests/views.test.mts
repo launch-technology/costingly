@@ -25,7 +25,8 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const HOME = "/tmp/costingly-views";
 process.env["COSTINGLY_HOME"] = HOME;
 
-const { db, closeDb, server, database } = await import("../src/index.js");
+const { db, closeDb, server } = await import("../src/index.js");
+const { install } = await import("../src/domain/services/install.service.js");
 const { describeDatabase } = await import("../src/domain/data/repositories/schema.repository.js");
 const { renderDatabaseDoc } = await import("../src/apps/mcp/tools/describe-database.utils.js");
 
@@ -50,7 +51,7 @@ await wipe();
 
 // Explicit, because reading no longer creates. A suite that needs a database
 // now has to say so — which is the point of the change it is testing under.
-await database.ensureReady();
+await install();
 
 // Register the migration loader the way cli/main.ts does, then let the first
 // query build the database. Tests take the same path a real install takes.
