@@ -14,11 +14,11 @@ import {
   type ToolRegistrar,
 } from "../../platform/mcp/mcp.application.js";
 import { closeDb } from "../../domain/data/default-database.js";
-import { install } from "../../domain/services/install.service.js";
 import { stopLinkServer } from "../../domain/services/banks/link-session.service.js";
 import { registerDescribeDatabaseTool } from "./tools/describe-database.tool.js";
 import { registerQueryTool } from "./tools/query.tool.js";
-import { registerCheckDatabaseTool } from "./tools/check-database.tool.js";
+import { registerCheckCostinglyTool } from "./tools/check-costingly.tool.js";
+import { registerSetupCostinglyTool } from "./tools/setup-costingly.tool.js";
 import { registerRestartDatabaseTool } from "./tools/restart-database.tool.js";
 import { registerSyncTool } from "./tools/sync.tool.js";
 import { registerLinkBankTool } from "./tools/link-bank.tool.js";
@@ -37,14 +37,26 @@ const INSTRUCTIONS =
     "  5. relink_bank — repair a connection whose login expired\n" +
     "  6. unlink_bank — disconnect one and delete its data. Destructive.\n\n" +
     "When something is wrong rather than being asked:\n" +
-    "  7. check_database — is the database working, and which profile is it\n" +
-    "  8. restart_database — stop the local database server and bring it back\n\n" +
-    "If any tool above fails with a connection or database error, call " +
-    "check_database. It is built to answer when the database is down, and it names " +
-    "which profile is in use — costingly supports several, and the user may be " +
-    "looking at a different one than they think. restart_database clears most " +
-    "connection failures; nothing else is worth trying twice. Neither reports any " +
-    "financial data — that is what query is for.\n\n" +
+    "  7. check_costingly — is costingly set up and working, and what is stopping it\n" +
+    "  8. setup_costingly — create the local database, when nothing is installed\n" +
+    "  9. restart_database — stop the local database server and bring it back\n\n" +
+    "If any tool above fails, call check_costingly FIRST. It is built to answer when " +
+    "everything else is down, and its verdict says which of three different problems " +
+    "you have:\n\n" +
+    "  not set up      — nothing installed. Call setup_costingly.\n" +
+    "  not running     — installed but its server is down. Call restart_database.\n" +
+    "  no Plaid keys   — YOU CANNOT FIX THIS. No tool supplies them. Tell the user to\n" +
+    "                    enter BOTH the client ID and secret in Claude Desktop's\n" +
+    "                    extension settings, then FULLY QUIT and reopen the app.\n" +
+    "                    Costingly reads them at startup, so a running copy can never\n" +
+    "                    see keys entered after it launched. Retrying will not help.\n\n" +
+    "Nothing else is worth trying twice. check_costingly also names which profile is " +
+    "in use — costingly supports several, and the user may be looking at a different " +
+    "one than they think. None of these three reports any financial data; that is " +
+    "what query is for.\n\n" +
+    "A fresh install has no database until someone asks for one. If the user's first " +
+    "question fails because costingly is not set up, say so and offer to set it up " +
+    "rather than doing it silently — it writes a database to their machine.\n\n" +
     "Call describe_database first in a conversation. Its column comments carry " +
     "conventions that are wrong if guessed — most importantly that a POSITIVE " +
     "amount means money leaving the account.\n\n" +
@@ -84,7 +96,8 @@ export class CostinglyMcpApplication extends McpApplication {
       registerLinkBankTool,
       registerRelinkBankTool,
       registerUnlinkBankTool,
-      registerCheckDatabaseTool,
+      registerCheckCostinglyTool,
+      registerSetupCostinglyTool,
       registerRestartDatabaseTool,
     ];
   }
@@ -104,34 +117,13 @@ export class CostinglyMcpApplication extends McpApplication {
     this.scope.onClose("link server", stopLinkServer);
   }
 
-  /**
-   * Start the database without waiting for it.
-   *
-   * On a fresh install the first connection runs initdb, starts the cluster,
-   * creates the database and applies the schema — around five seconds. This
-   * server is useless without all of that, so there is no reason to defer it
-   * until someone asks a question.
-   *
-   * But it must not block the handshake either. Awaiting it would put five
-   * seconds between the host spawning this process and the tool list appearing,
-   * and a database that could not start at all would leave the user with a dead
-   * extension and no way to ask what went wrong.
-   *
-   * So it is started, not awaited. The data source caches its opening promise,
-   * so a tool call arriving mid-warm-up joins this same work rather than
-   * beginning a second copy — and a failed attempt is deliberately un-cached, so
-   * that call retries and reports the real error through isError, where the
-   * model can pass it on. Nothing here is load-bearing; it only moves the cost
-   * earlier.
-   */
-  protected override warmUp(): void {
-    void install().catch((error: unknown) => {
-      // stderr, never stdout: stdout is the protocol channel. Claude Desktop
-      // captures this into mcp-server-costingly.log.
-      console.error(
-        "[costingly] database not ready at startup:",
-        error instanceof Error ? error.message : error,
-      );
-    });
-  }
+  // No warmUp(). It used to install the database at startup, which meant the
+  // server created one on a machine where nobody had asked for it — and would
+  // rebuild a profile the user had just deleted, simply because the extension
+  // was still running.
+  //
+  // Installing is now something a person agrees to: the first tool call reports
+  // that costingly is not set up, and `setup_costingly` does it. The cost is a
+  // few seconds on that first call instead of during the handshake, which is a
+  // fair price for not writing a database to somebody's disk unbidden.
 }

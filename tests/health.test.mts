@@ -27,7 +27,14 @@ process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 const { db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");
 const { checkDatabase, restartDatabase } = await import("../src/domain/services/database/database-health.service.js");
-const { formatHealth } = await import("../src/apps/mcp/tools/check-database.utils.js");
+const { blockersIn, costinglyStatus } = await import("../src/domain/services/status.service.js");
+const { formatCheck } = await import("../src/apps/mcp/tools/check-costingly.utils.js");
+
+/** What check_costingly would show right now. */
+const render = async (): Promise<string> => {
+  const status = await costinglyStatus();
+  return formatCheck(status, blockersIn(status));
+};
 
 
 const out: string[] = [];
@@ -109,7 +116,7 @@ ok(fresh.cluster.startedAt !== null, "and so is the postmaster start time");
 // 2. Secrets
 // ===========================================================================
 
-const rendered = formatHealth(fresh);
+const rendered = await render();
 ok(!rendered.includes(SECRET), "THE REPORT DOES NOT CONTAIN THE PLAID SECRET");
 ok(!JSON.stringify(fresh).includes(SECRET), "...and neither does the underlying record");
 // The report is about the database, not its contents. These are the questions
@@ -169,8 +176,8 @@ eq(twice.ok, true, "restarting again is fine (idempotent, as annotated)");
 const afterRestart = await checkDatabase();
 const uptime = afterRestart.cluster.uptimeSeconds ?? Number.MAX_SAFE_INTEGER;
 ok(uptime < 60, `uptime reflects the restart just performed (${uptime}s)`);
-const restartText = formatHealth(afterRestart);
-ok(restartText.includes("Uptime:"), "the report shows uptime");
+const restartText = await render();
+ok(restartText.includes("up "), "the report shows uptime");
 ok(restartText.includes("moments ago"),
    "AND FLAGS A JUST-RESTARTED SERVER — a small number alone reads as noise");
 
@@ -185,8 +192,9 @@ await mkdir(HOME, { recursive: true });
 
 const broken = await checkDatabase();
 ok(true, "checkDatabase() with the cluster DELETED returned instead of throwing");
-ok(typeof formatHealth(broken) === "string", "and the report still renders");
-ok(formatHealth(broken).startsWith("Database:"), "...starting with the verdict");
+const brokenText = await render();
+ok(typeof brokenText === "string", "and the report still renders");
+ok(brokenText.startsWith("costingly: NOT READY"), "...starting with the verdict");
 
 await closeDb();
 await wipe();

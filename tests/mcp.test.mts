@@ -85,9 +85,9 @@ await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
 eq(tools.map((t) => t.name).sort(),
-   ["check_database", "describe_database", "link_bank", "query", "relink_bank",
-    "restart_database", "sync", "unlink_bank"],
-   "all eight tools are advertised");
+   ["check_costingly", "describe_database", "link_bank", "query", "relink_bank",
+    "restart_database", "setup_costingly", "sync", "unlink_bank"],
+   "all nine tools are advertised");
 
 // The server-level instructions are the only place the relationship between the
 // two tools is stated, and the only place the injection warning lives.

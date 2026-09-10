@@ -238,6 +238,81 @@ export async function costinglyStatus(): Promise<CostinglyStatus> {
 }
 
 /**
+ * One reason costingly is not usable right now.
+ *
+ * FACTS ONLY. No instruction, no tool name, no "run this to fix it" — those
+ * differ by who is reading. A missing Plaid key means "run `costingly init`" at
+ * a terminal and "open Settings, then fully quit Claude Desktop" in the
+ * extension, and neither belongs in a service that only knows what is true.
+ *
+ * The tools available to fix something also change over time while the states
+ * do not, so naming one here would date faster than the fact does.
+ */
+export interface Blocker {
+  what: "datastore" | "server" | "schema" | "encryption-key" | "plaid-credentials";
+  /** What is wrong, in one line. Safe to show a user or a model. */
+  detail: string;
+}
+
+/**
+ * What is stopping costingly from working, most fundamental first.
+ *
+ * Pure — it reads a `CostinglyStatus` and returns facts about it. That is what
+ * makes the awkward combinations testable: an absent profile, a cluster with no
+ * schema, a stopped server, keys that exist but are wrong. Producing those
+ * through `costinglyStatus()` would mean building and breaking a real database
+ * for each one; as a function over a plain object they are table entries.
+ *
+ * ORDERED, because blockers cascade. Missing Plaid keys do not matter until
+ * there is somewhere to put the data they would fetch, and "the server is not
+ * running" is the wrong thing to say when the real answer is that nothing has
+ * ever been installed.
+ *
+ * An empty array means costingly is usable. It does NOT mean every bank is
+ * healthy — a login that needs repairing is a bank-level problem that `status`
+ * reports per bank, not a reason costingly itself is broken.
+ */
+export function blockersIn(status: CostinglyStatus): Blocker[] {
+  const blockers: Blocker[] = [];
+  const { cluster, connection, migrationsApplied } = status.database;
+
+  if (cluster.state === "uninitialised") {
+    blockers.push({ what: "datastore", detail: "no database has been created yet" });
+  } else if (cluster.state === "stopped") {
+    blockers.push({ what: "server", detail: "the database server is not running" });
+  } else if (!connection.ok) {
+    blockers.push({
+      what: "datastore",
+      detail: connection.error ?? "the database is running but will not answer",
+    });
+  } else if (migrationsApplied !== null && migrationsApplied.length === 0) {
+    // Connected, but nothing has ever been applied — a half-built profile
+    // rather than a broken one, and a different fix from either neighbour.
+    blockers.push({ what: "schema", detail: "the database exists but has no tables" });
+  }
+
+  // Reported from the profile's settings rather than by trying to decrypt
+  // something: absence is knowable without touching a stored token.
+  if (status.profile.values.some((v) => v.key === "encryptionKey" && v.source === "missing")) {
+    blockers.push({
+      what: "encryption-key",
+      detail: "no encryption key, so bank tokens cannot be stored or read",
+    });
+  }
+
+  if (!status.plaid.configured) {
+    blockers.push({ what: "plaid-credentials", detail: "no Plaid client ID or secret" });
+  } else if (!status.plaid.reachable) {
+    blockers.push({
+      what: "plaid-credentials",
+      detail: status.plaid.error ?? "Plaid did not respond",
+    });
+  }
+
+  return blockers;
+}
+
+/**
  * Reject after `ms` rather than inheriting the SDK's own patience.
  *
  * A status command has to come back. Plaid's client will wait a long time on a

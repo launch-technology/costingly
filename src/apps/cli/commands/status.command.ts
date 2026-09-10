@@ -25,7 +25,9 @@
 import type { Command } from "commander";
 
 import {
+  blockersIn,
   costinglyStatus,
+  type Blocker,
   type CostinglyStatus,
   type PlaidStatus,
   type ProfileStatus,
@@ -250,11 +252,39 @@ so it is also how you confirm an uninstall left nothing behind.
     });
 }
 
+/**
+ * What to do about each kind of blocker, at a terminal.
+ *
+ * The advice lives HERE, not in the service. `blockersIn()` reports facts, and
+ * the fix differs entirely by who is reading: a missing Plaid key means running
+ * `costingly init` at a terminal and opening extension settings in the bundle.
+ */
+const CLI_FIX: Record<Blocker["what"], string> = {
+  datastore: "run `costingly init` to create it",
+  server: "any command that needs the database will start it",
+  schema: "run `costingly migrate`",
+  "encryption-key": "run `costingly init`",
+  "plaid-credentials": "run `costingly init` to enter your Plaid keys",
+};
+
+function renderBlockers(blockers: Blocker[]): void {
+  if (blockers.length === 0) return;
+
+  console.log("");
+  line("Blocking", blockers.length === 1 ? "1 thing" : `${blockers.length} things`);
+  for (const blocker of blockers) {
+    detail(`${NO} ${blocker.detail}`);
+    detail(`   ${CLI_FIX[blocker.what]}`);
+  }
+}
+
 export async function runStatus(options: StatusOptions): Promise<void> {
   const status: CostinglyStatus = await costinglyStatus();
 
   if (options.json) {
-    console.log(JSON.stringify(status, null, 2));
+    // Blockers are derived rather than gathered, so they are included: a script
+    // asking "is this usable" should not have to reimplement the rules.
+    console.log(JSON.stringify({ ...status, blockers: blockersIn(status) }, null, 2));
     return;
   }
 
@@ -266,6 +296,7 @@ export async function runStatus(options: StatusOptions): Promise<void> {
   renderDatabase(status.database);
   console.log("");
   renderPlaid(status.plaid, status.banks, status.banksError);
+  renderBlockers(blockersIn(status));
   console.log("");
 }
 
