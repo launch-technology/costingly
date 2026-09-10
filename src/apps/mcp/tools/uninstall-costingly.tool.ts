@@ -26,6 +26,7 @@ import { z } from "zod";
 
 import { platform } from "../../../domain/project.js";
 import { countData } from "../../../domain/services/banks/reset.service.js";
+import { costinglyStatus } from "../../../domain/services/status.service.js";
 import { uninstall } from "../../../domain/services/uninstall.service.js";
 import { ConfirmationStore } from "../utils/confirmations.js";
 
@@ -57,6 +58,11 @@ export function registerUninstallCostinglyTool(server: McpServer): void {
                 "a confirmation_token — nothing is deleted. Put those numbers to the user " +
                 "in plain language and WAIT for them to agree. Only then call again with " +
                 "the token. If they say no, or do not answer, let it expire.\n\n" +
+                "The first call REFUSES if banks are linked and Plaid cannot be reached — " +
+                "usually because the credentials are missing. Deleting then would strand " +
+                "those Items: alive at Plaid, still billing, and impossible to use again " +
+                "because their tokens went with the database. Fix the credentials and " +
+                "retry, or pass keep_plaid_items to accept it deliberately.\n\n" +
                 "Call this only when the user asks to uninstall, remove or delete " +
                 "costingly. Never as a way to fix a problem — a broken database is what " +
                 "check_costingly and restart_database are for, and this destroys the data " +
@@ -103,8 +109,10 @@ export function registerUninstallCostinglyTool(server: McpServer): void {
                     // failing to count must not stop the tool — it only means the
                     // report says less.
                     let stakes: string[];
+                    let bankCount = 0;
                     try {
                         const counts = await countData();
+                        bankCount = counts.items;
                         stakes = [
                             `  ${counts.items} bank(s)`,
                             `  ${counts.accounts} account(s)`,
@@ -112,6 +120,56 @@ export function registerUninstallCostinglyTool(server: McpServer): void {
                         ];
                     } catch {
                         stakes = ["  contents unknown — the database could not be read"];
+                    }
+
+                    // CAN we actually revoke? Asked BEFORE anything is deleted,
+                    // because this is the one failure that is knowable in advance
+                    // and unrecoverable afterwards.
+                    //
+                    // The service revokes best-effort and continues on failure,
+                    // which is right for a transient problem — no network, a
+                    // wedged database. Missing credentials are not transient. If
+                    // we delete the access tokens without revoking, the Items
+                    // survive at Plaid, keep billing, and can NEVER be used
+                    // again, because nothing can look a token up from an item_id.
+                    //
+                    // This tool once promised "nothing keeps billing" without
+                    // checking, stranded three Items, and was believed because it
+                    // sounded certain. Hence: refuse.
+                    if (revoke && bankCount > 0) {
+                        const plaid = (await costinglyStatus()).plaid;
+                        if (!plaid.reachable) {
+                            return {
+                                content: [
+                                    {
+                                        type: "text",
+                                        text: [
+                                            "NOTHING HAS BEEN DELETED, and this cannot safely proceed.",
+                                            "",
+                                            plaid.configured
+                                                ? `Plaid is not reachable: ${plaid.error ?? "no response"}`
+                                                : "There are no Plaid credentials, so the banks cannot be removed at Plaid.",
+                                            "",
+                                            `Uninstalling now would delete the access tokens for ${bankCount} bank(s)`,
+                                            "while leaving those Items alive at Plaid. They would keep billing, and",
+                                            "could never be used again — an item_id alone cannot be turned back into",
+                                            "a working token, by anyone.",
+                                            "",
+                                            "Tell the user this, and give them the two ways forward:",
+                                            "",
+                                            plaid.configured
+                                                ? "  1. Wait until Plaid is reachable and try again."
+                                                : "  1. Re-enter both Plaid keys in the extension settings, FULLY quit and\n" +
+                                                  "     reopen the app, then run this again. That is the clean path.",
+                                            "  2. Accept it, by calling this again with keep_plaid_items: true. Only",
+                                            "     do that if the user has heard the consequence and chosen it. They",
+                                            "     will then have to remove the Items by hand at my.plaid.com.",
+                                        ].join("\n"),
+                                    },
+                                ],
+                                isError: true,
+                            };
+                        }
                     }
 
                     const token = confirmations.issue(SUBJECT);

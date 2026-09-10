@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "costingly",
   "display_name": "Costingly",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Query your own bank and credit-card transactions, synced from Plaid into a local database.",
   "long_description": "Costingly keeps a private copy of your bank and credit-card transactions in a PostgreSQL database on this machine, synced from your banks through Plaid. Nothing is sent anywhere: the database listens only on this machine's loopback interface, unreachable from the network, and Claude reads it through views that cannot reach your stored bank credentials.\n\nAsk about spending, income, balances or accounts in plain language. Claude writes the SQL.",
   "author": {

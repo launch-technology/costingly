@@ -283,6 +283,47 @@ ok(/call sync/i.test(relinkText), "and says what to do afterwards");
 delete process.env["PLAID_CLIENT_ID"];
 delete process.env["PLAID_SECRET"];
 
+// --- uninstall_costingly refuses when it cannot revoke ----------------------
+//
+// The bug this pins down cost real money on 2026-09-10. The tool's first call
+// said "Each bank would also be removed at Plaid, so nothing keeps billing"
+// without checking whether Plaid was reachable. It was not — the credentials
+// were missing — so the uninstall deleted three access tokens while leaving
+// three Items alive at Plaid: still billing, and impossible to use again,
+// because no one can turn an item_id back into a working token.
+//
+// Best-effort revocation is right for a TRANSIENT failure. Missing credentials
+// are knowable before anything is deleted, so the only safe answer is to stop.
+//
+// No Plaid credentials are set at this point in the suite, and an item is
+// linked, so this is exactly that state.
+{
+  const blocked = await client.callTool({
+    name: "uninstall_costingly",
+    arguments: {},
+  });
+  const blockedText = text(blocked);
+
+  eq(blocked.isError, true, "uninstall REFUSES when banks are linked and Plaid is unreachable");
+  ok(/NOTHING HAS BEEN DELETED/.test(blockedText), "and says plainly that nothing was deleted");
+  ok(/never be used again/i.test(blockedText),
+     "AND NAMES THE CONSEQUENCE it exists to prevent — stranded, unusable Items");
+  ok(!/confirmation_token:\s*\S/.test(blockedText),
+     "and mints NO token, so the delete cannot be armed by a second call");
+  ok(/keep_plaid_items/.test(blockedText),
+     "while naming the deliberate opt-out, so the user can still choose it");
+
+  // The escape hatch works: acknowledging the consequence gets a token.
+  const accepted = await client.callTool({
+    name: "uninstall_costingly",
+    arguments: { keep_plaid_items: true },
+  });
+  ok(/confirmation_token:\s*\S/.test(text(accepted)),
+     "keep_plaid_items: true is accepted as an explicit choice, and mints a token");
+  ok(/keep billing/i.test(text(accepted)),
+     "and still spells out what leaving them behind costs");
+}
+
 // --- unlink_bank ------------------------------------------------------------
 // The only tool that genuinely destroys. Everything else reads, or reconciles
 // with a source of truth that can hand the data back. Because it destroys, it
