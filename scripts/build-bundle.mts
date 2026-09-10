@@ -43,8 +43,14 @@ const STAGING = join(BUILD, "staging");
  */
 const MCPB_CLI = join(ROOT, "node_modules", "@anthropic-ai", "mcpb", "dist", "cli", "cli.js");
 
-/** Copied into the bundle verbatim. Everything else is either built or installed. */
-const SHIPPED = ["dist", "migrations", "public", "manifest.json"];
+/**
+ * Copied into the bundle verbatim. Everything else is either built or installed.
+ *
+ * LICENSE is on this list for a reason, not for tidiness: handing someone a
+ * .mcpb is distributing a copy, and MIT requires the notice to travel with the
+ * copy. Leave it off and every install is a copy with no license in it.
+ */
+const SHIPPED = ["dist", "migrations", "public", "manifest.json", "LICENSE"];
 
 function say(step: string, detail = ""): void {
   console.log(`  ${step.padEnd(22)}${detail}`);
