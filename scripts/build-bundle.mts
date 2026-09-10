@@ -46,11 +46,17 @@ const MCPB_CLI = join(ROOT, "node_modules", "@anthropic-ai", "mcpb", "dist", "cl
 /**
  * Copied into the bundle verbatim. Everything else is either built or installed.
  *
- * LICENSE is on this list for a reason, not for tidiness: handing someone a
- * .mcpb is distributing a copy, and MIT requires the notice to travel with the
- * copy. Leave it off and every install is a copy with no license in it.
+ * LICENSE and NOTICE are on this list for a reason, not for tidiness: handing
+ * someone a .mcpb is distributing a copy, and MIT requires the notice to travel
+ * with the copy. Leave them off and every install is a copy with no license in
+ * it.
+ *
+ * NOTICE carries PostgreSQL's copyright specifically because the
+ * @embedded-postgres packages ship the binaries without it — their own
+ * LICENSE.md covers only the wrapper. Nothing else in the bundle needs listing
+ * here: npm installs each dependency's LICENSE beside it.
  */
-const SHIPPED = ["dist", "migrations", "public", "manifest.json", "LICENSE"];
+const SHIPPED = ["dist", "migrations", "public", "manifest.json", "LICENSE", "NOTICE"];
 
 function say(step: string, detail = ""): void {
   console.log(`  ${step.padEnd(22)}${detail}`);

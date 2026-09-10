@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Daily sync of bank and credit-card transactions from Plaid into Postgres.",
   "license": "MIT",
-  "author": "Jonathan Komorek",
+  "author": "Launch Technology LLC",
   "engines": {
     "node": ">=20"
   },
