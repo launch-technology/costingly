@@ -12,7 +12,14 @@ const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 import { PassThrough } from "node:stream";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
+
+/**
+ * Windows has no POSIX file modes. chmod there only toggles a read-only bit and
+ * the mode always reads back 0666, so the 0600 assertion cannot hold. The file
+ * is protected by the ACL it inherits from the profile directory instead.
+ */
+const posixModes = platform() !== "win32";
 import { join } from "node:path";
 
 
@@ -44,13 +51,13 @@ const dir = await mkdtemp(join(tmpdir(), "costingly-initflow-"));
 // these runs would write to the real profile and destroy live credentials.
 process.env["COSTINGLY_HOME"] = join(dir, "profile");
 
-const { runInit } = await import("../cli/init.js");
-const { readConfigFile } = await import("../src/config.js");
-const { configPath } = await import("../src/profile.js");
-const { closeDb } = await import("../src/db/client.js");
+const { runInit } = await import("../src/apps/cli/commands/init.command.js");
+const { readConfigFile } = await import("../src/domain/config.js");
+const { platform: projectConfig } = await import("../src/domain/project.js");
+const { closeDb } = await import("../src/domain/data/default-database.js");
 
 /** Where init will write: `<COSTINGLY_HOME>/config.json`. */
-const configIn = (): string => configPath();
+const configIn = (): string => projectConfig.configPath();
 const readConfig = async (_p?: string) => readConfigFile();
 
 const out: string[] = [];
@@ -99,7 +106,7 @@ eq(written.plaidClientId, REAL_ID, "client_id saved");
 eq(written.plaidSecret, REAL_SECRET, "secret saved");
 ok(Boolean(written.encryptionKey), "encryption key saved");
 eq(Buffer.from(written.encryptionKey!, "base64").length, 32, "key is 32 bytes");
-eq((await stat(target)).mode & 0o777, 0o600, "config written owner-only");
+if (posixModes) eq((await stat(target)).mode & 0o777, 0o600, "config written owner-only");
 eq(written.plaidEnv, "production",
    "init always writes production — sandbox is not a product concept");
 

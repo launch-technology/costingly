@@ -2,11 +2,11 @@
   "manifest_version": "0.4",
   "name": "costingly",
   "display_name": "Costingly",
-  "version": "1.1.0",
+  "version": "1.5.2",
   "description": "Query your own bank and credit-card transactions, synced from Plaid into a local database.",
-  "long_description": "Costingly keeps a private copy of your bank and credit-card transactions in a PostgreSQL database on this machine, synced from your banks through Plaid. Nothing is sent anywhere: the database listens on a unix socket with no network port, and Claude reads it through views that cannot reach your stored bank credentials.\n\nAsk about spending, income, balances or accounts in plain language. Claude writes the SQL.",
+  "long_description": "Costingly keeps a private copy of your bank and credit-card transactions in a PostgreSQL database on this machine, synced from your banks through Plaid. Nothing is sent anywhere: the database listens only on this machine's loopback interface, unreachable from the network, and Claude reads it through views that cannot reach your stored bank credentials.\n\nAsk about spending, income, balances or accounts in plain language. Claude writes the SQL.",
   "author": {
-    "name": "Jonathan Komorek"
+    "name": "Launch Technology LLC"
   },
   "license": "MIT",
   "keywords": [
@@ -18,12 +18,11 @@
   ],
   "server": {
     "type": "node",
-    "entry_point": "dist/cli/index.js",
+    "entry_point": "dist/apps/mcp/main.js",
     "mcp_config": {
       "command": "node",
       "args": [
-        "${__dirname}/dist/cli/index.js",
-        "mcp"
+        "${__dirname}/dist/apps/mcp/main.js"
       ],
       "env": {
         "PLAID_CLIENT_ID": "${user_config.plaid_client_id}",
@@ -48,7 +47,8 @@
   },
   "compatibility": {
     "platforms": [
-      "darwin"
+      "darwin",
+      "win32"
     ]
   }
 }

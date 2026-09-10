@@ -6,7 +6,11 @@
   // in the tarball, but they should still typecheck.
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // Nothing is emitted here, so the main config's rootDir — src/, which is
+    // what keeps the published dist/ flat — would serve only to reject tests/
+    // and scripts/ for sitting outside it.
+    "rootDir": "."
   },
-  "include": ["tests/**/*.mts", "scripts/**/*.mts", "src/**/*.ts", "cli/**/*.ts"]
+  "include": ["tests/**/*.mts", "scripts/**/*.mts", "src/**/*.ts"]
 }

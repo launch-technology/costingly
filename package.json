@@ -1,16 +1,16 @@
 {
   "name": "costingly",
-  "version": "1.4.0",
+  "version": "1.5.2",
   "private": true,
   "type": "module",
   "description": "Daily sync of bank and credit-card transactions from Plaid into Postgres.",
   "license": "MIT",
-  "author": "Jonathan Komorek",
+  "author": "Launch Technology LLC",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "costingly": "./dist/cli/index.js"
+    "costingly": "./dist/apps/cli/main.js"
   },
   "files": [
     "dist",
@@ -18,11 +18,11 @@
     "public"
   ],
   "scripts": {
-    "build": "npm run clean && tsc && chmod +x dist/cli/index.js",
-    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc && node -e \"require('fs').chmodSync('dist/apps/cli/main.js',0o755)\"",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "cli": "tsx cli/index.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.platform.json && tsc --noEmit -p tsconfig.domain.json",
+    "cli": "tsx src/apps/cli/main.ts",
     "setup:sandbox": "tsx scripts/setup-sandbox.mts",
     "test": "tsx tests/run.mts",
     "build:bundle": "tsx scripts/build-bundle.mts"

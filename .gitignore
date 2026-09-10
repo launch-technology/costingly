@@ -7,6 +7,9 @@
 # An optional convenience for setting environment variables in development.
 # costingly never writes this and never stores credentials in it.
 .env
+.env.*
+!.env.example
+!.env.sandbox.example
 
 # Dependencies
 node_modules/

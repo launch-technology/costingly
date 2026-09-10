@@ -28,8 +28,9 @@ process.env["COSTINGLY_HOME"] = HOME;
 // their real database.
 if (HOME !== "/tmp/costingly-readonly") throw new Error("refusing to run against a real profile");
 
-const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { queryReadOnly } = await import("../src/db/readonly.js");
+const { db, closeDb, server } = await import("../src/index.js");
+const { install } = await import("../src/domain/services/install.service.js");
+const { queryReadOnly } = await import("../src/domain/services/query/readonly-query.service.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -55,21 +56,26 @@ const blocked = async (sql: string, what: string): Promise<void> =>
   ok((await rejected(sql)) !== "", what);
 
 async function wipe(): Promise<void> {
-  await stopServer().catch(() => {});
-  await rm(HOME, { recursive: true, force: true });
+  await server.stop().catch(() => {});
+  // maxRetries: Windows can still hold handles on the cluster directory for a
+  // moment after the postmaster exits, which unlink-while-open unix does not.
+  await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 await wipe();
 
-// Register the migration loader the way cli/index.ts does, then let the first
-// query build the database. Tests take the same path a real install takes.
-const { loadMigrations } = await import("../cli/migrations.js");
-setMigrationSource(loadMigrations);
+// Explicit, because reading no longer creates. A suite that needs a database
+// now has to say so — which is the point of the change it is testing under.
+await install();
 
-await query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
+// Register the migration loader the way cli/main.ts does, then let the first
+// query build the database. Tests take the same path a real install takes.
+const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
+
+await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
-await query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+await db.query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
              VALUES ('a1', 'i1', 'Checking', '0000', 'depository', 'checking', 'USD', 100.0)`);
-await query(`
+await db.query(`
   INSERT INTO transactions (transaction_id, account_id, item_id, amount, iso_currency_code,
                             date, name, merchant_name, pending, pfc, raw)
   VALUES ('t1','a1','i1',  42.10,'USD','2026-01-15','COFFEE','Blue Bottle', false,
@@ -157,18 +163,18 @@ eq(setting.rows[0]?.["t"], "10s", "the default timeout is 10s");
 // times over.
 let leaked = "";
 for (let i = 0; i < 30; i++) {
-  const who = await query<{ u: string }>("SELECT current_user AS u");
-  if (who.rows[0]?.u === "costingly_ro") leaked = "role";
-  const ro = await query<{ ro: string }>("SELECT current_setting('transaction_read_only') AS ro");
+  const who = await db.query<{ u: string }>("SELECT current_user AS u");
+  if (who.rows[0]?.u === "role_readonly") leaked = "role";
+  const ro = await db.query<{ ro: string }>("SELECT current_setting('transaction_read_only') AS ro");
   if (ro.rows[0]?.ro === "on") leaked = leaked ? `${leaked}+read_only` : "read_only";
 }
 eq(leaked, "", "NEITHER THE ROLE NOR READ-ONLY LEAKS ONTO THE POOLED CONNECTION");
 
 // The strongest form of the same claim: ordinary access still works afterwards.
-const after = await query("SELECT access_token_enc FROM items");
+const after = await db.query("SELECT access_token_enc FROM items");
 eq(after.rows.length, 1, "and the application can still read what it owns");
 
-const timeoutAfter = await query<{ t: string }>("SELECT current_setting('statement_timeout') AS t");
+const timeoutAfter = await db.query<{ t: string }>("SELECT current_setting('statement_timeout') AS t");
 eq(timeoutAfter.rows[0]?.t, "0", "the statement timeout reverts too");
 
 await closeDb();

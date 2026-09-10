@@ -130,7 +130,7 @@ CREATE INDEX IF NOT EXISTS transactions_item_id_idx    ON transactions (item_id)
 --
 --   1. Omit what must not be read. `items.access_token_enc` is the credential
 --      for a whole bank login; there is no reason for a reporting query to see
---      it, so it is simply absent here and the `costingly_ro` role below has no
+--      it, so it is simply absent here and the `role_readonly` role below has no
 --      access to the base table.
 --
 --   2. Omit what would drown a reader. `transactions.raw` is the full Plaid
@@ -277,22 +277,53 @@ COMMENT ON COLUMN v_transactions.institution_name IS
   'assuming which banks are linked.';
 
 -- ---------------------------------------------------------------------------
--- costingly_ro — the role every read-only query runs as.
+-- Roles.
 --
--- Granted on the views ONLY. A query that runs `SET LOCAL ROLE costingly_ro`
--- cannot reach the base tables at all, which is what makes access_token_enc
--- genuinely unreachable rather than merely absent from a view definition.
--- Verified: even a superuser is restricted after SET ROLE.
+-- Three identities, and the split is the point:
 --
--- NOLOGIN — it is never connected as, only switched to inside a transaction.
+--   u_superuser    created by initdb, not here. Owns the cluster. Used for
+--                  provisioning and migrations only, never pooled.
+--   u_app          every tool, every CLI path, every query this codebase
+--                  writes. Read and write on the tables; NO DDL. `RESET ROLE`
+--                  on one of its connections returns to itself, so nothing an
+--                  LLM can reach has a ladder back to superuser.
+--   role_readonly  no login at all. u_app is a member and drops into it with
+--                  SET LOCAL ROLE for one transaction — see queryReadOnly.
+--
+-- role_readonly is granted on the VIEWS only. A query running as it cannot
+-- reach the base tables, which is what makes access_token_enc genuinely
+-- unreachable rather than merely absent from a view definition. Verified: even
+-- a superuser is restricted after SET ROLE.
+--
+-- Passwords are not set here. SQL files are committed; secrets are not. The
+-- application generates them and applies them with ALTER ROLE after this runs.
 -- ---------------------------------------------------------------------------
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'costingly_ro') THEN
-    CREATE ROLE costingly_ro NOLOGIN;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'role_readonly') THEN
+    CREATE ROLE role_readonly NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'u_app') THEN
+    CREATE ROLE u_app LOGIN;
   END IF;
 END
 $$;
 
-GRANT USAGE ON SCHEMA public TO costingly_ro;
-GRANT SELECT ON v_items, v_accounts, v_transactions TO costingly_ro;
+GRANT USAGE ON SCHEMA public TO role_readonly, u_app;
+GRANT SELECT ON v_items, v_accounts, v_transactions TO role_readonly;
+
+-- The application's reach: data, never structure.
+GRANT SELECT, INSERT, UPDATE, DELETE ON items, accounts, transactions TO u_app;
+GRANT SELECT ON v_items, v_accounts, v_transactions TO u_app;
+GRANT SELECT, INSERT ON schema_migrations TO u_app;
+
+-- Without this, SET LOCAL ROLE role_readonly fails and the query tool breaks.
+GRANT role_readonly TO u_app;
+
+-- Tables added by later migrations are granted automatically. Without this the
+-- next migration ships a table the application cannot read, and it fails at
+-- runtime rather than at migration time.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO u_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO u_app;

@@ -14,10 +14,20 @@ import { fileURLToPath } from "node:url";
 const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
-const cfg = await import("../src/config.js");
-const { configPath } = await import("../src/profile.js");
+const cfg = await import("../src/domain/config.js");
+const { platform: projectConfig, configStore: store } = await import("../src/domain/project.js");
+const configPath = () => projectConfig.configPath();
+const displayPath = (p: string) => projectConfig.displayPath(p);
 const { mkdtemp, readdir, readFile, rm, stat, writeFile, mkdir } = await import("node:fs/promises");
-const { tmpdir } = await import("node:os");
+const { tmpdir, platform } = await import("node:os");
+
+/**
+ * Windows has no POSIX file modes. chmod there only toggles a read-only bit and
+ * the mode always reads back 0666, so the 0600 assertions below cannot hold.
+ * The file is protected by the ACL it inherits from the profile directory
+ * instead — a different guarantee, not a weaker place to write the secret.
+ */
+const posixModes = platform() !== "win32";
 const { join } = await import("node:path");
 
 const out: string[] = [];
@@ -44,7 +54,7 @@ async function throwsWith(fn: () => unknown, fragment: string, what: string): Pr
 
 const dir = await mkdtemp(join(tmpdir(), "costingly-config-"));
 process.env["COSTINGLY_HOME"] = dir;
-for (const k of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "PORT"]) {
+for (const k of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
   delete process.env[k];
 }
 
@@ -53,23 +63,21 @@ const SAMPLE = {
   plaidSecret: "secret-xyz",
   encryptionKey: Buffer.alloc(32, 7).toString("base64"),
   plaidEnv: "production" as const,
-  port: 4000,
 };
 
 // --- nothing set up --------------------------------------------------------
 eq(cfg.readConfigFile(), {}, "a missing config file reads as empty, not an error");
 await throwsWith(() => cfg.getSecret("plaidSecret"), "costingly init",
   "a missing secret points at the fix");
-await throwsWith(() => cfg.getSecret("plaidSecret"), dir,
+await throwsWith(() => cfg.getSecret("plaidSecret"), displayPath(dir),
   "and names the profile it checked");
 
 // Defaults still resolve with no file at all — help and doctor must work.
 eq(cfg.get("plaidEnv"), "production", "plaidEnv defaults to production");
-eq(cfg.get("port"), 4000, "port defaults to 4000");
 
 // --- writing ---------------------------------------------------------------
 await cfg.writeConfig(SAMPLE);
-eq((await stat(configPath())).mode & 0o777, 0o600, "config.json is written owner-only (0600)");
+if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "config.json is written owner-only (0600)");
 eq(cfg.readConfigFile(), SAMPLE, "round-trips every key");
 eq(cfg.get("plaidClientId"), "client-abc", "get() reads a public value");
 eq(cfg.getSecret("plaidSecret"), "secret-xyz", "getSecret() reads a secret");
@@ -93,19 +101,25 @@ delete process.env["PLAID_SECRET"];
 
 // --- rewriting preserves everything else -----------------------------------
 // `init` re-runs through writeConfig, so a rewrite must not disturb the key.
-await cfg.writeConfig({ ...SAMPLE, port: 4100 });
-eq(cfg.get("port"), 4100, "a rewrite updates the key it changed");
+await cfg.writeConfig({ ...SAMPLE, plaidClientId: "client-abc" });
 eq(cfg.getSecret("encryptionKey"), SAMPLE.encryptionKey,
    "A REWRITE DOES NOT DISTURB THE ENCRYPTION KEY");
 eq(cfg.readConfigFile().plaidClientId, "client-abc", "and leaves other keys alone");
-eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
+
+// --- the ports section survives a rewrite -----------------------------------
+// `init` goes through writeConfig, which does not know ports exist. If it wrote
+// wholesale it would drop them and every service would re-allocate on next run.
+store.writePorts({ link: 4100, database: 54321 });
+await cfg.writeConfig(SAMPLE);
+eq(store.readPorts(), { link: 4100, database: 54321 },
+   "WRITECONFIG PRESERVES THE PORTS SECTION it knows nothing about");
+
+// A malformed entry is dropped rather than taking the whole file down.
+store.update({ ports: { link: 4100, bad: -1 } as Record<string, number> });
+eq(store.readPorts(), { link: 4100 }, "an out-of-range stored port is ignored, not fatal");
+if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
 
 // --- validation ------------------------------------------------------------
-process.env["PORT"] = "not-a-number";
-await throwsWith(() => cfg.get("port"), "Invalid port", "a non-numeric port is rejected");
-process.env["PORT"] = "70000";
-await throwsWith(() => cfg.get("port"), "Invalid port", "an out-of-range port is rejected");
-delete process.env["PORT"];
 
 process.env["PLAID_ENV"] = "development";
 await throwsWith(() => cfg.get("plaidEnv"), "sandbox", "a retired plaidEnv is rejected by name");
@@ -155,7 +169,7 @@ eq(cfg.readConfigFile().plaidClientId, undefined, "PROFILES ARE FULLY ISOLATED")
 
 const phDir = await mkdtemp(join(tmpdir(), "costingly-ph-"));
 process.env["COSTINGLY_HOME"] = phDir;
-for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "PORT"]) {
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
   delete process.env[name];
 }
 
@@ -186,14 +200,14 @@ await rm(phDir, { recursive: true, force: true });
 
 const keyDir = await mkdtemp(join(tmpdir(), "costingly-key-"));
 process.env["COSTINGLY_HOME"] = keyDir;
-for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV", "PORT"]) {
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
   delete process.env[name];
 }
 
 // A pre-existing file whose other values must survive the merge.
-await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc", port: 4321 }), "utf8");
+await writeFile(configPath(), JSON.stringify({ plaidClientId: "abc" }), "utf8");
 
-const crypto = await import(`${P}/src/crypto.js?key-test`);
+const crypto = await import(new URL("../src/domain/crypto.js?key-test", import.meta.url).href);
 
 eq(cfg.getSecretIfSet("encryptionKey"), undefined, "no encryption key to begin with");
 
@@ -203,7 +217,6 @@ const stored = JSON.parse(await readFile(configPath(), "utf8")) as Record<string
 ok(typeof stored["encryptionKey"] === "string", "ENCRYPTING WITHOUT A KEY CREATES ONE");
 eq(Buffer.from(String(stored["encryptionKey"]), "base64").length, 32, "and it is 32 bytes");
 eq(stored["plaidClientId"], "abc", "the merge preserves other values in the file");
-eq(stored["port"], 4321, "including non-secrets");
 eq(crypto.decrypt(sealed), "a-plaid-access-token", "and the value round-trips");
 
 // The property that matters: stable across calls. A key regenerated on the
@@ -214,12 +227,12 @@ const after = JSON.parse(await readFile(configPath(), "utf8")) as Record<string,
 eq(after["encryptionKey"], firstKey, "A SECOND CALL REUSES THE KEY, never regenerates it");
 
 const keyMode = await stat(configPath());
-eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfigSync is still 0600");
+if (posixModes) eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfigSync is still 0600");
 
 // An environment value is a per-invocation override, not state. Persisting one
 // would silently turn a temporary setting into a permanent one.
 process.env["PLAID_SECRET"] = "from-the-environment";
-cfg.updateConfigSync({ plaidEnv: "sandbox" });
+store.update({ plaidEnv: "sandbox" });
 const afterEnv = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, string>;
 eq(afterEnv["plaidEnv"], "sandbox", "updateConfigSync writes what it was given");
 eq(afterEnv["plaidSecret"], undefined,

@@ -27,6 +27,7 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
  * before spending a minute on the end-to-end run.
  */
 const ORDER = [
+  "architecture",
   "profile",
   "config",
   "smoke",
@@ -36,9 +37,11 @@ const ORDER = [
   "views",
   "seed",
   "health",
+  "status",
   "readonly",
   "mcp",
   "init-flow",
+  "uninstall",
   "concurrency",
   "e2e",
 ];

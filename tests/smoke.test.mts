@@ -48,17 +48,21 @@ function throws(fn: () => unknown, fragment: string): void {
 }
 
 // --- module loading -------------------------------------------------------
-const db = await import("../src/db/client.js");
-const crypto = await import("../src/crypto.js");
-const configMod = await import("../src/config.js");
+const dbModule = await import("../src/domain/data/default-database.js");
+const crypto = await import("../src/domain/crypto.js");
+const configMod = await import("../src/domain/config.js");
 const index = await import("../src/index.js");
-const server = await import("../src/db/server.js");
+const project = await import("../src/domain/project.js");
 
 check("all modules load under Node ESM", () => {
-  assert(typeof db.query === "function", "db.query missing");
-  assert(typeof db.withTransaction === "function", "db.withTransaction missing");
-  assert(typeof server.clusterDir === "function", "server.clusterDir missing");
-  assert(typeof server.ensureServerRunning === "function", "server.ensureServerRunning missing");
+  assert(typeof dbModule.db.query === "function", "db.query missing");
+  assert(typeof dbModule.db.transaction === "function", "db.transaction missing");
+  assert(typeof project.server.dataDir === "function", "server.dataDir missing");
+  // install and start are separate on purpose: install creates the datastore,
+  // start only resumes one that already exists, so no caller that wanted the
+  // second can silently do the first.
+  assert(typeof project.server.install === "function", "server.install missing");
+  assert(typeof project.server.start === "function", "server.start missing");
   assert(typeof index.syncAllItems === "function", "syncAllItems not exported from index");
   assert(typeof index.createLinkToken === "function", "createLinkToken not exported from index");
   assert(typeof configMod.getSecret === "function", "config.getSecret missing");
@@ -127,6 +131,36 @@ check("bad key length is rejected", () => {
   throws(() => crypto.encrypt("x"), "32 bytes");
   process.env.ENCRYPTION_KEY = key;
 });
+
+// --- the two version fields agree ----------------------------------------
+//
+// `package.json` is what npm and `npm version` know about. `manifest.json` is
+// what Claude Desktop reads, and its version is the one shown to a user — so a
+// drift produces a bundle that reports itself as a release it is not, which is
+// worse than no version at all because it is confidently wrong. A beta user
+// saying "I'm on 1.5.0" then names code that does not exist.
+//
+// Asserted HERE rather than fixed at build time on purpose. The bundle build
+// used to rewrite the mismatch silently, which meant the manual step could stop
+// happening and nothing would say so. A check that fails is the only kind that
+// tells you the process is working.
+{
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const read = (name: string): { version?: string } =>
+    JSON.parse(readFileSync(`${root}${name}`, "utf8")) as { version?: string };
+
+  check("package.json and manifest.json declare the same version", () => {
+    const pkg = read("package.json").version;
+    const manifest = read("manifest.json").version;
+    assert(
+      pkg === manifest,
+      `package.json is ${String(pkg)} but manifest.json is ${String(manifest)}.\n` +
+        `          Update manifest.json to match — Claude Desktop shows ITS version.`,
+    );
+  });
+}
 
 // Config and profile resolution have their own suites (config.mts,
 // profile.mts). This file stays what its header claims: does everything load,

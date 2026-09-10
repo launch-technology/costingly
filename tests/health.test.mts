@@ -24,10 +24,18 @@ const SECRET = "plaid-secret-must-never-be-printed";
 process.env["PLAID_SECRET"] = SECRET;
 process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
-const { query, closeDb, stopServer, setMigrationSource } = await import("../src/index.js");
-const { checkDatabase, restartDatabase } = await import("../src/db/health.js");
-const { formatHealth } = await import("../src/mcp/format.js");
-const { serverStatus } = await import("../src/db/server.js");
+const { db, closeDb, server } = await import("../src/index.js");
+const { install } = await import("../src/domain/services/install.service.js");
+const { checkDatabase, restartDatabase } = await import("../src/domain/services/database/database-health.service.js");
+const { blockersIn, costinglyStatus } = await import("../src/domain/services/status.service.js");
+const { formatCheck } = await import("../src/apps/mcp/tools/check-costingly.utils.js");
+
+/** What check_costingly would show right now. */
+const render = async (): Promise<string> => {
+  const status = await costinglyStatus();
+  return formatCheck(status, blockersIn(status));
+};
+
 
 const out: string[] = [];
 let fail = 0;
@@ -41,26 +49,64 @@ function eq(a: unknown, b: unknown, what: string): void {
 const ok = (c: boolean, what: string): void => eq(c, true, what);
 
 async function wipe(): Promise<void> {
-  await stopServer().catch(() => {});
-  await rm(HOME, { recursive: true, force: true });
+  await server.stop().catch(() => {});
+  // maxRetries: Windows can still hold handles on the cluster directory for a
+  // moment after the postmaster exits, which unlink-while-open unix does not.
+  await rm(HOME, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 await wipe();
 
-const { loadMigrations } = await import("../cli/migrations.js");
-setMigrationSource(loadMigrations);
+const { loadMigrations } = await import("../src/platform/postgres/migrations.js");
+
+// ===========================================================================
+// 0. INSPECTING MUST NOT CREATE
+// ===========================================================================
+//
+// Runs first, on a profile that has just been wiped, because it is the only
+// point at which "nothing exists" is still true — everything below deliberately
+// builds a database.
+//
+// The bug this pins down: `clusterConfig()` used to evaluate the superuser
+// login eagerly, and supplying that login GENERATES a password and writes it to
+// config.json. So merely asking `status()` whether the server was up recreated
+// part of a profile that had just been deleted — and a diagnostic that
+// resurrects what it reports on cannot be used to confirm a cleanup.
+
+const { existsSync } = await import("node:fs");
+const { platform: costinglyPlatform } = await import("../src/domain/project.js");
+
+eq(existsSync(HOME), false, "the profile really is gone before we look at it");
+
+const stateBefore = await server.status();
+eq(stateBefore, "uninitialised", "status() reports an absent cluster");
+eq(existsSync(HOME), false, "…and status() created NOTHING");
+
+eq(await server.endpoint(), undefined, "endpoint() reports no port rather than inventing one");
+eq(existsSync(HOME), false, "…and endpoint() created NOTHING");
+
+eq(await server.stop(), false, "stop() on an absent cluster is a no-op");
+eq(existsSync(costinglyPlatform.configPath()), false, "…and wrote no config.json");
 
 // ===========================================================================
 // 1. Nothing exists yet — the very first thing a broken install looks like
 // ===========================================================================
 
-const fresh = await checkDatabase();
+const absent = await checkDatabase();
 ok(true, "checkDatabase() on a non-existent profile RETURNED instead of throwing");
-eq(fresh.profile.chosenBy, "COSTINGLY_HOME", "it reports what chose the profile");
-ok(fresh.profile.path.includes("costingly-health"), "it names the profile directory");
+eq(absent.profile.chosenBy, "COSTINGLY_HOME", "it reports what chose the profile");
+ok(absent.profile.path.includes("costingly-health"), "it names the profile directory");
 
-// The connection attempt creates everything, because opening the database is
-// what builds it. That is the real behaviour and the report should reflect it.
-ok(fresh.connection.ok, "connecting created and started the cluster");
+// It reports what is not there, and — the point of section 0 — leaves it not
+// there. Checking is not a way of creating.
+eq(absent.connection.ok, false, "it cannot connect, and says so");
+eq(absent.cluster.state, "uninitialised", "the cluster is reported as absent");
+eq(existsSync(HOME), false, "AND CHECKING CREATED NOTHING");
+
+// Now build it for real. Explicit, because reading no longer creates one.
+await install();
+
+const fresh = await checkDatabase();
+ok(fresh.connection.ok, "once the database exists, the check connects");
 eq(fresh.migrationsApplied, (await loadMigrations()).map((m) => m.id),
    "every migration is reported as applied");
 ok((fresh.cluster.uptimeSeconds ?? -1) >= 0, "uptime is reported once connected");
@@ -70,7 +116,7 @@ ok(fresh.cluster.startedAt !== null, "and so is the postmaster start time");
 // 2. Secrets
 // ===========================================================================
 
-const rendered = formatHealth(fresh);
+const rendered = await render();
 ok(!rendered.includes(SECRET), "THE REPORT DOES NOT CONTAIN THE PLAID SECRET");
 ok(!JSON.stringify(fresh).includes(SECRET), "...and neither does the underlying record");
 // The report is about the database, not its contents. These are the questions
@@ -85,34 +131,36 @@ for (const absent of ["transaction", "Sources", "Covering", "Synced"]) {
 // ===========================================================================
 
 await closeDb();
-await stopServer();
-eq(await serverStatus(), "stopped", "server really is stopped");
+await server.stop();
+eq(await server.status(), "stopped", "server really is stopped");
 
 const afterStop = await checkDatabase();
 ok(true, "checkDatabase() with the server stopped RETURNED instead of throwing");
-// Connecting restarts it, which is what a real tool call would do too. The
-// tool answers "can costingly reach its data", and the answer here is yes.
-ok(afterStop.connection.ok, "the probe started the server again and connected");
-eq(await serverStatus(), "running", "and left it running");
+// It reports the state it found and leaves it alone. Starting a stopped server
+// is `restart_database`'s job — a tool called `check` that silently fixed what
+// it was asked to inspect would deny its caller the chance to decide.
+eq(afterStop.connection.ok, false, "it reports that it cannot connect");
+eq(afterStop.cluster.state, "stopped", "and reports the server as stopped");
+eq(await server.status(), "stopped", "CHECKING DID NOT START IT");
 
 // ===========================================================================
 // 4. Restart
 // ===========================================================================
 
-await query(`SELECT 1`);
+await db.query(`SELECT 1`);
 const restart = await restartDatabase();
 eq(restart.wasRunning, true, "restart_database saw a running server");
 eq(restart.ok, true, "RESTART BROUGHT THE DATABASE BACK");
 ok(restart.elapsedMs > 0, "and reported how long it took");
-eq(await serverStatus(), "running", "the server is running afterwards");
+eq(await server.status(), "running", "the server is running afterwards");
 
 // Data has to survive it — that is the difference between a restart and a reset.
-await query(
+await db.query(
   `INSERT INTO items (item_id, institution_name, access_token_enc, source, status)
    VALUES ('survivor', 'Persisted Bank', 'aXY=.dGFn.Y2lwaGVy', 'plaid', 'active')`,
 );
 await restartDatabase();
-const survived = await query<{ c: string }>(
+const survived = await db.query<{ c: string }>(
   `SELECT COUNT(*)::text c FROM items WHERE item_id = 'survivor'`,
 );
 eq(survived.rows[0]!.c, "1", "DATA SURVIVES A RESTART");
@@ -128,8 +176,8 @@ eq(twice.ok, true, "restarting again is fine (idempotent, as annotated)");
 const afterRestart = await checkDatabase();
 const uptime = afterRestart.cluster.uptimeSeconds ?? Number.MAX_SAFE_INTEGER;
 ok(uptime < 60, `uptime reflects the restart just performed (${uptime}s)`);
-const restartText = formatHealth(afterRestart);
-ok(restartText.includes("Uptime:"), "the report shows uptime");
+const restartText = await render();
+ok(restartText.includes("up "), "the report shows uptime");
 ok(restartText.includes("moments ago"),
    "AND FLAGS A JUST-RESTARTED SERVER — a small number alone reads as noise");
 
@@ -138,14 +186,15 @@ ok(restartText.includes("moments ago"),
 // ===========================================================================
 
 await closeDb();
-await stopServer();
+await server.stop();
 await rm(`${HOME}/pg18`, { recursive: true, force: true });
 await mkdir(HOME, { recursive: true });
 
 const broken = await checkDatabase();
 ok(true, "checkDatabase() with the cluster DELETED returned instead of throwing");
-ok(typeof formatHealth(broken) === "string", "and the report still renders");
-ok(formatHealth(broken).startsWith("Database:"), "...starting with the verdict");
+const brokenText = await render();
+ok(typeof brokenText === "string", "and the report still renders");
+ok(brokenText.startsWith("costingly: NOT READY"), "...starting with the verdict");
 
 await closeDb();
 await wipe();
