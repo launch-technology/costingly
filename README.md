@@ -67,7 +67,8 @@ spend for a period (refunds cancel charges); flip the sign at read time with
 
 ## Installing
 
-Two ways, and they can share one profile on the same machine.
+Two ways. On macOS and Linux they share one profile; on Windows they do not —
+see [Where the data lives](#where-the-data-lives).
 
 **The Claude Desktop extension.** Download `costingly-<version>.mcpb` from the
 [releases page](../../releases) and double-click it. Claude Desktop asks for your
@@ -168,6 +169,29 @@ Everything costingly owns lives in **one folder** — its profile:
 ~/.local/share/costingly/                    Linux
 %LOCALAPPDATA%\costingly\Data\               Windows
 ```
+
+> **On Windows, the extension's profile is somewhere else.** Claude Desktop
+> installs from the Microsoft Store as a packaged (MSIX) app, and Windows
+> virtualises a packaged app's filesystem writes. So the extension asks for
+> `%LOCALAPPDATA%\costingly` and Windows redirects it to:
+>
+> ```
+> %LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Local\costingly\Data\
+> ```
+>
+> Both paths are correct — they are different views of the same request. But a
+> terminal is not packaged, so **the `costingly` command and the Claude Desktop
+> extension do not share a profile on Windows.** They are two separate installs,
+> on two ports, with two sets of data, and neither can see the other's.
+>
+> This has one sharp consequence: `costingly uninstall` at a terminal **cannot
+> remove the extension's data.** It resolves the unpackaged path and deletes a
+> different profile — possibly nothing at all. Use the `uninstall_costingly`
+> tool from inside Claude Desktop, which runs in the packaged process and
+> resolves the right one.
+>
+> Not verified on macOS. If Claude Desktop there is not similarly sandboxed the
+> two do share a profile, but treat that as unknown rather than assumed.
 
 ```
 <profile>/config.json    credentials and encryption key
@@ -331,8 +355,14 @@ sometimes what you want (re-installing shortly) and is never silent about it.
 
 ### Doing it by hand
 
-If you installed only the Claude Desktop extension, you have no CLI. The
-sequence matters:
+**Ask Claude first.** The extension provides an `uninstall_costingly` tool that
+does all of this properly, and on Windows it is the only thing that can — a
+terminal resolves a different profile directory and would delete the wrong one,
+or nothing. Say "uninstall costingly"; it reports what would be lost and waits
+for you to agree before deleting anything.
+
+What follows is for when that is not available — an extension too old to have
+the tool, or one that will not start. The sequence matters:
 
 1. **Quit Claude Desktop.**
 2. **Check the database is really stopped.** It will not be. `pg_ctl` starts the
@@ -360,7 +390,10 @@ sequence matters:
    Do not force-kill it (`kill -9`, `taskkill /F`): that skips the shutdown that
    releases shared memory, and does not bring the child processes down with it.
 4. **Delete the profile directory** — the paths under
-   [Where the data lives](#where-the-data-lives).
+   [Where the data lives](#where-the-data-lives). On Windows an extension
+   install is under `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Local\`,
+   **not** `%LOCALAPPDATA%\costingly`. Check both: if you also used the CLI,
+   there are two profiles and only one of them is the extension's.
 5. **Remove the Items at Plaid** yourself, at [my.plaid.com](https://my.plaid.com/)
    or the [Plaid dashboard](https://dashboard.plaid.com/activity/usage). Nothing
    revoked them, and they keep billing until you do.

@@ -24,6 +24,7 @@ import { registerSyncTool } from "./tools/sync.tool.js";
 import { registerLinkBankTool } from "./tools/link-bank.tool.js";
 import { registerRelinkBankTool } from "./tools/relink-bank.tool.js";
 import { registerUnlinkBankTool } from "./tools/unlink-bank.tool.js";
+import { registerUninstallCostinglyTool } from "./tools/uninstall-costingly.tool.js";
 
 const INSTRUCTIONS =
     "costingly is a local PostgreSQL database holding this user's own bank and " +
@@ -39,7 +40,8 @@ const INSTRUCTIONS =
     "When something is wrong rather than being asked:\n" +
     "  7. check_costingly — is costingly set up and working, and what is stopping it\n" +
     "  8. setup_costingly — create the local database, when nothing is installed\n" +
-    "  9. restart_database — stop the local database server and bring it back\n\n" +
+    "  9. restart_database — stop the local database server and bring it back\n" +
+    " 10. uninstall_costingly — delete everything on this machine. Destructive.\n\n" +
     "If any tool above fails, call check_costingly FIRST. It is built to answer when " +
     "everything else is down, and its verdict says which of three different problems " +
     "you have:\n\n" +
@@ -99,6 +101,7 @@ export class CostinglyMcpApplication extends McpApplication {
       registerCheckCostinglyTool,
       registerSetupCostinglyTool,
       registerRestartDatabaseTool,
+      registerUninstallCostinglyTool,
     ];
   }
 
