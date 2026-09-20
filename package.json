@@ -1,6 +1,6 @@
 {
   "name": "costingly",
-  "version": "1.5.2",
+  "version": "1.6.1",
   "private": true,
   "type": "module",
   "description": "Daily sync of bank and credit-card transactions from Plaid into Postgres.",
@@ -26,6 +26,7 @@
     "setup:sandbox": "tsx scripts/setup-sandbox.mts",
     "test": "tsx tests/run.mts",
     "audit": "npm audit --omit=dev --audit-level=high",
+    "set-version": "tsx scripts/set-version.mts",
     "build:bundle": "tsx scripts/build-bundle.mts"
   },
   "dependencies": {
