@@ -154,11 +154,29 @@ jobs:
           echo "embedded-postgres in bundle: ${found}"
           test "${found}" = "windows-x64"
 
+      # Name the download after what it is and where it came from.
+      #
+      # The version alone is not enough to tell two builds apart: it does not
+      # change between pushes to a branch, so every run on one PR would hand you
+      # an identically named zip. The commit is the only part that varies per
+      # build, and it is what you match against `git log` when checking whether
+      # you are testing the fix you just pushed.
+      #
+      # `pull_request.head.sha`, not `github.sha`: on a pull_request event the
+      # latter is the throwaway merge commit GitHub synthesises, which exists in
+      # no branch and matches nothing locally. The `||` falls through on push to
+      # main, where there is no pull request and github.sha is the real commit.
+      - id: meta
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "${{ github.event.pull_request.head.sha || github.sha }}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "src=${{ github.event.pull_request.number && format('pr{0}', github.event.pull_request.number) || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
       # Every PR therefore produces a double-clickable .mcpb you can install and
       # try. For a desktop extension that is worth more than any assertion.
       - uses: actions/upload-artifact@v4
         with:
-          name: mcpb-win32-x64
+          name: costingly-${{ steps.meta.outputs.version }}-win32-x64-${{ steps.meta.outputs.src }}-${{ steps.meta.outputs.sha }}
           path: build/*.mcpb
           retention-days: 7
           if-no-files-found: error
