@@ -180,3 +180,38 @@ jobs:
           path: build/*.mcpb
           retention-days: 7
           if-no-files-found: error
+
+  # Static analysis of the source, looking for places untrusted input reaches
+  # somewhere dangerous. Worth running on this codebase specifically, not as
+  # box-ticking: costingly executes model-authored SQL through the read-only
+  # query service and spawns initdb/pg_ctl with constructed arguments, so
+  # js/sql-injection and js/command-line-injection are exactly the queries that
+  # apply here.
+  #
+  # No `needs: guard`. This reads source and never installs anything, so it does
+  # not care whether the lockfile is in order — making it wait would add latency
+  # and buy nothing.
+  #
+  # It reports; it does not fail. `codeql-action/analyze` has no fail-on-severity
+  # input, so this job goes green whatever it finds and the findings land in the
+  # Security tab. Blocking a merge on them is a repository ruleset ("require code
+  # scanning results"), configured outside this file.
+  codeql:
+    name: codeql
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      # No build step: CodeQL analyses TypeScript from source. Running `npm ci`
+      # here would only add three minutes and a dist/ tree it does not read.
+      - uses: github/codeql-action/analyze@v3
