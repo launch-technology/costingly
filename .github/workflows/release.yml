@@ -1,0 +1,203 @@
+name: Release
+
+# Triggered by pushing a v* tag. The tag is the record: --verify-tag works,
+# --generate-notes has a range to work from, and the version assertion below has
+# something to compare against. Creating the GitHub Release first would leave it
+# public and empty while the bundle builds; a bare workflow_dispatch would leave
+# no provenance tying the artifact to a commit.
+#
+# workflow_dispatch is kept as a secondary trigger for exactly one case:
+# re-running a failed upload without cutting a new tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing v* tag to rebuild and publish
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false # never cancel a release mid-upload
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - id: tag
+        env:
+          RAW: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          echo "tag=${RAW}"       >> "$GITHUB_OUTPUT"
+          echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
+
+      # The one version check tests/smoke.test.mts cannot make: it has no idea
+      # which tag it is being built under. package.json == manifest.json and the
+      # lockfile are covered by the suite below and by ci.yml's guard job.
+      - name: the tag matches package.json
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          if [ "${pkg}" != "${{ steps.tag.outputs.version }}" ]; then
+            echo "tag says ${{ steps.tag.outputs.version }}, package.json says ${pkg}"
+            exit 1
+          fi
+          echo "tag and package.json agree at ${pkg}"
+
+      # GitHub Flow: releases are cut from main, never from a side branch.
+      - name: the tag must be an ancestor of main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${{ steps.tag.outputs.tag }}" FETCH_HEAD
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+      # The FULL suite, including the two Plaid sandbox suites. Unlike a fork PR,
+      # here a SKIP is a failure: a tag must not be published on a commit whose
+      # end-to-end path was never exercised.
+      - name: Plaid sandbox profile
+        env:
+          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+        run: npm run setup:sandbox
+      - name: the sandbox profile must exist
+        run: test -f .dev-sandbox/config.json
+      - run: npm test
+
+  build:
+    name: build (win32-x64)
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build:bundle
+
+      - name: bundle carries exactly the expected PostgreSQL build
+        run: |
+          found=$(ls build/staging/node_modules/@embedded-postgres)
+          echo "embedded-postgres in bundle: ${found}"
+          test "${found}" = "windows-x64"
+
+      # The asset carries its platform in the name even though there is only one
+      # today. When the macOS bundles land they cannot collide with this one, and
+      # links in old release notes keep reading the same way.
+      - name: name the asset after its target
+        run: |
+          mkdir -p assets
+          mv "build/costingly-${{ needs.verify.outputs.version }}.mcpb" \
+             "assets/costingly-${{ needs.verify.outputs.version }}-win32-x64.mcpb"
+          ls -la assets
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-win32-x64
+          path: assets/*.mcpb
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # the ONLY job with write, and only to create a release
+      id-token: write # for build provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          pattern: mcpb-*
+          merge-multiple: true
+
+      # `mcpb pack` prints a sha1. Users get SHA256, which is what to publish.
+      - name: checksums
+        run: |
+          cd assets
+          sha256sum *.mcpb | tee SHA256SUMS
+
+      # A verifiable link from the .mcpb back to the commit and workflow run that
+      # produced it — real provenance for a binary someone is about to install
+      # next to their bank credentials. Checked with `gh attestation verify`.
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: assets/*.mcpb
+
+      - name: release notes header
+        env:
+          V: ${{ needs.verify.outputs.version }}
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          **Windows only for now.** Download \`costingly-${V}-win32-x64.mcpb\` and
+          open it with Claude Desktop.
+
+          The bundle carries the PostgreSQL 18 build for this one platform, which
+          is why it is named for it. macOS builds are planned.
+
+          ## Verify the download
+
+          \`\`\`
+          sha256sum --ignore-missing -c SHA256SUMS
+          \`\`\`
+          EOF
+
+      # Published as a DRAFT on purpose. For a beta that holds bank credentials,
+      # the last step should be a human downloading the .mcpb, double-clicking
+      # it, and only then pressing Publish. "It packed" is not "it installs".
+      #
+      # gh is preinstalled on every runner, so this workflow depends on no
+      # third-party action at all. Anything third-party in a job holding
+      # contents: write must be pinned to a full commit SHA, not a major tag.
+      - name: create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ needs.verify.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "costingly ${{ needs.verify.outputs.version }}" \
+            --notes-file notes.md \
+            --generate-notes \
+            --draft \
+            --verify-tag \
+            assets/*.mcpb assets/SHA256SUMS
+
+      - run: echo "Draft release created. Install the .mcpb, then publish it."

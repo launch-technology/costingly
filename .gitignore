@@ -17,7 +17,14 @@ node_modules/
 # Build output
 dist/
 
-# The packed .mcpb and its staging directory — ~317 MB, never committed.
+# TypeScript's incremental caches, written by the composite configs in
+# `npm run typecheck`. They are content hashes of every file in the program,
+# including node_modules — so they churn on every dependency bump and turn a
+# clean diff into a noisy one. tsBuildInfoFile points them at node_modules/
+# already; this catches stale checkouts that still have them in the root.
+*.tsbuildinfo
+
+# The packed .mcpb and its staging directory.
 build/
 .next/
 .vercel/

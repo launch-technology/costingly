@@ -7,7 +7,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": true,
-    "noEmit": true
+    "noEmit": true,
+    // See tsconfig.platform.json — build output, not source.
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.domain.tsbuildinfo"
   },
   "include": ["src/platform/**/*.ts", "src/domain/**/*.ts"]
 }

@@ -1,0 +1,127 @@
+name: Bug report
+description: Something costingly does that it should not, or does not do that it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Before you paste anything
+
+        Costingly handles bank data. **Do not include:**
+
+        - your Plaid `client_id` or secret, or any `access_token`
+        - account or routing numbers
+        - real transaction rows, balances, or merchant names you would not post publicly
+        - the contents of your profile's `config.json`
+
+        `costingly status` never prints secrets — it reports each as set or
+        unset — so its output is safe to paste. Redact anything else.
+
+        If this is a security vulnerability, **stop** and follow
+        [SECURITY.md](https://github.com/launch-technology/costingly/blob/main/SECURITY.md)
+        instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+      placeholder: |
+        I ran `costingly sync` and ...
+        I expected ...
+        Instead ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows the problem. Include the exact command.
+      placeholder: |
+        1. costingly init
+        2. costingly link
+        3. costingly sync
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install costingly?
+      options:
+        - Claude Desktop extension (.mcpb)
+        - From source (npm ci / npm link)
+        - Both
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: costingly version
+      description: "`costingly --version`, or the version shown in Claude Desktop's extension list."
+      placeholder: "1.5.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      description: >
+        The published .mcpb currently ships for Windows x64 only. macOS builds
+        are planned but not released — a bundle report from macOS will be closed
+        as not-yet-supported. Running from source on macOS or Linux is fine and
+        bug reports for that are welcome.
+      options:
+        - Windows
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: "Windows 11 24H2, or macOS 15.3"
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: "`node --version`. Costingly requires Node 20 or newer."
+      placeholder: "v22.11.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `costingly status`
+      description: Safe to paste — it reports secrets as set or unset, never their values.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output or log excerpt
+      description: >
+        The error as printed. If the database failed to start, `costingly status`
+        names the postmaster log — the tail of it usually contains the answer.
+        Check for account numbers before pasting.
+      render: text
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have removed all credentials, tokens, account numbers and real transaction data from this report.
+          required: true
+        - label: I searched existing issues and this is not already reported.
+          required: true

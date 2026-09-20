@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/launch-technology/costingly/discussions
+    about: Ask how something works, or float an idea before filing it as a request.
+  - name: Report a security vulnerability
+    url: https://github.com/launch-technology/costingly/security/advisories/new
+    about: Costingly holds bank credentials. Report privately, never in a public issue.
