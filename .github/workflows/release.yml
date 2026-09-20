@@ -156,7 +156,7 @@ jobs:
       # A verifiable link from the .mcpb back to the commit and workflow run that
       # produced it — real provenance for a binary someone is about to install
       # next to their bank credentials. Checked with `gh attestation verify`.
-      - uses: actions/attest-build-provenance@v3
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: assets/*.mcpb
 
