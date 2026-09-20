@@ -25,6 +25,7 @@
     "cli": "tsx src/apps/cli/main.ts",
     "setup:sandbox": "tsx scripts/setup-sandbox.mts",
     "test": "tsx tests/run.mts",
+    "audit": "npm audit --omit=dev --audit-level=high",
     "build:bundle": "tsx scripts/build-bundle.mts"
   },
   "dependencies": {
