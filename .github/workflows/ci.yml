@@ -174,7 +174,7 @@ jobs:
 
       # Every PR therefore produces a double-clickable .mcpb you can install and
       # try. For a desktop extension that is worth more than any assertion.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: costingly-${{ steps.meta.outputs.version }}-win32-x64-${{ steps.meta.outputs.src }}-${{ steps.meta.outputs.sha }}
           path: build/*.mcpb

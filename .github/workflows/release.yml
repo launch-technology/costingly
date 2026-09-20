@@ -120,7 +120,7 @@ jobs:
              "assets/costingly-${{ needs.verify.outputs.version }}-win32-x64.mcpb"
           ls -la assets
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mcpb-win32-x64
           path: assets/*.mcpb
@@ -141,7 +141,7 @@ jobs:
         with:
           ref: ${{ needs.verify.outputs.tag }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: assets
           pattern: mcpb-*
