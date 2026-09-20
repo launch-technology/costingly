@@ -36,7 +36,7 @@
     "env-paths": "^4.0.0",
     "express": "^5.2.1",
     "pg": "^8.22.0",
-    "plaid": "^45.0.0",
+    "plaid": "^47.0.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
