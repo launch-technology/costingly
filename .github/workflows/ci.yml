@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # tests/smoke.test.mts already asserts package.json == manifest.json, and
+      # explains why that lives in a test rather than in the build. It cannot
+      # cover the lockfile cheaply, though — `npm test` needs a 150 MB install
+      # first — and the lockfile is the one that actually drifted. This needs no
+      # install at all, so a mismatch fails in seconds instead of minutes.
+      - name: lockfile version matches package.json
+        run: |
+          node -e '
+            const pkg = require("./package.json").version;
+            const lock = require("./package-lock.json");
+            const places = [[".version", lock.version], ["packages[\"\"]", lock.packages[""].version]];
+            let bad = false;
+            for (const [where, value] of places) {
+              if (value !== pkg) {
+                console.error(`package-lock.json ${where} is ${value}, package.json is ${pkg}`);
+                bad = true;
+              }
+            }
+            if (bad) {
+              console.error("\n  npm install --package-lock-only\n");
+              process.exit(1);
+            }
+            console.log(`lockfile agrees at ${pkg}`);
+          '
+
+      # --omit=dev because tsx, esbuild and typescript never reach a user. A dev
+      # advisory red-Xing an unrelated PR is how people learn to ignore this step.
+      # Needs only the lockfile, so it runs without installing anything.
+      - name: no high-severity advisories in what ships
+        run: npm audit --omit=dev --audit-level=high
+
+  test:
+    name: test (${{ matrix.os }})
+    needs: guard
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      # Static on purpose. A matrix gated by an expression makes a required
+      # status check that never reports, and a required check that never reports
+      # blocks the PR forever. To cut cost, delete a leg — never conditionalise
+      # one. macos-latest joins here when a macOS bundle is shipped.
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Caches ~/.npm (the tarball cache), NOT node_modules. A restored
+          # node_modules would skip @embedded-postgres's postinstall, which
+          # rehydrates PostgreSQL's symlinks, and skip this package's own
+          # `prepare` — so dist/ would never be built.
+          cache: npm
+
+      # `npm ci` runs `prepare`, which runs `npm run build`, which runs tsc. A
+      # type error therefore fails THIS step, not the typecheck step below.
+      # Expected, and confusing exactly once.
+      - run: npm ci
+
+      # Covers what `build` does not: tests/, scripts/, and the two composite
+      # configs that fail with TS6307 when a layering rule is broken. Until
+      # ESLint lands, this is the whole static-analysis gate.
+      - run: npm run typecheck
+
+      - name: nothing generated drifted
+        run: git diff --exit-code
+
+      # Only ubuntu, and only where secrets are actually reachable. A pull
+      # request from a FORK gets an empty secret context: the profile is never
+      # written, and tests/e2e.test.mts + tests/init-flow.test.mts print SKIPPED
+      # and exit 0. That degradation is by design — do not fight it.
+      - name: Plaid sandbox profile
+        if: >-
+          matrix.os == 'ubuntu-latest' &&
+          (github.event_name == 'push' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+        run: |
+          if [ -z "${PLAID_CLIENT_ID}" ]; then
+            echo "::warning::No Plaid sandbox credentials here — e2e and init-flow will SKIP."
+            exit 0
+          fi
+          npm run setup:sandbox
+
+      # main is not allowed to go quiet. Without this, a broken sandbox step
+      # would silently drop two suites and nobody would notice for months.
+      - name: main must not skip the Plaid suites
+        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
+        run: test -f .dev-sandbox/config.json
+
+      # 11 of the 18 suites start a real embedded PostgreSQL 18 cluster over TCP
+      # loopback (unix_socket_directories = ''). No services:, no Docker.
+      - run: npm test
+
+  bundle:
+    name: bundle (win32-x64)
+    needs: guard
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build:bundle
+
+      # The bundle carries exactly ONE PostgreSQL build, chosen by the host it
+      # was built on. Assert it is the intended one: this is the check that will
+      # catch a mislabelled asset the day the macOS legs are added and
+      # macos-latest turns out to be arm64.
+      - name: bundle carries exactly the expected PostgreSQL build
+        run: |
+          found=$(ls build/staging/node_modules/@embedded-postgres)
+          echo "embedded-postgres in bundle: ${found}"
+          test "${found}" = "windows-x64"
+
+      # Name the download after what it is and where it came from.
+      #
+      # The version alone is not enough to tell two builds apart: it does not
+      # change between pushes to a branch, so every run on one PR would hand you
+      # an identically named zip. The commit is the only part that varies per
+      # build, and it is what you match against `git log` when checking whether
+      # you are testing the fix you just pushed.
+      #
+      # `pull_request.head.sha`, not `github.sha`: on a pull_request event the
+      # latter is the throwaway merge commit GitHub synthesises, which exists in
+      # no branch and matches nothing locally. The `||` falls through on push to
+      # main, where there is no pull request and github.sha is the real commit.
+      - id: meta
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "${{ github.event.pull_request.head.sha || github.sha }}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "src=${{ github.event.pull_request.number && format('pr{0}', github.event.pull_request.number) || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      # Every PR therefore produces a double-clickable .mcpb you can install and
+      # try. For a desktop extension that is worth more than any assertion.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: costingly-${{ steps.meta.outputs.version }}-win32-x64-${{ steps.meta.outputs.src }}-${{ steps.meta.outputs.sha }}
+          path: build/*.mcpb
+          retention-days: 7
+          if-no-files-found: error

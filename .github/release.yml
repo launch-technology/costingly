@@ -1,0 +1,32 @@
+# Groups the notes that `gh release create --generate-notes` writes.
+#
+# This is the file that makes the `breaking` and `migration` labels do real
+# work: they get their own sections at the top of every release page, which is
+# the only reliable way to make yourself apply them.
+changelog:
+  exclude:
+    labels:
+      - chore
+      - ci
+      - dependencies
+    authors:
+      - dependabot
+  categories:
+    - title: Breaking changes
+      labels:
+        - breaking
+    - title: Upgrade notes
+      labels:
+        - migration
+    - title: Features
+      labels:
+        - enhancement
+    - title: Fixes
+      labels:
+        - bug
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Other
+      labels:
+        - "*"

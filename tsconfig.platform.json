@@ -11,7 +11,11 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": true,
-    "noEmit": true
+    "noEmit": true,
+    // Out of the repo root. `composite` writes one of these per config, and as
+    // build output they belong beside the other build output, not beside the
+    // source — where they show up in `git status` and in every diff.
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.platform.tsbuildinfo"
   },
   "include": ["src/platform/**/*.ts"]
 }

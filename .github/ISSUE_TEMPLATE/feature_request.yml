@@ -1,0 +1,49 @@
+name: Feature request
+description: Something costingly should be able to do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Costingly is maintained by one person and has a deliberate scope: keep a
+        private copy of your transactions on your machine and let you and a model
+        ask questions about it. Requests that widen that scope — budgeting,
+        forecasting, sending data anywhere — are likely to be declined, but are
+        still worth filing so the reasoning is on the record.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        The problem, not the solution. What were you trying to find out or get
+        done when you hit the wall?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like costingly to do?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part of costingly?
+      options:
+        - The MCP server (asking Claude)
+        - The CLI (`costingly <command>`)
+        - The database schema or the read-only views
+        - The sync pipeline
+        - Installation or setup
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What did you do instead?
+      description: A workaround, another tool, or nothing. This is useful signal.

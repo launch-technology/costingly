@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # All eight @embedded-postgres packages MUST move together. They are one
+      # upstream release cut into per-platform packages, and only the host's
+      # match is installed — so a lockfile where they disagree would produce
+      # bundles running DIFFERENT PostgreSQL builds on different platforms.
+      # Ungrouped this is also eight PRs, each a ~110 MB re-download.
+      embedded-postgres:
+        patterns:
+          - "@embedded-postgres/*"
+      types:
+        patterns:
+          - "@types/*"
+      dev:
+        dependency-type: development
+
+  # Action versions rot, and they are supply chain. This is also what makes
+  # SHA-pinning a third-party action sustainable, if one is ever added.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
