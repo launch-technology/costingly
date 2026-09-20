@@ -53,29 +53,29 @@ const close = (s: Server): Promise<void> => new Promise((r) => s.close(() => r()
 // --- the default is used when nothing is recorded ---------------------------
 {
   const f = fakeStore();
-  const svc = new PortService({ store: f.store, defaults: { link: 45231 } });
+  const svc = new PortService({ store: f.store, defaults: { link: 15100 } });
   const port = await svc.allocate("link");
-  eq(port, 45231, "an unrecorded service starts at its default");
-  eq(f.state["link"], 45231, "and the result is recorded for next time");
+  eq(port, 15100, "an unrecorded service starts at its default");
+  eq(f.state["link"], 15100, "and the result is recorded for next time");
 }
 
 // --- a recorded port is preferred over the default --------------------------
 {
-  const f = fakeStore({ link: 45240 });
-  const svc = new PortService({ store: f.store, defaults: { link: 45231 } });
-  eq(await svc.allocate("link"), 45240, "a recorded port wins over the default");
+  const f = fakeStore({ link: 15130 });
+  const svc = new PortService({ store: f.store, defaults: { link: 15100 } });
+  eq(await svc.allocate("link"), 15130, "a recorded port wins over the default");
   eq(f.writes, 0, "and nothing is rewritten when the port did not change");
 }
 
 // --- THE POINT OF THE WHOLE SERVICE: step over a port in use ----------------
 {
-  const taken = await occupy(45250);
+  const taken = await occupy(15160);
   try {
-    const f = fakeStore({ link: 45250 });
-    const svc = new PortService({ store: f.store, defaults: { link: 45250 } });
+    const f = fakeStore({ link: 15160 });
+    const svc = new PortService({ store: f.store, defaults: { link: 15160 } });
     const port = await svc.allocate("link");
-    eq(port, 45251, "A PORT IN USE IS STEPPED OVER, sequentially");
-    eq(f.state["link"], 45251, "and the new port replaces the old one in the store");
+    eq(port, 15161, "A PORT IN USE IS STEPPED OVER, sequentially");
+    eq(f.state["link"], 15161, "and the new port replaces the old one in the store");
   } finally {
     await close(taken);
   }
@@ -83,12 +83,12 @@ const close = (s: Server): Promise<void> => new Promise((r) => s.close(() => r()
 
 // --- several consecutive ports taken ----------------------------------------
 {
-  const a = await occupy(45260);
-  const b = await occupy(45261);
+  const a = await occupy(15190);
+  const b = await occupy(15191);
   try {
     const f = fakeStore();
-    const svc = new PortService({ store: f.store, defaults: { link: 45260 } });
-    eq(await svc.allocate("link"), 45262, "it keeps walking upward past a run of taken ports");
+    const svc = new PortService({ store: f.store, defaults: { link: 15190 } });
+    eq(await svc.allocate("link"), 15192, "it keeps walking upward past a run of taken ports");
   } finally {
     await close(a);
     await close(b);
@@ -97,10 +97,10 @@ const close = (s: Server): Promise<void> => new Promise((r) => s.close(() => r()
 
 // --- giving up is bounded and says what it tried ----------------------------
 {
-  const a = await occupy(45270);
+  const a = await occupy(15220);
   try {
     const f = fakeStore();
-    const svc = new PortService({ store: f.store, defaults: { link: 45270 }, maxAttempts: 1 });
+    const svc = new PortService({ store: f.store, defaults: { link: 15220 }, maxAttempts: 1 });
     let message = "";
     try {
       await svc.allocate("link");
@@ -108,7 +108,7 @@ const close = (s: Server): Promise<void> => new Promise((r) => s.close(() => r()
       message = error instanceof Error ? error.message : String(error);
     }
     ok(message.includes("Could not find a free port"), "it gives up rather than looping forever");
-    ok(message.includes("45270"), "and names the range it tried");
+    ok(message.includes("15220"), "and names the range it tried");
   } finally {
     await close(a);
   }
@@ -117,7 +117,7 @@ const close = (s: Server): Promise<void> => new Promise((r) => s.close(() => r()
 // --- an unknown service is a programming error, not a silent default --------
 {
   const f = fakeStore();
-  const svc = new PortService({ store: f.store, defaults: { link: 45231 } });
+  const svc = new PortService({ store: f.store, defaults: { link: 15100 } });
   let message = "";
   try {
     await svc.allocate("database");
@@ -131,10 +131,10 @@ const close = (s: Server): Promise<void> => new Promise((r) => s.close(() => r()
 // --- services are independent ------------------------------------------------
 {
   const f = fakeStore();
-  const svc = new PortService({ store: f.store, defaults: { link: 45280, database: 45290 } });
+  const svc = new PortService({ store: f.store, defaults: { link: 15250, database: 15280 } });
   await svc.allocate("link");
   await svc.allocate("database");
-  eq(f.state, { link: 45280, database: 45290 }, "each service keeps its own port");
+  eq(f.state, { link: 15250, database: 15280 }, "each service keeps its own port");
 }
 
 console.log(out.join("\n"));
