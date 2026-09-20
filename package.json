@@ -30,7 +30,7 @@
     "build:bundle": "tsx scripts/build-bundle.mts"
   },
   "dependencies": {
-    "@clack/prompts": "^1.7.0",
+    "@clack/prompts": "^1.8.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "commander": "^15.0.0",
     "env-paths": "^4.0.0",
