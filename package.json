@@ -1,6 +1,6 @@
 {
   "name": "costingly",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "private": true,
   "type": "module",
   "description": "Daily sync of bank and credit-card transactions from Plaid into Postgres.",
