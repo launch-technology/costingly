@@ -295,6 +295,17 @@ for (const file of behindTheShell.filter((f) => !f.path.startsWith(`${DESKTOP_MA
 }
 none(domainCode, "only desktop adapters import domain code; the layers above import its types");
 
+// The placeholder icon's drawing is read by the installer build as well as by
+// the app, and the build runs in plain node. One import here — Electron above
+// all — and the installer can no longer be built.
+none(
+  files
+    .filter((f) => f.path === `${DESKTOP_MAIN}shell/placeholder-pixels.ts`)
+    .filter((f) => f.imports.length > 0)
+    .map((f) => f.path),
+  "the placeholder icon's drawing imports nothing, so the installer build can use it",
+);
+
 // --- pg has exactly one home ------------------------------------------------
 // Everything else asks for an Executor. When this moves to platform/postgres/
 // in phase 1, only the prefix below changes.

@@ -28,8 +28,10 @@
     "audit": "npm audit --omit=dev --audit-level=high",
     "set-version": "tsx scripts/set-version.mts",
     "build:bundle": "tsx scripts/build-bundle.mts",
-  "build:desktop": "npm run build && tsx scripts/build-desktop.mts",
-  "desktop": "npm run build:desktop && electron dist/apps/desktop/main/main.js"
+    "build:desktop": "npm run build && tsx scripts/build-desktop.mts",
+    "desktop": "npm run build:desktop && electron dist/apps/desktop/main/main.js",
+    "build:installer": "npm run build:desktop && tsx scripts/build-installer.mts",
+    "check:packaged": "npm run build:desktop && tsx scripts/check-packaged.mts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
@@ -51,6 +53,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.63.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

@@ -27,7 +27,8 @@ dist/
 # already; this catches stale checkouts that still have them in the root.
 *.tsbuildinfo
 
-# The packed .mcpb and its staging directory.
+# Everything that ships: the packed .mcpb and its staging directory, and the
+# desktop app's Windows installer (build/installer/).
 build/
 .next/
 .vercel/
