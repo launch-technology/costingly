@@ -24,7 +24,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -45,7 +45,9 @@ import { EXECUTABLE, installerConfig, UNPACKED, writeIcon } from "./installer-co
 
 skipUnlessWindows();
 
-const WORK = join(tmpdir(), "costingly-packaged-check");
+// A folder with a random name, created for this user alone: a fixed name under
+// the shared temp folder is one somebody else could have made first.
+const WORK = await mkdtemp(join(tmpdir(), "costingly-packaged-check-"));
 const APP = join(WORK, "app");
 const HOME = join(WORK, "profile");
 const DESKTOP = `${HOME}-desktop`;
@@ -57,8 +59,6 @@ const { eq, ok } = checks;
 // ---------------------------------------------------------------------------
 // Package, and move the result out of the repository
 // ---------------------------------------------------------------------------
-
-await rm(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 
 await writeIcon();
 await build({
@@ -72,7 +72,6 @@ ok(existsSync(join(UNPACKED, EXECUTABLE)), "the app packaged");
 // Node looks for a package in every folder above the file that asks for it. A
 // copy left inside the repository could find the repository's node_modules and
 // pass with a dependency missing from its own.
-await mkdir(WORK, { recursive: true });
 await cp(UNPACKED, APP, { recursive: true });
 
 // The profile's config, written by hand. Importing the source tree's own
