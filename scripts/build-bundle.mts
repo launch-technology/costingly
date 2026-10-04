@@ -103,9 +103,14 @@ const output = join(BUILD, `costingly-${version}.mcpb`);
 console.log(`\nBuilding costingly ${version}\n`);
 
 // --- 1. clean -------------------------------------------------------------
-await rm(BUILD, { recursive: true, force: true });
+// Only what this script makes. build/ is shared with the desktop app's
+// installer (build/installer/), which is none of this script's business.
+await rm(STAGING, { recursive: true, force: true });
 await mkdir(STAGING, { recursive: true });
-say("clean", "build/");
+for (const name of await readdir(BUILD)) {
+  if (name.endsWith(".mcpb")) await rm(join(BUILD, name), { force: true });
+}
+say("clean", "build/staging, build/*.mcpb");
 
 // --- 2. compile -----------------------------------------------------------
 // Claude Desktop runs dist/, never the TypeScript. A stale dist here ships an

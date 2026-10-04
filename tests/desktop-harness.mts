@@ -135,12 +135,30 @@ export function recentAppOutput(maxChars = 4_000): string {
 }
 
 /** Launch the built app against one profile. */
-export async function launch(
+export function launch(
   home: string,
   extra: Record<string, string> = {},
   timeout = 60_000,
 ): Promise<ElectronApplication> {
-  const app = await electron.launch({ args: [MAIN], env: envFor(home, extra), timeout });
+  return start({ args: [MAIN], env: envFor(home, extra), timeout });
+}
+
+/**
+ * Launch a PACKAGED copy of the app — its own .exe, with its own Electron and
+ * its own files — against one profile. Everything else in this file works on
+ * the result exactly as it does on a copy launched from the source folder.
+ */
+export function launchPackaged(
+  executable: string,
+  home: string,
+  extra: Record<string, string> = {},
+  timeout = 60_000,
+): Promise<ElectronApplication> {
+  return start({ executablePath: executable, args: [], env: envFor(home, extra), timeout });
+}
+
+async function start(options: Parameters<typeof electron.launch>[0]): Promise<ElectronApplication> {
+  const app = await electron.launch(options);
   const child = app.process();
   child.stderr?.on("data", (chunk: Buffer) => appOutput.push(chunk.toString()));
   child.once("exit", (code, signal) => appOutput.push(`\n[app pid ${child.pid} exited: code=${code} signal=${signal}]\n`));
@@ -232,9 +250,12 @@ export async function quit(app: ElectronApplication): Promise<number | null> {
  * attaching — which Playwright reports as a failed launch. That IS the
  * behaviour under test, so both ways of exiting count.
  */
-export async function launchSecondCopy(home: string): Promise<string> {
+export async function launchSecondCopy(
+  home: string,
+  open: (timeout: number) => Promise<ElectronApplication> = (timeout) => launch(home, {}, timeout),
+): Promise<string> {
   try {
-    const second = await launch(home, {}, 20_000);
+    const second = await open(20_000);
     const code = await Promise.race([
       new Promise<number | null>((resolve) => second.process().once("exit", (c) => resolve(c))),
       new Promise<number | null>((resolve) => setTimeout(() => resolve(null), 15_000)),

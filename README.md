@@ -729,9 +729,40 @@ so a fresh clone runs everything else green.
 | `npm run build:bundle` | Pack `build/costingly-<version>.mcpb` for Claude Desktop |
 | `npm run build:desktop` | Compile, then bundle the desktop app's window into `dist/apps/desktop/` |
 | `npm run desktop` | Build and open the desktop app |
+| `npm run build:installer` | Build the desktop app's Windows installer into `build/installer/` |
+| `npm run check:packaged` | Package the desktop app as the installer does, and drive the packaged copy |
 
-The desktop app (`src/apps/desktop`) is in development. Until it has an
-installer, `npm run desktop` is the only way to launch it.
+The desktop app (`src/apps/desktop`) is in development. `npm run desktop`
+launches it from source.
+
+### Installing the desktop app (Windows)
+
+```sh
+npm run build:installer      # writes build/installer/Costingly-Setup-<version>.exe
+```
+
+Run that file. It installs for the current user, asks no questions and needs
+no administrator rights, adds Costingly to the Start menu, and opens it. The
+first build downloads the installer-making tools, so it needs a network
+connection once.
+
+- **Windows will warn about an unknown publisher.** The installer is not
+  signed. Choose *More info*, then *Run anyway*.
+- **The program** goes in `%LOCALAPPDATA%\Programs\costingly`.
+- **Your data** — keys, database, log — is separate, in
+  `%LOCALAPPDATA%\costingly`, and is created by the app's setup, not by the
+  installer.
+- **Installing over an existing copy** replaces the program and leaves the
+  data alone. Quit Costingly from its tray icon first; the installer asks you
+  to if it is running, and waits.
+- **Uninstalling** (Settings → Apps → Installed apps → Costingly) removes the
+  program and the Start menu entry. It does not touch your data.
+
+`npm run check:packaged` is the check to run after changing how the app is
+packaged, its dependencies, or the Electron version: the window suites in
+`npm test` run the app from this folder, and an installed copy has neither
+this folder's `node_modules` nor Node on the PATH. It takes a few minutes and
+is not part of `npm test`.
 
 `npm link` points the global `costingly` at `dist/`, which does not rebuild
 itself — so after editing source, run `npm run build` before the command

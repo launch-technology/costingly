@@ -1,40 +1,28 @@
 /**
- * An icon drawn in code, until there is a real one.
+ * The placeholder icon, as something Electron can show.
  *
- * A flat rounded square in one colour, built as a raw bitmap. Generating it
- * here means no binary file in the repository and nothing for the build to
- * copy, which is the right trade while the icon is a placeholder; the branding
- * story replaces this with a designed .ico and deletes the file.
+ * The drawing itself is placeholder-pixels.ts, shared with the installer
+ * build. This turns it into the image the window and the tray use — generated
+ * at runtime, so the running app needs no icon file of its own.
  */
 
 import { nativeImage, type NativeImage } from "electron";
 
+import { placeholderPixels } from "./placeholder-pixels.js";
+
 const SIZE = 32;
-/** The fill, as B, G, R — the byte order `createFromBitmap` expects on Windows. */
-const FILL = [0x7a, 0x5c, 0x1f] as const;
 
 export function placeholderIcon(): NativeImage {
-  const radius = SIZE / 4;
-  const pixels = Buffer.alloc(SIZE * SIZE * 4);
+  const rgba = placeholderPixels(SIZE);
 
-  for (let y = 0; y < SIZE; y++) {
-    for (let x = 0; x < SIZE; x++) {
-      if (!insideRoundedSquare(x + 0.5, y + 0.5, radius)) continue;
-      const at = (y * SIZE + x) * 4;
-      pixels[at] = FILL[0];
-      pixels[at + 1] = FILL[1];
-      pixels[at + 2] = FILL[2];
-      pixels[at + 3] = 0xff;
-    }
+  // `createFromBitmap` wants blue first on Windows; the drawing is red first.
+  const bgra = Buffer.alloc(rgba.length);
+  for (let at = 0; at < rgba.length; at += 4) {
+    bgra[at] = rgba[at + 2] ?? 0;
+    bgra[at + 1] = rgba[at + 1] ?? 0;
+    bgra[at + 2] = rgba[at] ?? 0;
+    bgra[at + 3] = rgba[at + 3] ?? 0;
   }
 
-  return nativeImage.createFromBitmap(pixels, { width: SIZE, height: SIZE });
-}
-
-function insideRoundedSquare(x: number, y: number, radius: number): boolean {
-  // Distance from the nearest corner's circle centre; inside the straight
-  // edges the clamped distance is zero and the point is trivially in.
-  const dx = Math.max(radius - x, 0, x - (SIZE - radius));
-  const dy = Math.max(radius - y, 0, y - (SIZE - radius));
-  return dx * dx + dy * dy <= radius * radius;
+  return nativeImage.createFromBitmap(bgra, { width: SIZE, height: SIZE });
 }
