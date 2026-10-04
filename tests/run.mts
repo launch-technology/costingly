@@ -31,7 +31,8 @@ const ORDER = [
   "profile",
   "config",
   "smoke",
-  "desktop-status",
+  "desktop-status-presenter",
+  "desktop-services",
   "picker",
   "confirm",
   "schema",
@@ -45,8 +46,9 @@ const ORDER = [
   "uninstall",
   "concurrency",
   "e2e",
-  // Last: it rebuilds dist/ and opens real windows.
+  // Last: they rebuild dist/ and open real windows.
   "desktop",
+  "desktop-setup",
 ];
 
 interface Outcome {
@@ -103,7 +105,7 @@ if (files.length === 0) {
 console.log("");
 const results: Outcome[] = [];
 for (const { file, name } of files) {
-  process.stdout.write(`  ${name.padEnd(16)}`);
+  process.stdout.write(`  ${name.padEnd(26)}`);
   const outcome = await run(file, name);
   results.push(outcome);
 

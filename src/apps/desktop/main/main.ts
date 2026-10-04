@@ -3,8 +3,8 @@
  *
  * Launches the desktop application through the same host as the CLI and the
  * MCP server, then ends the Electron process with whatever exit code the host
- * settled on. What the app does is desktop.application.ts; how a process is
- * run is the host's; this file only joins the two to Electron.
+ * settled on. What the app is made of is desktop.application.ts; how a process
+ * is run is the host's; this file only joins the two to Electron.
  *
  * NOT awaited at top level, deliberately. Electron does not emit `ready` until
  * the entry module has finished evaluating, and the application's `start()`
@@ -15,7 +15,7 @@
 
 import { app } from "electron";
 
-import { ApplicationHost } from "../../platform/runtime/application-host.js";
+import { ApplicationHost } from "../../../platform/runtime/application-host.js";
 import { DesktopApplication } from "./desktop.application.js";
 
 void ApplicationHost.launch(new DesktopApplication(), {

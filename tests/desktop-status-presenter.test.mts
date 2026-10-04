@@ -1,7 +1,7 @@
 /**
  * The status screen's wording — every state, as a table.
  *
- * `status-view.ts` is pure functions over the domain's report objects, so each
+ * `status.presenter.ts` is pure functions over the domain's report objects, so each
  * state the screen can show is a fixture here rather than a database to build
  * and break. Two properties matter beyond "the right headline":
  *
@@ -14,13 +14,13 @@
 
 import type { DatabaseHealth } from "../src/domain/services/database/database-health.service.js";
 import type { PlaidStatus, ProfileStatus } from "../src/domain/services/status.service.js";
-import type { SectionView } from "../src/apps/desktop/status-view.types.js";
+import type { SectionView } from "../src/apps/desktop/bridge/contract.js";
 import {
   couldNotCheck,
-  databaseView,
-  plaidView,
-  profileView,
-} from "../src/apps/desktop/status-view.js";
+  presentDatabase as databaseView,
+  presentPlaid as plaidView,
+  presentProfile as profileView,
+} from "../src/apps/desktop/main/presenters/status.presenter.js";
 
 const out: string[] = [];
 let fail = 0;
