@@ -27,7 +27,10 @@ delete process.env["PLAID_SECRET"];
 
 const { db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");
-const { costinglyStatus } = await import("../src/domain/services/status.service.js");
+const { costinglyStatus: statusOf } = await import("../src/domain/services/status.service.js");
+const { plaid } = await import("../src/domain/data/default-plaid.js");
+/** The report as the product produces it: over its own Plaid client. */
+const costinglyStatus = () => statusOf(plaid);
 
 const out: string[] = [];
 let fail = 0;

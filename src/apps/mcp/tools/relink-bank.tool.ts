@@ -7,6 +7,7 @@ import { z } from "zod";
 import { startLinkServer, takeRecentRepairs } from "../../../domain/services/banks/link-session.service.js";
 import { db } from "../../../domain/data/default-database.js";
 import { listBasic } from "../../../domain/data/repositories/items.repository.js";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { describeError } from "../../../domain/data/plaid.client.js";
 import { explainDbError } from "../utils/database-errors.js";
 import { credentialsPresent, MISSING_CREDENTIALS } from "../utils/credentials.js";
@@ -81,7 +82,7 @@ export function registerRelinkBankTool(server: McpServer): void {
                     };
                 }
 
-                const { url } = await startLinkServer();
+                const { url } = await startLinkServer(plaid);
                 const name = item.institutionName ?? item.itemId;
 
                 // A repair finishes in the browser long after this returned, so

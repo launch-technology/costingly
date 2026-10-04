@@ -178,11 +178,10 @@ npm run setup:sandbox
 
 It asks for your Plaid **sandbox** keys (the Sandbox row at
 [dashboard.plaid.com/developers/keys](https://dashboard.plaid.com/developers/keys)),
-verifies them against the real API, and writes `.dev-sandbox/config.json` —
-git-ignored, mode 0600. That profile has its own cluster and its own throwaway
-encryption key, so it cannot read or write your real transactions.
-
-In sandbox, Plaid Link accepts `user_good` / `pass_good`, and `1234` for MFA.
+verifies them against Plaid's sandbox, and writes `.dev-sandbox/config.json` —
+git-ignored, mode 0600. That file only stores test keys. The product itself has
+no way to use the sandbox: the suites that need it build their own Plaid client
+in sandbox mode from those keys and pass it to the code under test.
 
 **Never put real Plaid production keys in a test, an issue, or a pull request.**
 

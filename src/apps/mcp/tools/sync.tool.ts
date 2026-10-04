@@ -3,6 +3,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { syncAllItems } from "../../../domain/services/banks/sync.service.js";
 import { explainDbError } from "../utils/database-errors.js";
 import { formatSyncSummary } from "./sync.utils.js";
@@ -50,7 +51,7 @@ export function registerSyncTool(server: McpServer): void {
         },
         async () => {
             try {
-                const summary = await syncAllItems();
+                const summary = await syncAllItems(plaid);
                 return {
                     content: [{ type: "text", text: formatSyncSummary(summary) }],
                     // Partial failure is NOT an error result. A scheduled report that

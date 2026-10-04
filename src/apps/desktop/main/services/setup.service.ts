@@ -8,18 +8,17 @@
  *
  * EVERYTHING THIS NEEDS IS HANDED TO IT. The service names what it depends on
  * — a datastore to ask, a config to read and write, something that can verify
- * keys, something that can install — and the application supplies the real
- * ones (adapters/domain.ts). That is what lets a test hand it a Plaid that
- * times out or an install that fails, which no real profile can be made to do
- * on demand.
+ * keys, something that can create the database — and the application supplies
+ * the real ones. That is what lets a test hand it a Plaid that times out or a
+ * creation that fails, which no real profile can be made to do on demand.
  *
  * No Electron and no domain imports beyond types: this file is the order of
  * operations and the decisions between them, and nothing else.
  */
 
-import type { ConfigFile, PlaidEnvName, ResolvedValue, StoredConfig } from "../../../../domain/config.js";
+import type { ConfigFile, StoredConfig } from "../../../../domain/config.js";
 import type { DatastoreState } from "../../../../platform/datastore/datastore.js";
-import type { DatabaseResult, KeysResult, SetupState } from "../../bridge/contract.js";
+import type { DatabaseResult, KeysResult, Problem, SetupState } from "../../bridge/contract.js";
 
 /** What became of a pair of keys offered to Plaid. */
 export type KeyVerdict =
@@ -29,8 +28,8 @@ export type KeyVerdict =
 /**
  * Something that can prove a pair of keys with Plaid.
  *
- * On acceptance the keys are in effect for the rest of the process; on
- * refusal nothing is. How that is arranged is the implementation's business.
+ * Proving them changes nothing: the pair takes effect when this service saves
+ * it, and not before.
  */
 export interface KeyVerifier {
   verify(clientId: string, secret: string): Promise<KeyVerdict>;
@@ -39,18 +38,20 @@ export interface KeyVerifier {
 export interface SetupDependencies {
   /** The profile's datastore: is there one, and where does it keep its data. */
   datastore: { status(): Promise<DatastoreState>; dataDir(): string };
+  /** Are both Plaid keys in place, wherever they come from? */
+  keysPresent(): boolean;
   config: {
-    /** Every setting and where it resolved from, secrets as present/absent. */
-    describe(): ResolvedValue[];
     /** The config file as it is on disk. */
     readFile(): ConfigFile;
     write(values: StoredConfig): Promise<void>;
-    /** The Plaid environment currently in effect. */
-    plaidEnv(): PlaidEnvName;
   };
   keys: KeyVerifier;
-  /** Create the database, or bring an existing one up to date. Idempotent. */
-  install(): Promise<void>;
+  /**
+   * Create the database and bring it up. Resolves with what went wrong, already
+   * explained, or with nothing when it worked. The same operation, and the same
+   * explanations, as the status screen's Create database button.
+   */
+  createDatabase(): Promise<Problem | undefined>;
   newEncryptionKey(): string;
   /** The profile directory, shortened for display. */
   dataFolder(): string;
@@ -72,7 +73,7 @@ export class SetupService {
    */
   async state(): Promise<SetupState> {
     return {
-      keysPresent: this.keysPresent(),
+      keysPresent: this.deps.keysPresent(),
       databaseCreated: await this.databaseCreated(),
       dataFolder: this.deps.dataFolder(),
     };
@@ -99,10 +100,6 @@ export class SetupService {
         // permanently undecryptable; a machine that already has a database has
         // tokens this key protects.
         encryptionKey: this.deps.config.readFile().encryptionKey ?? this.deps.newEncryptionKey(),
-        // Whichever environment the check just ran against. Production for
-        // every user; sandbox only when a contributor launched the app that
-        // way, and then the profile stays a sandbox profile on the next launch.
-        plaidEnv: this.deps.config.plaidEnv(),
       });
     } catch (error) {
       // Plaid said yes and the disk said no. Not "rejected" — retyping the keys
@@ -117,17 +114,8 @@ export class SetupService {
   }
 
   async createDatabase(): Promise<DatabaseResult> {
-    try {
-      await this.deps.install();
-      return { outcome: "ready" };
-    } catch (error) {
-      return { outcome: "failed", reason: this.deps.describeError(error) };
-    }
-  }
-
-  private keysPresent(): boolean {
-    const sources = new Map(this.deps.config.describe().map((value) => [value.key, value.source]));
-    return sources.get("plaidClientId") !== "missing" && sources.get("plaidSecret") !== "missing";
+    const problem = await this.deps.createDatabase();
+    return problem === undefined ? { outcome: "ready" } : { outcome: "failed", problem };
   }
 
   private async databaseCreated(): Promise<boolean> {

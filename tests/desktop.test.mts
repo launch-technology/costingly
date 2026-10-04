@@ -71,7 +71,6 @@ await writeConfig({
   plaidClientId: "placeholder-client-id",
   plaidSecret: "placeholder-secret",
   encryptionKey: generateEncryptionKey(),
-  plaidEnv: "production",
 });
 await install();
 await closeDb();

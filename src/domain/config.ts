@@ -10,7 +10,8 @@
  *
  *   1. environment variables   PLAID_SECRET=... costingly sync
  *   2. config.json             what `costingly init` wrote
- *   3. defaults in source
+ *
+ * No setting has a default: each is either supplied or missing.
  *
  * (CLI flags sit above all of these; commander applies them at the call site.)
  *
@@ -31,14 +32,18 @@ import { platform } from "./project.js";
 import { configStore } from "./project.js";
 import type { StoredSections } from "../platform/config-store.js";
 
-export type PlaidEnvName = "sandbox" | "production";
-
-/** Everything `costingly init` writes. */
+/**
+ * Everything `costingly init` writes.
+ *
+ * There is no setting for which Plaid to talk to, deliberately. The product
+ * talks to production; the sandbox is something the test suites construct for
+ * themselves (see data/plaid.client.ts). A config file written by an older
+ * version may still carry a `plaidEnv` key — it is ignored.
+ */
 export interface StoredConfig {
   plaidClientId: string;
   plaidSecret: string;
   encryptionKey: string;
-  plaidEnv: PlaidEnvName;
 }
 
 /**
@@ -48,22 +53,16 @@ export interface StoredConfig {
 export interface ConfigFile extends Partial<StoredConfig>, StoredSections {}
 
 export type SecretName = "plaidSecret" | "encryptionKey";
-export type PublicName = "plaidClientId" | "plaidEnv";
+export type PublicName = "plaidClientId";
 
 /** The environment variable that overrides each key. */
 const ENV_NAMES: Record<keyof StoredConfig, string> = {
   plaidClientId: "PLAID_CLIENT_ID",
   plaidSecret: "PLAID_SECRET",
   encryptionKey: "ENCRYPTION_KEY",
-  plaidEnv: "PLAID_ENV",
 };
 
-const DEFAULTS = {
-  /** Users are always on production. Only the sandbox test profile sets this. */
-  plaidEnv: "production" as PlaidEnvName,
-};
-
-export type ValueSource = "environment" | "config file" | "default" | "missing";
+export type ValueSource = "environment" | "config file" | "missing";
 
 export interface ResolvedValue {
   key: keyof StoredConfig;
@@ -114,10 +113,6 @@ function resolve(key: keyof StoredConfig): { value: string | number | undefined;
     return { value: stored, source: "config file" };
   }
 
-  if (key in DEFAULTS) {
-    return { value: DEFAULTS[key as keyof typeof DEFAULTS], source: "default" };
-  }
-
   return { value: undefined, source: "missing" };
 }
 
@@ -137,18 +132,6 @@ function missing(key: keyof StoredConfig): Error {
 export function get<K extends PublicName>(key: K): StoredConfig[K] {
   const { value } = resolve(key);
   if (value === undefined) throw missing(key);
-
-  if (key === "plaidEnv") {
-    const raw = String(value).trim().toLowerCase();
-    if (raw !== "sandbox" && raw !== "production") {
-      throw new Error(
-        `Invalid plaidEnv: "${String(value)}". Must be "sandbox" or "production".\n` +
-          `(Plaid retired the "development" environment; use sandbox for testing.)`,
-      );
-    }
-    return raw as StoredConfig[K];
-  }
-
   return String(value) as StoredConfig[K];
 }
 

@@ -24,7 +24,7 @@ import * as items from "../../data/repositories/items.repository.js";
 import * as accounts from "../../data/repositories/accounts.repository.js";
 import * as transactions from "../../data/repositories/transactions.repository.js";
 import type { StoredItem } from "../../data/repositories/items.repository.js";
-import { getPlaidClient, describeError } from "../../data/plaid.client.js";
+import { describeError, type PlaidClient } from "../../data/plaid.client.js";
 
 /**
  * How much data one Item holds.
@@ -47,9 +47,9 @@ export async function countItemData(itemId: string): Promise<{ accounts: number;
  *
  * Irreversible. After this the token is dead even if the row survives locally.
  */
-async function revokeAtPlaid(accessToken: string): Promise<void> {
+async function revokeAtPlaid(plaid: PlaidClient, accessToken: string): Promise<void> {
   const request: ItemRemoveRequest = { access_token: accessToken };
-  await getPlaidClient().itemRemove(request);
+  await plaid.api.itemRemove(request);
 }
 
 /**
@@ -64,6 +64,7 @@ async function revokeAtPlaid(accessToken: string): Promise<void> {
  * revoke that was tried and failed.
  */
 export async function revokeIfPossible(
+  plaid: PlaidClient,
   itemId: string,
 ): Promise<{ attempted: boolean; revoked: boolean; error?: string }> {
   try {
@@ -71,7 +72,7 @@ export async function revokeIfPossible(
     if (stored === null || stored.accessToken === null) {
       return { attempted: false, revoked: false };
     }
-    await revokeAtPlaid(stored.accessToken);
+    await revokeAtPlaid(plaid, stored.accessToken);
     return { attempted: true, revoked: true };
   } catch (error) {
     return { attempted: true, revoked: false, error: describeError(error) };
@@ -94,6 +95,7 @@ export interface RemovalOutcome {
  * Accounts and transactions disappear via ON DELETE CASCADE.
  */
 export async function removeItem(
+  plaid: PlaidClient,
   item: StoredItem,
   options: { revoke: boolean },
 ): Promise<RemovalOutcome> {
@@ -108,7 +110,7 @@ export async function removeItem(
   // `unlink` needs no branch of its own and the model needs no second tool.
   if (options.revoke && item.accessToken !== null) {
     try {
-      await revokeAtPlaid(item.accessToken);
+      await revokeAtPlaid(plaid, item.accessToken);
       outcome.revoked = true;
     } catch (error) {
       // Deliberately non-fatal: the user asked for this row to go away, and
@@ -137,6 +139,7 @@ export async function removeItem(
  * words rather than being handed a throw to reword.
  */
 export async function removeBankById(
+  plaid: PlaidClient,
   itemId: string,
   options: { revoke: boolean },
 ): Promise<RemovalOutcome | null> {
@@ -151,7 +154,7 @@ export async function removeBankById(
   };
 
   if (options.revoke) {
-    const revocation = await revokeIfPossible(itemId);
+    const revocation = await revokeIfPossible(plaid, itemId);
     outcome.revoked = revocation.revoked;
     if (revocation.error !== undefined) outcome.revokeError = revocation.error;
   }

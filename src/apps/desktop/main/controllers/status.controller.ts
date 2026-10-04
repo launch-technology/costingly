@@ -7,35 +7,33 @@
  * for eight seconds because the network is slow, so each section asks for its
  * own check and fills in when its own answer arrives.
  *
- * REPORT-ONLY, like the checks underneath. Nothing here creates a profile,
- * starts a server or applies a schema.
+ * REPORT-ONLY. Nothing here creates a profile, starts a server or applies a
+ * schema; the buttons that do are the database controller's.
  */
 
-import type { DatabaseHealth } from "../../../../domain/services/database/database-health.service.js";
 import type { PlaidStatus, ProfileStatus } from "../../../../domain/services/status.service.js";
 import type { SectionView } from "../../bridge/contract.js";
-import {
-  couldNotCheck,
-  presentDatabase,
-  presentPlaid,
-  presentProfile,
-} from "../presenters/status.presenter.js";
+import { couldNotCheck, presentPlaid, presentProfile } from "../presenters/status.presenter.js";
 import type { Controller, HandlersFor } from "./controller.js";
+import type { DatabaseSectionReader } from "./database.controller.js";
 
 /** The domain's checks, as this controller needs them. */
 export interface StatusChecks {
   profile(): Promise<ProfileStatus>;
-  database(): Promise<DatabaseHealth>;
   plaid(): Promise<PlaidStatus>;
 }
 
 export class StatusController implements Controller<"status"> {
-  constructor(private readonly checks: StatusChecks) {}
+  constructor(
+    private readonly checks: StatusChecks,
+    /** The Database section, which is more than a check — see database.controller.ts. */
+    private readonly databaseSection: DatabaseSectionReader,
+  ) {}
 
   handlers(): HandlersFor<"status"> {
     return {
       "status.profile": () => section(async () => presentProfile(await this.checks.profile())),
-      "status.database": () => section(async () => presentDatabase(await this.checks.database())),
+      "status.database": () => this.databaseSection(),
       "status.plaid": () => section(async () => presentPlaid(await this.checks.plaid())),
     };
   }

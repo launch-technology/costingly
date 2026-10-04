@@ -107,11 +107,14 @@ jobs:
           matrix.os == 'ubuntu-latest' &&
           (github.event_name == 'push' ||
            github.event.pull_request.head.repo.full_name == github.repository)
+        # Test-only variable names. The product reads its keys from
+        # PLAID_CLIENT_ID / PLAID_SECRET; the sandbox keys are deliberately not
+        # passed under those, so nothing but the test setup can pick them up.
         env:
-          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
-          PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+          PLAID_SANDBOX_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_SANDBOX_SECRET: ${{ secrets.PLAID_SECRET }}
         run: |
-          if [ -z "${PLAID_CLIENT_ID}" ]; then
+          if [ -z "${PLAID_SANDBOX_CLIENT_ID}" ]; then
             echo "::warning::No Plaid sandbox credentials here — e2e and init-flow will SKIP."
             exit 0
           fi

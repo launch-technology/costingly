@@ -32,6 +32,7 @@ const ORDER = [
   "config",
   "smoke",
   "desktop-status-presenter",
+  "desktop-database-presenter",
   "desktop-services",
   "picker",
   "confirm",
@@ -49,6 +50,7 @@ const ORDER = [
   // Last: they rebuild dist/ and open real windows.
   "desktop",
   "desktop-setup",
+  "desktop-database",
 ];
 
 interface Outcome {
@@ -105,7 +107,7 @@ if (files.length === 0) {
 console.log("");
 const results: Outcome[] = [];
 for (const { file, name } of files) {
-  process.stdout.write(`  ${name.padEnd(26)}`);
+  process.stdout.write(`  ${name.padEnd(28)}`);
   const outcome = await run(file, name);
   results.push(outcome);
 

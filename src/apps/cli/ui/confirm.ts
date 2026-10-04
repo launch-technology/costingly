@@ -18,13 +18,12 @@
  * not environments — and it did not discriminate: nearly every install is
  * "production", so every user typed the same word and muscle memory carried
  * straight across profiles. The profile IS the blast radius, so it is what the
- * user is asked to name. The Plaid environment is still shown, because which
- * one you are pointed at is worth knowing before you destroy anything.
+ * user is asked to name. There is no Plaid environment to show any more: the
+ * product has one, and the setting that could say otherwise is gone.
  */
 
 import { text, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
-import { get } from "../../../domain/config.js";
 import { server } from "../../../domain/project.js";
 import { platform } from "../../../domain/project.js";
 
@@ -58,14 +57,13 @@ export interface ConfirmOptions {
  */
 export async function confirmDestructive(options: ConfirmOptions): Promise<boolean> {
   const profile = platform.profileName();
-  const width = Math.max(...options.facts.map(([label]) => label.length), "Plaid".length);
+  const width = Math.max(...options.facts.map(([label]) => label.length), "Database".length);
 
   console.log("");
   console.log(`  ⚠  ${options.action.toUpperCase()}`);
   console.log("");
   console.log(`     ${"Profile".padEnd(width)}   ${profile}`);
   console.log(`     ${"Database".padEnd(width)}   ${describeDatabase()}`);
-  console.log(`     ${"Plaid".padEnd(width)}   ${get("plaidEnv").toUpperCase()}`);
   for (const [label, value] of options.facts) {
     console.log(`     ${label.padEnd(width)}   ${value}`);
   }

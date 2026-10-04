@@ -15,10 +15,10 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from "n
 import { Products, CountryCode } from "plaid";
 
 
-// Credentials come from the sandbox PROFILE, never the user's own. Sandbox is
-// not a mode of the product — it is a separate profile with its own config,
-// its own cluster and its own encryption key, so it is structurally incapable
-// of touching real data.
+// Credentials come from the sandbox keys file, never the user's own. Sandbox is
+// not a mode of the product — the product has no way to reach it. This suite
+// builds its OWN Plaid client in sandbox mode from those keys and hands it to
+// the code under test, which neither knows nor cares which Plaid it was given.
 const SANDBOX_CONFIG = `${P}/.dev-sandbox/config.json`;
 if (!existsSync(SANDBOX_CONFIG)) {
   console.log("");
@@ -33,9 +33,6 @@ if (!existsSync(SANDBOX_CONFIG)) {
   process.exit(0);
 }
 const sandboxConfig = JSON.parse(readFileSync(SANDBOX_CONFIG, "utf8"));
-if (sandboxConfig.plaidEnv !== "sandbox") {
-  throw new Error(`.dev-sandbox must set plaidEnv "sandbox", got ${sandboxConfig.plaidEnv}`);
-}
 
 // Run against a throwaway COPY of that profile, so a failed run never leaves
 // the checked-in sandbox profile in a strange state.
@@ -51,7 +48,7 @@ chmodSync(`${HOME}/config.json`, 0o600);
 
 const { db, closeDb } = await import("../src/domain/data/default-database.js");
 const { install } = await import("../src/domain/services/install.service.js");
-const { getPlaidClient } = await import("../src/domain/data/plaid.client.js");
+const { PlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/domain/services/banks/link.service.js");
 const { syncAllItems } = await import("../src/domain/services/banks/sync.service.js");
 const { listAllItems } = await import("../src/domain/data/repositories/items.repository.js");
@@ -117,15 +114,16 @@ eq(t.rows.map(r => r.table_name), ["accounts", "items", "schema_migrations", "tr
    "ensureReady() created the cluster, the database and every table");
 
 // real sandbox link, no browser
-const plaid = getPlaidClient();
-const sandbox = await plaid.sandboxPublicTokenCreate({
+// The one place this suite says "sandbox": a client it constructs and injects.
+const plaid = PlaidClient.withKeys(sandboxConfig.plaidClientId, sandboxConfig.plaidSecret, "sandbox");
+const sandbox = await plaid.api.sandboxPublicTokenCreate({
   institution_id: "ins_109508",
   initial_products: [Products.Transactions],
   options: { transactions: { days_requested: 365 } },
 });
 ok(typeof sandbox.data.public_token === "string", "Plaid sandbox issued a public_token");
 
-const linked = await exchangePublicToken(sandbox.data.public_token);
+const linked = await exchangePublicToken(plaid, sandbox.data.public_token);
 ok(linked.itemId.length > 0, "exchangePublicToken stored an Item");
 ok(linked.accountCount > 0, `accounts stored (${linked.accountCount})`);
 out.push(`  --    institution: ${linked.institutionName}`);
@@ -142,7 +140,7 @@ ok(items[0]!.accessToken?.startsWith("access-") === true, "token decrypts back o
 // sync #1 — the backfill. Plaid pulls sandbox history asynchronously, so the
 // first call can legitimately return NOT_READY with nothing; retry like a user
 // would. This exercises the documented "run it again shortly" path.
-let run1 = await syncAllItems();
+let run1 = await syncAllItems(plaid);
 ok(run1.ok, `sync 1 succeeded${run1.ok ? "" : ": " + run1.results[0]?.error}`);
 out.push(`  --    sync 1: +${run1.added} added, status=${run1.results[0]?.updateStatus}`);
 // Wait for the sandbox to SETTLE, not merely to produce a row. Plaid delivers
@@ -154,7 +152,7 @@ for (let attempt = 0; attempt < 12; attempt++) {
   const c = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
   if (Number(c.rows[0]!.c) > 0 && run1.added === 0 && run1.modified === 0) break;
   await new Promise((r) => setTimeout(r, 2500));
-  run1 = await syncAllItems();
+  run1 = await syncAllItems(plaid);
   out.push(`  --    retry ${attempt + 1}: +${run1.added} added, status=${run1.results[0]?.updateStatus}`);
 }
 const c1 = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
@@ -179,7 +177,7 @@ ok(r["created_at"] instanceof Date, "TIMESTAMPTZ is a Date");
 // sync #2 — idempotency, the core promise
 const before = await db.query<{ c: string; s: string }>(
   `SELECT COUNT(*)::text AS c, COALESCE(SUM(amount),0)::text AS s FROM transactions`);
-const run2 = await syncAllItems();
+const run2 = await syncAllItems(plaid);
 const after = await db.query<{ c: string; s: string }>(
   `SELECT COUNT(*)::text AS c, COALESCE(SUM(amount),0)::text AS s FROM transactions`);
 eq([run2.added, run2.modified, run2.removed], [0, 0, 0], "sync 2 reports no changes");

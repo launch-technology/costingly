@@ -44,7 +44,6 @@ import type { Request, Response } from "express";
 import type { Server } from "node:http";
 
 import { publicDir } from "../../../platform/package.js";
-import { get } from "../../config.js";
 import { ports } from "../../project.js";
 import {
   createLinkToken,
@@ -52,7 +51,7 @@ import {
   type LinkedItem,
 } from "./link.service.js";
 import { createRepairLinkToken, markItemRepaired } from "./relink.service.js";
-import { describeError } from "../../data/plaid.client.js";
+import { describeError, type PlaidClient } from "../../data/plaid.client.js";
 
 /** Close the server after this long with no requests. */
 const IDLE_MS = 10 * 60 * 1000;
@@ -101,7 +100,7 @@ function log(message: string): void {
   console.error(`[link] ${message}`);
 }
 
-function buildApp(publicDir: string, touch: () => void): express.Express {
+function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): express.Express {
   const app = express();
   app.use(express.json());
 
@@ -114,10 +113,6 @@ function buildApp(publicDir: string, touch: () => void): express.Express {
 
   app.use(express.static(publicDir));
 
-  app.get("/api/env", (_req: Request, res: Response) => {
-    res.json({ env: get("plaidEnv") });
-  });
-
   // Repairing an existing connection, not adding a new one. Takes an item id —
   // never a token. Plaid access tokens are decrypted only inside this process.
   app.post("/api/repair_link_token", async (req: Request, res: Response) => {
@@ -127,7 +122,7 @@ function buildApp(publicDir: string, touch: () => void): express.Express {
         res.status(400).json({ error: "item_id is required" });
         return;
       }
-      res.json({ link_token: await createRepairLinkToken(body.item_id) });
+      res.json({ link_token: await createRepairLinkToken(plaid, body.item_id) });
     } catch (error) {
       const message = describeError(error);
       log(`repair_link_token failed: ${message}`);
@@ -157,7 +152,7 @@ function buildApp(publicDir: string, touch: () => void): express.Express {
 
   app.post("/api/create_link_token", async (_req: Request, res: Response) => {
     try {
-      const linkToken = await createLinkToken();
+      const linkToken = await createLinkToken(plaid);
       res.json({ link_token: linkToken });
     } catch (error) {
       const message = describeError(error);
@@ -176,7 +171,7 @@ function buildApp(publicDir: string, touch: () => void): express.Express {
         return;
       }
 
-      const item = await exchangePublicToken(publicToken);
+      const item = await exchangePublicToken(plaid, publicToken);
       recentLinks.push(item);
       log(
         `linked ${item.institutionName ?? "(unknown institution)"} — ` +
@@ -217,13 +212,16 @@ function listen(app: express.Express, port: number): Promise<Server> {
  * (If a Plaid `redirect_uri` is ever registered for OAuth institutions, that URI
  * includes the port, and this should pin it rather than fall back.)
  */
-export async function startLinkServer(staticDir = publicDir): Promise<RunningLinkServer> {
+export async function startLinkServer(
+  plaid: PlaidClient,
+  staticDir = publicDir,
+): Promise<RunningLinkServer> {
   if (current !== undefined) {
     bumpIdle();
     return { url: `http://127.0.0.1:${current.port}`, port: current.port, started: false };
   }
 
-  const app = buildApp(staticDir, bumpIdle);
+  const app = buildApp(plaid, staticDir, bumpIdle);
   // Allocated, not configured: the service remembers what worked last time, so a
   // machine where 4000 is permanently taken stops paying for it on every start.
   const preferred = await ports().allocate("link");
@@ -244,7 +242,7 @@ export async function startLinkServer(staticDir = publicDir): Promise<RunningLin
   // Do not hold the process open just because this timer exists.
   current.idleTimer.unref();
 
-  log(`listening on 127.0.0.1:${port} (${get("plaidEnv")})`);
+  log(`listening on 127.0.0.1:${port}`);
   return { url: `http://127.0.0.1:${port}`, port, started: true };
 }
 

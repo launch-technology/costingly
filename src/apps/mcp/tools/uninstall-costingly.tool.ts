@@ -24,6 +24,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+import { plaid as productionPlaid } from "../../../domain/data/default-plaid.js";
 import { platform } from "../../../domain/project.js";
 import { countData } from "../../../domain/services/banks/reset.service.js";
 import { costinglyStatus } from "../../../domain/services/status.service.js";
@@ -137,7 +138,7 @@ export function registerUninstallCostinglyTool(server: McpServer): void {
                     // checking, stranded three Items, and was believed because it
                     // sounded certain. Hence: refuse.
                     if (revoke && bankCount > 0) {
-                        const plaid = (await costinglyStatus()).plaid;
+                        const plaid = (await costinglyStatus(productionPlaid)).plaid;
                         if (!plaid.reachable) {
                             return {
                                 content: [
@@ -222,7 +223,7 @@ export function registerUninstallCostinglyTool(server: McpServer): void {
                     };
                 }
 
-                const result = await uninstall({ revoke });
+                const result = await uninstall(productionPlaid, { revoke });
 
                 const lines: string[] = [];
                 for (const outcome of result.outcomes) {

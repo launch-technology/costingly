@@ -41,7 +41,6 @@ if (!existsSync(SANDBOX_CONFIG)) {
 const sandbox = JSON.parse(readFileSync(SANDBOX_CONFIG, "utf8"));
 const REAL_ID: string = sandbox.plaidClientId;
 const REAL_SECRET: string = sandbox.plaidSecret;
-process.env["PLAID_ENV"] = "sandbox";
 
 const dir = await mkdtemp(join(tmpdir(), "costingly-initflow-"));
 // Keep every run inside the scratch tree: config, database, everything.
@@ -52,6 +51,7 @@ const dir = await mkdtemp(join(tmpdir(), "costingly-initflow-"));
 process.env["COSTINGLY_HOME"] = join(dir, "profile");
 
 const { runInit } = await import("../src/apps/cli/commands/init.command.js");
+const { PlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { readConfigFile } = await import("../src/domain/config.js");
 const { platform: projectConfig } = await import("../src/domain/project.js");
 const { closeDb } = await import("../src/domain/data/default-database.js");
@@ -77,10 +77,15 @@ async function drive(keys: string[]): Promise<string> {
   let seen = "";
   output.on("data", (c: Buffer) => { seen += c.toString(); });
 
-  const pending = runInit({
-    input: input as unknown as NodeJS.ReadStream,
-    output: output as unknown as NodeJS.WriteStream,
-  });
+  const pending = runInit(
+    {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    },
+    // The keys under test are sandbox keys, so they are tried against Plaid's
+    // sandbox. Injected here: init itself has no way to choose a Plaid.
+    (clientId, secret) => PlaidClient.withKeys(clientId, secret, "sandbox"),
+  );
 
   for (const key of keys) {
     await new Promise((r) => setImmediate(r));
@@ -107,8 +112,8 @@ eq(written.plaidSecret, REAL_SECRET, "secret saved");
 ok(Boolean(written.encryptionKey), "encryption key saved");
 eq(Buffer.from(written.encryptionKey!, "base64").length, 32, "key is 32 bytes");
 if (posixModes) eq((await stat(target)).mode & 0o777, 0o600, "config written owner-only");
-eq(written.plaidEnv, "production",
-   "init always writes production — sandbox is not a product concept");
+eq(Object.keys(written).includes("plaidEnv"), false,
+   "init writes no Plaid environment — there is no such setting to write");
 
 // --- 2. re-running must not destroy the key -------------------------------
 const keyBefore = written.encryptionKey;

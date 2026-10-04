@@ -10,6 +10,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { db } from "../../../domain/data/default-database.js";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { listBasic } from "../../../domain/data/repositories/items.repository.js";
 import { explainDbError } from "../utils/database-errors.js";
 import { countItemData, removeBankById } from "../../../domain/services/banks/unlink.service.js";
@@ -168,7 +169,7 @@ export function registerUnlinkBankTool(server: McpServer): void {
                 // neither may leave the user unable to remove the row. The
                 // service tolerates all of that; a seeded bank simply has
                 // nothing to revoke.
-                const revocation = await removeBankById(item_id, { revoke: true });
+                const revocation = await removeBankById(plaid, item_id, { revoke: true });
                 if (revocation === null) {
                     return {
                         content: [{ type: "text", text: `No bank has item_id "".` }],

@@ -12,6 +12,7 @@ import type { Command } from "commander";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { stdin } from "node:process";
 import { db } from "../../../domain/data/default-database.js";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { listAllItems, type StoredItem } from "../../../domain/data/repositories/items.repository.js";
 import { countItemData, removeItem } from "../../../domain/services/banks/unlink.service.js";
 import { confirmDestructive } from "../ui/confirm.js";
@@ -136,7 +137,7 @@ export async function runUnlink(
   });
   if (!confirmed) return;
 
-  const outcome = await removeItem(target, { revoke: options.revoke === true });
+  const outcome = await removeItem(plaid, target, { revoke: options.revoke === true });
 
   console.log(`\nUnlinked ${label(target)}.`);
   if (outcome.revokeError !== undefined) {

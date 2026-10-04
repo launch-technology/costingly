@@ -60,7 +60,46 @@ export type KeysResult =
   | { outcome: "rejected"; reason: string }
   | { outcome: "unreachable"; reason: string };
 
-export type DatabaseResult = { outcome: "ready" } | { outcome: "failed"; reason: string };
+/**
+ * Something is wrong, said in two parts: what, and what to do about it.
+ *
+ * Always both. A cause with no next step leaves the reader where they started.
+ */
+export interface Problem {
+  cause: string;
+  nextStep: string;
+}
+
+/**
+ * What the user can do to the database from the app.
+ *
+ * `update` brings the tables up to date (shown as "Retry" after a failed
+ * update); `create` makes a database on a machine that has none.
+ */
+export type DatabaseAction = "start" | "stop" | "restart" | "update" | "create";
+
+/**
+ * The status screen's Database section: a section, plus what is wrong (if
+ * anything) and which actions to offer. The main process decides both, so the
+ * window never has to work out which button fits which state.
+ */
+export interface DatabaseSectionView extends SectionView {
+  problem?: Problem;
+  actions: DatabaseAction[];
+}
+
+/**
+ * The end of the database's own log, for someone trying to see why it failed.
+ *
+ * `empty` and `unreadable` are answers, not errors: a database that has never
+ * run has no log, and saying so beats showing an empty box.
+ */
+export type LogExcerpt =
+  | { state: "lines"; lines: string[]; path: string }
+  | { state: "empty"; path: string }
+  | { state: "unreadable"; path: string };
+
+export type DatabaseResult = { outcome: "ready" } | { outcome: "failed"; problem: Problem };
 
 // ---------------------------------------------------------------------------
 // The calls
@@ -75,8 +114,20 @@ export type DatabaseResult = { outcome: "ready" } | { outcome: "failed"; reason:
  */
 export interface DesktopContract {
   "status.profile": { args: []; result: SectionView };
-  "status.database": { args: []; result: SectionView };
+  "status.database": { args: []; result: DatabaseSectionView };
   "status.plaid": { args: []; result: SectionView };
+
+  /**
+   * Each action runs to completion and answers with the Database section as it
+   * is afterwards — so a failure comes back as a section that explains it, not
+   * as a rejected call.
+   */
+  "database.start": { args: []; result: DatabaseSectionView };
+  "database.stop": { args: []; result: DatabaseSectionView };
+  "database.restart": { args: []; result: DatabaseSectionView };
+  "database.update": { args: []; result: DatabaseSectionView };
+  "database.create": { args: []; result: DatabaseSectionView };
+  "database.logExcerpt": { args: []; result: LogExcerpt };
 
   "setup.state": { args: []; result: SetupState };
   /** The secret goes in and never comes back, in any outcome. */

@@ -34,6 +34,7 @@ const { removeProfile, projectParentOf } = await import("../src/platform/profile
 const { resolvePlatform } = await import("../src/platform/platform-config.js");
 const { platform: costinglyPlatform } = await import("../src/domain/project.js");
 const { uninstall } = await import("../src/domain/services/uninstall.service.js");
+const { plaid } = await import("../src/domain/data/default-plaid.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -255,7 +256,7 @@ ok(await exists(server.dataDir()), "with a cluster in it");
 eq(await server.status(), "running", "and a running server");
 
 // --local-only: no Plaid, no credentials, no network.
-const result = await uninstall({ revoke: false });
+const result = await uninstall(plaid, { revoke: false });
 
 eq(result.outcomes, [], "--local-only revokes nothing");
 eq(result.revokeError, undefined, "and reports no revoke failure, because none was attempted");

@@ -84,7 +84,6 @@
   </head>
   <body>
     <main>
-      <div class="env" id="env">checking environment…</div>
       <h1 id="heading">Connect a bank</h1>
       <p class="sub" id="subheading">
         Credentials are entered inside Plaid's own window and never reach this
@@ -113,7 +112,6 @@
       const connectButton = document.getElementById("connect");
       const statusEl = document.getElementById("status");
       const linkedEl = document.getElementById("linked");
-      const envEl = document.getElementById("env");
 
       function message(text, kind) {
         const div = document.createElement("div");
@@ -136,18 +134,6 @@
         }
         return data;
       }
-
-      fetch("/api/env")
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          envEl.textContent = data.env + " environment";
-          if (data.env === "sandbox") {
-            envEl.textContent += " · use user_good / pass_good";
-          }
-        })
-        .catch(function () {
-          envEl.textContent = "unknown environment";
-        });
 
       /*
        * Two modes, decided by the URL.

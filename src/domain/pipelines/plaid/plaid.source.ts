@@ -17,7 +17,7 @@ import type {
 import type { Batch, Source } from "../../../platform/pipeline/source.js";
 import { db } from "../../data/default-database.js";
 import { listSyncableItems, type SyncableItem } from "../../data/repositories/items.repository.js";
-import { getPlaidClient, isMutationDuringPagination } from "../../data/plaid.client.js";
+import { isMutationDuringPagination, type PlaidClient } from "../../data/plaid.client.js";
 
 /** Plaid's maximum page size for /transactions/sync. */
 const PAGE_SIZE = 500;
@@ -39,6 +39,9 @@ export interface ItemChanges {
 }
 
 export class PlaidSource implements Source<SyncableItem, ItemChanges> {
+  /** @param plaid the Plaid these banks are pulled from. */
+  constructor(private readonly plaid: PlaidClient) {}
+
   /**
    * Every Item with a bank behind it, oldest-synced first.
    *
@@ -60,7 +63,7 @@ export class PlaidSource implements Source<SyncableItem, ItemChanges> {
    * future edit can forget to do.
    */
   async pull(item: SyncableItem): Promise<Batch<ItemChanges>> {
-    const plaid = getPlaidClient();
+    const plaid = this.plaid.api;
 
     for (let attempt = 0; attempt <= MAX_PAGINATION_RESTARTS; attempt += 1) {
       const added: Transaction[] = [];

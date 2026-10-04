@@ -8,11 +8,18 @@
  *   B. keys but no database    setup opens on the database step, creates it,
  *                              and from then on the app owns its lifetime
  *   C. database but no keys    setup opens on the welcome, then the keys
- *   D. …and real keys          accepted, saved, and no second database is made
+ *   D. …and accepted keys      the window moves on, and no second database is made
  *
- * D needs keys Plaid will accept, so it reads the contributor's sandbox
- * profile and is left out — with a note — when there is none. A, B and C need
- * no credentials: A uses keys Plaid rejects, and B and C never ask Plaid at all.
+ * None of this needs credentials. A uses keys Plaid rejects; B never asks
+ * Plaid at all. The app can only ask Plaid's PRODUCTION servers and no test
+ * has production keys, so in D the main process's answer is supplied and the
+ * window's handling of an acceptance is what is tested. Real acceptance — a
+ * verifier built in sandbox mode, real keys, a real config file — is proven
+ * in-process by desktop-services.test.mts.
+ *
+ * Where the test keys file exists, C also types real SANDBOX keys into the
+ * app with PLAID_ENV=sandbox set, and requires them to be rejected: the app
+ * must not be steerable into the sandbox by anything in its environment.
  *
  * Not covered here, and checked by hand: the two links that open Plaid's pages
  * in the browser (running them would open a browser on every test run), and Plaid
@@ -164,7 +171,6 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Screens" }
     plaidClientId: "placeholder-client-id",
     plaidSecret: "placeholder-secret",
     encryptionKey: generateEncryptionKey(),
-    plaidEnv: "production",
   });
 
   const app = await launch(HOME);
@@ -223,14 +229,14 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Screens" }
   delete stored["plaidSecret"];
   writeFileSync(CONFIG, JSON.stringify(stored, null, 2));
 
-  const SANDBOX_CONFIG = join(ROOT, ".dev-sandbox", "config.json");
-  const sandbox = existsSync(SANDBOX_CONFIG)
-    ? (JSON.parse(readFileSync(SANDBOX_CONFIG, "utf8")) as { plaidClientId: string; plaidSecret: string })
+  const SANDBOX_KEYS = join(ROOT, ".dev-sandbox", "config.json");
+  const sandbox = existsSync(SANDBOX_KEYS)
+    ? (JSON.parse(readFileSync(SANDBOX_KEYS, "utf8")) as { plaidClientId: string; plaidSecret: string })
     : undefined;
 
-  // Sandbox keys are only valid against Plaid's sandbox, and the app never
-  // asks which environment to use — it is told, the way a contributor tells it.
-  const app = await launch(HOME, sandbox === undefined ? {} : { PLAID_ENV: "sandbox" });
+  // PLAID_ENV used to be how an install got pointed at Plaid's sandbox. It is
+  // set here on purpose, to prove the app no longer takes any notice of it.
+  const app = await launch(HOME, { PLAID_ENV: "sandbox" });
   const page = await app.firstWindow();
   const logged = captureConsole(page);
 
@@ -239,30 +245,53 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Screens" }
   await page.getByTestId("welcome-continue").click();
   eq(await step(page), "keys", "then the keys step");
 
+  // --- the app cannot be pointed at the sandbox -------------------------------
   if (sandbox === undefined) {
-    checks.note("accepted-keys path NOT RUN: it needs the sandbox profile (npm run setup:sandbox)");
+    checks.note("sandbox keys NOT TRIED in the window: no .dev-sandbox/config.json (npm run setup:sandbox)");
   } else {
     await page.getByTestId("keys-client-id").fill(sandbox.plaidClientId);
     await page.getByTestId("keys-secret").fill(sandbox.plaidSecret);
     await page.getByTestId("keys-submit").click();
 
-    await expectVisible(checks, page.getByTestId("finish-step"), "keys Plaid accepts move setup on", 45_000);
-    eq(await page.getByTestId("database-step").count(), 0, "straight to the finish — NO SECOND DATABASE IS CREATED");
-
-    const saved = JSON.parse(readFileSync(CONFIG, "utf8")) as Record<string, unknown>;
-    eq(saved["plaidClientId"], sandbox.plaidClientId, "the client ID was saved");
-    eq(saved["plaidSecret"], sandbox.plaidSecret, "the secret was saved");
-    eq(saved["plaidEnv"], "sandbox", "with the environment the check ran against");
-    eq(saved["encryptionKey"], encryptionKeyBefore, "AND THE EXISTING ENCRYPTION KEY WAS NOT REPLACED");
-
-    await page.getByTestId("finish-continue").click();
-    await expectVisible(checks, sidebar(page), "Continue shows the app");
-    await expectHeadline(checks, page, "plaid", /^Keys present and working$/, "Status — plaid: Keys present and working", 45_000);
-    await expectHeadline(checks, page, "database", /^Running$/, "Status — database: Running");
-
+    if (await expectVisible(checks, page.getByTestId("keys-error"), "real SANDBOX keys typed into the app get an answer", 45_000)) {
+      eq(
+        await page.getByTestId("keys-error").getAttribute("data-kind"),
+        "rejected",
+        "AND ARE REJECTED, EVEN WITH PLAID_ENV=sandbox SET — the app only ever asks production",
+      );
+    }
+    const after = JSON.parse(readFileSync(CONFIG, "utf8")) as Record<string, unknown>;
+    eq(after["plaidClientId"], undefined, "so nothing was saved");
     ok(!(await page.locator("body").innerText()).includes(sandbox.plaidSecret), "the real secret is nowhere on screen");
     ok(!logged.some((line) => line.includes(sandbox.plaidSecret)), "and nowhere in the window's console");
   }
+
+  // --- D: accepted keys, with the main process's answer supplied ----------------
+  // The app can only ask production, and no test has production keys. So the
+  // answer to "submit keys" is supplied at the process boundary, and what is
+  // tested is everything the WINDOW does with an acceptance. What the main
+  // process does with real accepted keys — save them, keep the encryption key —
+  // is desktop-services.test.mts, against Plaid's sandbox, in-process.
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("setup.submitKeys");
+    ipcMain.handle("setup.submitKeys", async () => ({ outcome: "accepted" }));
+  });
+  await page.getByTestId("keys-client-id").fill("accepted-client-id");
+  await page.getByTestId("keys-secret").fill("accepted-secret");
+  await page.getByTestId("keys-submit").click();
+
+  await expectVisible(checks, page.getByTestId("finish-step"), "accepted keys move setup on");
+  eq(await page.getByTestId("database-step").count(), 0, "straight to the finish — NO SECOND DATABASE IS CREATED");
+  eq(await page.getByTestId("keys-error").count(), 0, "with the earlier rejection gone");
+  eq(
+    (JSON.parse(readFileSync(CONFIG, "utf8")) as Record<string, unknown>)["encryptionKey"],
+    encryptionKeyBefore,
+    "and the existing encryption key untouched",
+  );
+
+  await page.getByTestId("finish-continue").click();
+  await expectVisible(checks, sidebar(page), "Continue shows the app");
+  await expectHeadline(checks, page, "database", /^Running$/, "Status — database: Running");
 
   eq(await quit(app), 0, "Quit ends the process, exit code 0");
   eq(await server.status(), "stopped", "and stops the database");

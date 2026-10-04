@@ -364,6 +364,35 @@ none(
   `only ${PLAID_HOME} constructs a Plaid client`,
 );
 
+// --- a Plaid client is handed in, never reached for ---------------------------
+//
+// The product's client is assembled once, in domain/data/default-plaid.ts, and
+// passed by each interface to the services it calls. A domain file importing
+// it would be a service choosing its own Plaid — which is exactly what stops a
+// test handing it a different one.
+const DEFAULT_PLAID = "domain/data/default-plaid.ts";
+none(
+  files
+    .filter((f) => f.layer === "domain" && f.path !== DEFAULT_PLAID)
+    .filter((f) => f.imports.some((i) => targetOf(f, i) === DEFAULT_PLAID))
+    .map((f) => f.path),
+  "no domain code imports the default Plaid client — services are handed one",
+);
+
+// --- nothing in the product can choose Plaid's sandbox ------------------------
+//
+// There used to be a setting for it: PLAID_ENV in the environment, plaidEnv in
+// the config file. It pointed installs at the wrong Plaid, and it is gone. The
+// sandbox now exists only as a client the test suites build for themselves.
+// The one file allowed to spell the word as a value is the client's own type.
+none(
+  files
+    .filter((f) => f.path !== PLAID_HOME)
+    .filter((f) => /["'`]sandbox["'`]/.test(f.text) || /process\.env[^\n]*PLAID_ENV/.test(f.text))
+    .map((f) => f.path),
+  "no product code names Plaid's sandbox as a value, or reads PLAID_ENV",
+);
+
 // --- composition happens in a constructor, not a module setter ---------------
 // Both of these registered a function that lived one import away, and both
 // carried a runtime guard against being called too late. The names are a
