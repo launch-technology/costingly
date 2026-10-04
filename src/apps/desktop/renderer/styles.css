@@ -1,0 +1,6 @@
+/*
+ * Tailwind, and nothing else. The `dark:` variant follows the operating
+ * system's setting through prefers-color-scheme, which Electron reports from
+ * the Windows theme — so light and dark need no code of their own.
+ */
+@import "tailwindcss";

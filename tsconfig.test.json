@@ -12,5 +12,5 @@
     // and scripts/ for sitting outside it.
     "rootDir": "."
   },
-  "include": ["tests/**/*.mts", "scripts/**/*.mts", "src/**/*.ts"]
+  "include": ["tests/**/*.mts", "scripts/**/*.mts", "src/**/*.ts", "src/**/*.cts"]
 }

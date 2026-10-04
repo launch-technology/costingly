@@ -724,6 +724,11 @@ In sandbox, Plaid Link accepts `user_good` / `pass_good`, and `1234` for MFA.
 | `npm test -- <name>` | Run only suites matching `<name>` |
 | `npm run setup:sandbox` | Create the `.dev-sandbox` profile the e2e tests need |
 | `npm run build:bundle` | Pack `build/costingly-<version>.mcpb` for Claude Desktop |
+| `npm run build:desktop` | Compile, then bundle the desktop app's window into `dist/apps/desktop/` |
+| `npm run desktop` | Build and open the desktop app |
+
+The desktop app (`src/apps/desktop`) is in development. Until it has an
+installer, `npm run desktop` is the only way to launch it.
 
 `npm link` points the global `costingly` at `dist/`, which does not rebuild
 itself — so after editing source, run `npm run build` before the command

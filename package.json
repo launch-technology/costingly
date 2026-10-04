@@ -21,13 +21,15 @@
     "build": "npm run clean && tsc && node -e \"require('fs').chmodSync('dist/apps/cli/main.js',0o755)\"",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.platform.json && tsc --noEmit -p tsconfig.domain.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.platform.json && tsc --noEmit -p tsconfig.domain.json && tsc --noEmit -p tsconfig.desktop-renderer.json",
     "cli": "tsx src/apps/cli/main.ts",
     "setup:sandbox": "tsx scripts/setup-sandbox.mts",
     "test": "tsx tests/run.mts",
     "audit": "npm audit --omit=dev --audit-level=high",
     "set-version": "tsx scripts/set-version.mts",
-    "build:bundle": "tsx scripts/build-bundle.mts"
+    "build:bundle": "tsx scripts/build-bundle.mts",
+  "build:desktop": "npm run build && tsx scripts/build-desktop.mts",
+  "desktop": "npm run build:desktop && electron dist/apps/desktop/main.js"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
@@ -41,11 +43,21 @@
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "2.1.2",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.5.1",
+    "playwright": "^1.63.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
   },
   "optionalDependencies": {
     "@embedded-postgres/darwin-arm64": "^18.4.0-beta.17",

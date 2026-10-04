@@ -28,8 +28,14 @@
   // tests/ and scripts/ are typechecked separately by tsconfig.test.json, which
   // sets noEmit. They must not be emitted here, because dist/ is what `files`
   // publishes.
-  "include": ["src/**/*.ts"],
+  // *.cts as well as *.ts: the desktop app's preload script is CommonJS by
+  // necessity (a sandboxed Electron preload cannot be an ES module), and an
+  // explicit `*.ts` glob does not match it.
+  "include": ["src/**/*.ts", "src/**/*.cts"],
   // "dist" is required, not cosmetic: tsc only auto-excludes outDir when
   // `exclude` is absent entirely, and this config specifies it.
-  "exclude": ["node_modules", "dist"]
+  //
+  // The desktop renderer is browser code — DOM, JSX, bundled by Vite — and is
+  // checked by tsconfig.desktop-renderer.json instead.
+  "exclude": ["node_modules", "dist", "src/apps/desktop/renderer"]
 }
