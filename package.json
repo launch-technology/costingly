@@ -29,7 +29,7 @@
     "set-version": "tsx scripts/set-version.mts",
     "build:bundle": "tsx scripts/build-bundle.mts",
   "build:desktop": "npm run build && tsx scripts/build-desktop.mts",
-  "desktop": "npm run build:desktop && electron dist/apps/desktop/main.js"
+  "desktop": "npm run build:desktop && electron dist/apps/desktop/main/main.js"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",

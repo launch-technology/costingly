@@ -6,18 +6,19 @@
  * same fact reads differently in a window with a button than at a prompt — so
  * this reads the facts and says each state in its own words. Pure functions
  * over plain objects, which is what makes every state a table entry in
- * tests/desktop-status.test.mts rather than a database to build and break.
+ * tests/desktop-status-presenter.test.mts rather than a database to build and
+ * break. They stay functions: there is no state here and nothing to inject.
  *
  * Report-only. Nothing here suggests a fix, because this story offers none;
  * the stories that add setup and database controls will add the actions beside
  * the facts, not inside them.
  */
 
-import type { DatabaseHealth } from "../../domain/services/database/database-health.service.js";
-import type { PlaidStatus, ProfileStatus } from "../../domain/services/status.service.js";
-import type { SectionView } from "./status-view.types.js";
+import type { DatabaseHealth } from "../../../../domain/services/database/database-health.service.js";
+import type { PlaidStatus, ProfileStatus } from "../../../../domain/services/status.service.js";
+import type { SectionView } from "../../bridge/contract.js";
 
-export function profileView(profile: ProfileStatus): SectionView {
+export function presentProfile(profile: ProfileStatus): SectionView {
   const where = `Data folder: ${profile.path}`;
   // Only worth saying when something other than the default chose it — that is
   // the case where a person is looking at a profile they did not expect.
@@ -43,7 +44,7 @@ export function profileView(profile: ProfileStatus): SectionView {
   };
 }
 
-export function databaseView(health: DatabaseHealth): SectionView {
+export function presentDatabase(health: DatabaseHealth): SectionView {
   const { cluster, connection, migrationsApplied } = health;
 
   if (cluster.error !== undefined || cluster.state === "unknown") {
@@ -94,7 +95,7 @@ export function databaseView(health: DatabaseHealth): SectionView {
   return { tone: "good", headline: "Running", details };
 }
 
-export function plaidView(plaid: PlaidStatus): SectionView {
+export function presentPlaid(plaid: PlaidStatus): SectionView {
   if (!plaid.configured) {
     return {
       tone: "neutral",

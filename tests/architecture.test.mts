@@ -235,10 +235,10 @@ none(
 // It runs sandboxed in Chromium with no node and no domain, and reaches the
 // main process only through the preload bridge. An import of `node:` or of the
 // domain from here compiles under tsc and fails in the window at runtime, so
-// the rule lives where it fails fast. The one shared file is the view types,
+// the rule lives where it fails fast. The one shared file is the contract,
 // which has no imports of its own.
 const RENDERER = "apps/desktop/renderer/";
-const RENDERER_SHARED = "apps/desktop/status-view.types.ts";
+const RENDERER_SHARED = "apps/desktop/bridge/contract.ts";
 const rendererLeaks: string[] = [];
 for (const file of files.filter((f) => f.path.startsWith(RENDERER))) {
   for (const specifier of file.imports) {
@@ -249,7 +249,51 @@ for (const file of files.filter((f) => f.path.startsWith(RENDERER))) {
     rendererLeaks.push(`${file.path} -> ${specifier}`);
   }
 }
-none(rendererLeaks, "the renderer imports only react, its own files and the shared view types");
+none(rendererLeaks, "the renderer imports only react, its own files and the contract");
+
+// --- the desktop main process: layers behind the window ---------------------
+//
+//   controllers/   answer the window's calls
+//   services/      what the app does
+//   presenters/    domain reports, worded for a screen
+//   adapters/      the real domain, fitted to what the services ask for
+//   shell/         the Electron objects
+//
+// Three properties keep those layers meaning something.
+const DESKTOP_MAIN = "apps/desktop/main/";
+const BEHIND_THE_SHELL = ["controllers/", "services/", "presenters/", "adapters/"].map(
+  (folder) => `${DESKTOP_MAIN}${folder}`,
+);
+const behindTheShell = files.filter((f) => BEHIND_THE_SHELL.some((p) => f.path.startsWith(p)));
+
+// Electron stays at the edges: the shell and the composition root. Everything
+// else is handed what it needs, which is what lets the suite exercise it in
+// plain node with no window.
+none(
+  behindTheShell.filter((f) => f.imports.some((i) => i === "electron" || i.startsWith("electron/"))).map((f) => f.path),
+  "desktop controllers, services, presenters and adapters never import electron",
+);
+
+// The window sits ON TOP of the main process, never the other way round.
+none(
+  files
+    .filter((f) => f.path.startsWith(DESKTOP_MAIN) || f.path.startsWith("apps/desktop/bridge/"))
+    .filter((f) => f.imports.some((i) => (targetOf(f, i) ?? "").startsWith(RENDERER)))
+    .map((f) => f.path),
+  "nothing behind the window imports the renderer",
+);
+
+// Controllers, services and presenters are written against interfaces of their
+// own. They may name the domain's TYPES; its code is wired in by adapters/ and
+// nowhere else — one place to read what the desktop app depends on underneath.
+const domainCode: string[] = [];
+for (const file of behindTheShell.filter((f) => !f.path.startsWith(`${DESKTOP_MAIN}adapters/`))) {
+  for (const match of file.text.matchAll(/^import\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gm)) {
+    const target = targetOf(file, match[1] ?? "");
+    if (target !== null && target.startsWith("domain/")) domainCode.push(`${file.path} -> ${target}`);
+  }
+}
+none(domainCode, "only desktop adapters import domain code; the layers above import its types");
 
 // --- pg has exactly one home ------------------------------------------------
 // Everything else asks for an Executor. When this moves to platform/postgres/

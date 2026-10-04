@@ -30,6 +30,6 @@
   "include": [
     "src/apps/desktop/renderer/**/*.ts",
     "src/apps/desktop/renderer/**/*.tsx",
-    "src/apps/desktop/status-view.types.ts"
+    "src/apps/desktop/bridge/contract.ts"
   ]
 }
