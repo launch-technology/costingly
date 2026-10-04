@@ -111,7 +111,7 @@ export interface CostinglyStatus {
  * NOT `/item/get`: that would require decrypting an access token, and answering
  * "is Plaid up?" must not involve touching a bank credential.
  */
-async function checkPlaid(): Promise<PlaidStatus> {
+export async function checkPlaid(): Promise<PlaidStatus> {
   const environment = get("plaidEnv");
   const configured =
     getSecretIfSet("plaidSecret") !== undefined && (readClientId() ?? "") !== "";
@@ -175,7 +175,7 @@ async function readBanks(
  * that is absent reports absent, which is the answer someone confirming an
  * uninstall is looking for.
  */
-async function checkProfile(): Promise<ProfileStatus> {
+export async function checkProfile(): Promise<ProfileStatus> {
   const path = platform.profileDir();
   const [dir, config, cluster] = await Promise.all([
     describePath(path),

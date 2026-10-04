@@ -122,7 +122,8 @@ async function collect(dir: string): Promise<SourceFile[]> {
       files.push(...(await collect(full)));
       continue;
     }
-    if (!entry.name.endsWith(".ts")) continue;
+    // .tsx is the desktop renderer; .cts is its CommonJS preload script.
+    if (!/\.(ts|tsx|cts)$/.test(entry.name)) continue;
 
     const path = relative(SRC, full).split("\\").join("/");
     const text = await readFile(full, "utf8");
@@ -211,6 +212,44 @@ none(
     .map((f) => f.path),
   `no ${UI_PACKAGES.join(" / ")} outside the app layer`,
 );
+
+// --- the desktop app's packages stay in the desktop app ---------------------
+//
+// electron and react render a window; playwright drives one. None of them mean
+// anything to a terminal or a model, so they live under apps/desktop/ and
+// nowhere else — including nowhere else under apps/.
+const DESKTOP_HOME = "apps/desktop/";
+const DESKTOP_PACKAGES = ["electron", "react", "react-dom", "playwright"];
+const isDesktopPackage = (specifier: string): boolean =>
+  DESKTOP_PACKAGES.some((p) => specifier === p || specifier.startsWith(`${p}/`));
+none(
+  files
+    .filter((f) => !f.path.startsWith(DESKTOP_HOME))
+    .filter((f) => f.imports.some(isDesktopPackage))
+    .map((f) => f.path),
+  `only ${DESKTOP_HOME} imports ${DESKTOP_PACKAGES.join(" / ")}`,
+);
+
+// --- the renderer is browser code -------------------------------------------
+//
+// It runs sandboxed in Chromium with no node and no domain, and reaches the
+// main process only through the preload bridge. An import of `node:` or of the
+// domain from here compiles under tsc and fails in the window at runtime, so
+// the rule lives where it fails fast. The one shared file is the view types,
+// which has no imports of its own.
+const RENDERER = "apps/desktop/renderer/";
+const RENDERER_SHARED = "apps/desktop/status-view.types.ts";
+const rendererLeaks: string[] = [];
+for (const file of files.filter((f) => f.path.startsWith(RENDERER))) {
+  for (const specifier of file.imports) {
+    if (specifier === "react" || specifier.startsWith("react/")) continue;
+    if (specifier === "react-dom" || specifier.startsWith("react-dom/")) continue;
+    const target = targetOf(file, specifier);
+    if (target !== null && (target.startsWith(RENDERER) || target === RENDERER_SHARED)) continue;
+    rendererLeaks.push(`${file.path} -> ${specifier}`);
+  }
+}
+none(rendererLeaks, "the renderer imports only react, its own files and the shared view types");
 
 // --- pg has exactly one home ------------------------------------------------
 // Everything else asks for an Executor. When this moves to platform/postgres/

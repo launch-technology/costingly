@@ -3,6 +3,9 @@
 # is committable.
 .dev/
 .dev-sandbox/
+# The desktop app's own folder sits beside a moved profile with this suffix.
+.dev-desktop/
+.dev-sandbox-desktop/
 
 # An optional convenience for setting environment variables in development.
 # costingly never writes this and never stores credentials in it.
@@ -28,6 +31,10 @@ dist/
 build/
 .next/
 .vercel/
+
+# Epic and story planning documents written by the epic-runner skill. Local
+# working notes, not part of the published repo.
+.epics/
 
 # Logs
 *.log

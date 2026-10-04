@@ -1,0 +1,35 @@
+{
+  // Typecheck the desktop app's window.
+  //
+  // Not `extends: tsconfig.json`: that config describes node code, and the
+  // renderer is the opposite — a browser page with the DOM, JSX, and a bundler
+  // resolving its imports. `types: []` is the load-bearing line: with no node
+  // types in scope, an import of `node:fs` or a use of `process` fails here,
+  // at compile time, instead of in the sandboxed window at runtime.
+  //
+  // The main tsconfig excludes this folder for the same reason in reverse.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "types": [],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": [
+    "src/apps/desktop/renderer/**/*.ts",
+    "src/apps/desktop/renderer/**/*.tsx",
+    "src/apps/desktop/status-view.types.ts"
+  ]
+}
