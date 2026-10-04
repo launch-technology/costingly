@@ -47,11 +47,13 @@ import type { Application } from "../../../platform/runtime/application.js";
 import { ResourceScope } from "../../../platform/runtime/resource-scope.js";
 import * as domain from "./adapters/domain.js";
 import type { AllHandlers } from "./controllers/controller.js";
+import { DatabaseController, databaseSectionReader } from "./controllers/database.controller.js";
 import { SetupController } from "./controllers/setup.controller.js";
 import { StatusController } from "./controllers/status.controller.js";
 import { desktopDir, desktopSettingsPath } from "./desktop-paths.js";
+import { explainDatabaseFailure } from "./presenters/database.presenter.js";
 import { CloseNoticeService } from "./services/close-notice.service.js";
-import { DatabaseLifetimeService } from "./services/database-lifetime.service.js";
+import { DatabaseService } from "./services/database.service.js";
 import { SettingsService } from "./services/settings.service.js";
 import { SetupService } from "./services/setup.service.js";
 import { registerHandlers } from "./shell/ipc-router.js";
@@ -110,26 +112,37 @@ export class DesktopApplication implements Application {
    * Build the app. Every `new` in the desktop app is here.
    *
    * Release order is the reverse of registration: the window and tray go
-   * first, then this process's database connections, and the database server
-   * last — it is stopped only after nothing of ours is still talking to it.
+   * first, and the database last — its service closes this process's
+   * connections and then stops the server, after whatever it was already doing.
    */
   private async compose(): Promise<void> {
     const log = (line: string): void => console.error(`[${this.name}] ${line}`);
 
-    // --- the database, started while Electron is still getting ready ---------
+    // --- the database, brought up while Electron is still getting ready ------
     // The two waits overlap, and the first status check the window makes then
     // finds the database already up instead of reporting a stop about to end.
-    const database = new DatabaseLifetimeService(domain.datastore, log);
-    const databaseStarting = database.start();
-    this.scope.onClose("database server", () => database.stop());
-    this.scope.onClose("database connections", domain.closeConnections);
+    const database = new DatabaseService(domain.databaseDependencies(log));
+    const databaseComingUp = database.bringUp();
+    this.scope.onClose("database", () => database.stop());
 
     await app.whenReady();
 
     // --- what the window can ask for ----------------------------------------
-    const setup = new SetupService(domain.setupDependencies());
+    const databaseSection = databaseSectionReader(domain.databaseSources, database);
+
+    const setup = new SetupService({
+      ...domain.setupDependencies(),
+      // Setup creates the database through the same service, and explains a
+      // failure in the same words, as the status screen's own button.
+      createDatabase: async () => {
+        const failure = await database.create();
+        return failure === undefined ? undefined : explainDatabaseFailure(failure).problem;
+      },
+    });
+
     const handlers: AllHandlers = {
-      ...new StatusController(domain.statusChecks()).handlers(),
+      ...new StatusController(domain.statusChecks(), databaseSection).handlers(),
+      ...new DatabaseController(database, databaseSection, domain.databaseLog).handlers(),
       ...new SetupController(setup, (url) => shell.openExternal(url)).handlers(),
     };
     registerHandlers(handlers, { describe: domain.describeError, log });
@@ -153,7 +166,7 @@ export class DesktopApplication implements Application {
     );
 
     // --- the window ----------------------------------------------------------
-    await databaseStarting;
+    await databaseComingUp;
     const window = new MainWindow({
       icon,
       onHidden: () => void closeNotice.windowHidden(),

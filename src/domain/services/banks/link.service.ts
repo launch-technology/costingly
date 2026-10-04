@@ -15,7 +15,7 @@
  */
 
 import type { LinkTokenCreateRequest } from "plaid";
-import { getPlaidClient, describeError } from "../../data/plaid.client.js";
+import { describeError, type PlaidClient } from "../../data/plaid.client.js";
 import { saveItem } from "../../data/repositories/items.repository.js";
 import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
 import { toAccountRow } from "../../pipelines/plaid/plaid.mappers.js";
@@ -24,7 +24,7 @@ import { PRODUCTS, COUNTRY_CODES, DAYS_REQUESTED, CLIENT_USER_ID } from "../../p
 
 
 /** A token for one fresh Plaid Link session, connecting a new bank. */
-export async function createLinkToken(): Promise<string> {
+export async function createLinkToken(plaid: PlaidClient): Promise<string> {
   const request: LinkTokenCreateRequest = {
     client_name: "Costingly",
     language: "en",
@@ -36,7 +36,7 @@ export async function createLinkToken(): Promise<string> {
     transactions: { days_requested: DAYS_REQUESTED },
   };
 
-  const response = await getPlaidClient().linkTokenCreate(request);
+  const response = await plaid.api.linkTokenCreate(request);
   return response.data.link_token;
 }
 
@@ -54,21 +54,19 @@ export interface LinkedItem {
  * `cursor` is deliberately left NULL, which is what makes the first
  * `costingly sync` pull the full transaction history.
  */
-export async function exchangePublicToken(publicToken: string): Promise<LinkedItem> {
-  const plaid = getPlaidClient();
-
-  const exchange = await plaid.itemPublicTokenExchange({ public_token: publicToken });
+export async function exchangePublicToken(plaid: PlaidClient, publicToken: string): Promise<LinkedItem> {
+  const exchange = await plaid.api.itemPublicTokenExchange({ public_token: publicToken });
   const accessToken = exchange.data.access_token;
   const itemId = exchange.data.item_id;
 
-  const { institutionId, institutionName } = await resolveInstitution(accessToken);
+  const { institutionId, institutionName } = await resolveInstitution(plaid, accessToken);
 
   // Store the Item before fetching accounts: if the accounts call fails we
   // still hold the access_token, so nothing is orphaned and a re-run repairs
   // the rest. (Losing an access_token would mean re-linking the bank.)
   await saveItem(db, { itemId, institutionId, institutionName, accessToken, source: "plaid" });
 
-  const accounts = await plaid.accountsGet({ access_token: accessToken });
+  const accounts = await plaid.api.accountsGet({ access_token: accessToken });
   await db.transaction(async (tx) => {
     await upsertAccountRows(tx, accounts.data.accounts.map((a) => toAccountRow(a, itemId)));
   });
@@ -95,14 +93,15 @@ export async function exchangePublicToken(publicToken: string): Promise<LinkedIt
  * `/institutions/get_by_id`. Neither is essential — the name is cosmetic — so
  * a failure here is logged and the Item is stored without it.
  */
-async function resolveInstitution(accessToken: string): Promise<{
+async function resolveInstitution(
+  plaid: PlaidClient,
+  accessToken: string,
+): Promise<{
   institutionId: string | null;
   institutionName: string | null;
 }> {
-  const plaid = getPlaidClient();
-
   try {
-    const item = await plaid.itemGet({ access_token: accessToken });
+    const item = await plaid.api.itemGet({ access_token: accessToken });
     const institutionId = item.data.item.institution_id ?? null;
     const institutionName = item.data.item.institution_name ?? null;
 
@@ -110,7 +109,7 @@ async function resolveInstitution(accessToken: string): Promise<{
       return { institutionId, institutionName };
     }
 
-    const institution = await plaid.institutionsGetById({
+    const institution = await plaid.api.institutionsGetById({
       institution_id: institutionId,
       country_codes: COUNTRY_CODES,
     });

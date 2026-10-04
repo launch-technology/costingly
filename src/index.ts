@@ -17,7 +17,6 @@ export {
   describeConfig,
   writeConfig,
   readConfigFile,
-  type PlaidEnvName,
   type StoredConfig,
   type ResolvedValue,
 } from "./domain/config.js";
@@ -51,7 +50,9 @@ export {
   type Migration,
 } from "./platform/postgres/migrations.js";
 export {
-  getPlaidClient,
+  PlaidClient,
+  type PlaidCredentials,
+  type PlaidServer,
   getPlaidError,
   describeError,
   isPlaidErrorCode,

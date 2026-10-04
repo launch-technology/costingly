@@ -12,7 +12,7 @@
  */
 
 import { db } from "../../data/default-database.js";
-import { getPlaidClient } from "../../data/plaid.client.js";
+import type { PlaidClient } from "../../data/plaid.client.js";
 import { getItem, setItemStatus, type StoredItem } from "../../data/repositories/items.repository.js";
 import { COUNTRY_CODES, CLIENT_USER_ID } from "../../pipelines/plaid/plaid.config.js";
 
@@ -32,10 +32,10 @@ import { COUNTRY_CODES, CLIENT_USER_ID } from "../../pipelines/plaid/plaid.confi
  * Plaid access_token — a permanent bearer credential for someone's bank — never
  * leaves this process.
  */
-export async function createRepairLinkToken(itemId: string): Promise<string> {
+export async function createRepairLinkToken(plaid: PlaidClient, itemId: string): Promise<string> {
   const item = await requirePlaidItem(itemId);
 
-  const response = await getPlaidClient().linkTokenCreate({
+  const response = await plaid.api.linkTokenCreate({
     client_name: "Costingly",
     language: "en",
     country_codes: COUNTRY_CODES,

@@ -27,7 +27,7 @@
 import { closeDb } from "../data/default-database.js";
 import { removeProfile, type ProfileRemoval } from "../../platform/profile.js";
 import { platform, server } from "../project.js";
-import { describeError } from "../data/plaid.client.js";
+import { describeError, type PlaidClient } from "../data/plaid.client.js";
 import { removeAllItems } from "./banks/reset.service.js";
 import type { RemovalOutcome } from "./banks/unlink.service.js";
 
@@ -65,9 +65,9 @@ export interface UninstallResult {
  * What it cannot survive is the database being unreachable — which is exactly
  * the state a broken install is in — so the whole step is wrapped as well.
  */
-async function revokeAll(): Promise<{ outcomes: RemovalOutcome[]; error?: string }> {
+async function revokeAll(plaid: PlaidClient): Promise<{ outcomes: RemovalOutcome[]; error?: string }> {
   try {
-    return { outcomes: await removeAllItems({ revoke: true }) };
+    return { outcomes: await removeAllItems(plaid, { revoke: true }) };
   } catch (error) {
     return { outcomes: [], error: describeError(error) };
   }
@@ -79,8 +79,11 @@ async function revokeAll(): Promise<{ outcomes: RemovalOutcome[]; error?: string
  * Throws only if the profile itself could not be removed — a guard rejecting
  * the target, or a directory that will not delete. Everything else is reported.
  */
-export async function uninstall(options: UninstallOptions): Promise<UninstallResult> {
-  const revoked = options.revoke ? await revokeAll() : { outcomes: [] };
+export async function uninstall(
+  plaid: PlaidClient,
+  options: UninstallOptions,
+): Promise<UninstallResult> {
+  const revoked = options.revoke ? await revokeAll(plaid) : { outcomes: [] };
 
   // This process's own pool, released before the directory under it disappears.
   // `server.stop()` would disconnect us anyway, but a pool that is still open

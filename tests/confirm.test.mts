@@ -13,8 +13,6 @@ import { fileURLToPath } from "node:url";
 const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 
-process.env.PLAID_ENV = "production";
-
 import { PassThrough } from "node:stream";
 
 const { describeDatabase } = await import("../src/apps/cli/ui/confirm.js");

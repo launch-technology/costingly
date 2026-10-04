@@ -18,7 +18,7 @@
 import { Pipeline } from "../../../platform/pipeline/pipeline.js";
 import { db } from "../../data/default-database.js";
 import { setItemStatus, type SyncableItem } from "../../data/repositories/items.repository.js";
-import { describeError, isItemLoginRequired } from "../../data/plaid.client.js";
+import { describeError, isItemLoginRequired, type PlaidClient } from "../../data/plaid.client.js";
 import { ItemCursorStore } from "../../pipelines/plaid/item-cursor.store.js";
 import { PlaidSource, type ItemChanges } from "../../pipelines/plaid/plaid.source.js";
 import { TransactionsSink } from "../../pipelines/plaid/transactions.sink.js";
@@ -41,13 +41,13 @@ async function markLoginRequired(item: SyncableItem, error: unknown): Promise<vo
  * The single entry point shared by `costingly sync` and the MCP tool — neither
  * adds logic on top of it.
  */
-export async function syncAllItems(): Promise<SyncSummary> {
+export async function syncAllItems(plaid: PlaidClient): Promise<SyncSummary> {
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
 
   const pipeline = new Pipeline<SyncableItem, ItemChanges>(
     db,
-    new PlaidSource(),
+    new PlaidSource(plaid),
     new TransactionsSink(),
     new ItemCursorStore(),
     {

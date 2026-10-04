@@ -26,6 +26,7 @@ const { generateSeedDataset } = await import("../src/domain/services/seed/seed.g
 const { applySeed, assertSeedable, SeedRefused } = await import("../src/domain/services/seed/seed.service.js");
 const { listSyncableItems, listAllItems, saveItem } = await import("../src/domain/data/repositories/items.repository.js");
 const { createRepairLinkToken } = await import("../src/domain/services/banks/relink.service.js");
+const { PlaidClient } = await import("../src/domain/data/plaid.client.js");
 
 const out: string[] = [];
 let fail = 0;
@@ -154,7 +155,8 @@ eq(all.filter((i) => i.accessToken !== null).length, 0, "no seeded bank carries 
 eq(all.filter((i) => i.source !== "seed").length, 0, "every stored item reports source 'seed'");
 
 const repairError = await throws(
-  () => createRepairLinkToken(first.items[0]!.itemId),
+  // The refusal comes before Plaid is asked anything, so any client will do.
+  () => createRepairLinkToken(PlaidClient.withKeys("unused", "unused"), first.items[0]!.itemId),
   "relinking a seeded bank is refused",
 );
 ok(String((repairError as Error).message).includes("sample data"),

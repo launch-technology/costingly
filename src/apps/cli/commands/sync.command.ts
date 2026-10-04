@@ -9,6 +9,7 @@
 
 import type { Command } from "commander";
 import { TransactionsUpdateStatus } from "plaid";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { syncAllItems } from "../../../domain/services/banks/sync.service.js";
 import type { ItemSyncResult } from "../../../domain/services/banks/sync.types.js";
 import { isMissingSchema, isNotSetUp } from "../../../platform/postgres/errors.js";
@@ -74,7 +75,7 @@ Re-running is safe: a run with nothing to do writes nothing.`,
 }
 
 export async function runSync(): Promise<void> {
-  const summary = await syncAllItems();
+  const summary = await syncAllItems(plaid);
 
   if (summary.itemsTotal === 0) {
     console.log("No linked items to sync. Run `costingly link` to connect a bank.");

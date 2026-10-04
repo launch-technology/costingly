@@ -33,6 +33,7 @@ import {
   type ProfileStatus,
 } from "../../../domain/services/status.service.js";
 import type { DatabaseHealth } from "../../../domain/services/database/database-health.service.js";
+import { plaid as productionPlaid } from "../../../domain/data/default-plaid.js";
 import type { ItemAccountListing } from "../../../domain/data/repositories/items.repository.js";
 import { ago, money, truncate } from "../ui/format.js";
 
@@ -163,9 +164,9 @@ function bankNote(status: string, neverSynced: boolean, source: string): string 
 
 function renderPlaid(plaid: PlaidStatus, banks: ItemAccountListing[] | null, banksError?: string): void {
   const headline = plaid.reachable
-    ? `reachable   ${OK}   ${plaid.environment}`
+    ? `reachable   ${OK}`
     : plaid.configured
-      ? `unreachable   ${NO}   ${plaid.environment}`
+      ? `unreachable   ${NO}`
       : `not configured   ${NO}`;
 
   line("Plaid", headline);
@@ -279,7 +280,7 @@ function renderBlockers(blockers: Blocker[]): void {
 }
 
 export async function runStatus(options: StatusOptions): Promise<void> {
-  const status: CostinglyStatus = await costinglyStatus();
+  const status: CostinglyStatus = await costinglyStatus(productionPlaid);
 
   if (options.json) {
     // Blockers are derived rather than gathered, so they are included: a script

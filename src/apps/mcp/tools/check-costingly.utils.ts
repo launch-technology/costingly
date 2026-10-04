@@ -56,7 +56,7 @@ export function formatCheck(status: CostinglyStatus, blockers: Blocker[]): strin
     }
 
     lines.push(
-        `Plaid:    ${status.plaid.environment} — ` +
+        `Plaid:    ` +
             (status.plaid.reachable
                 ? "reachable"
                 : status.plaid.configured

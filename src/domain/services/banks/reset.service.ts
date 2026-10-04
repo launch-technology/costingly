@@ -12,6 +12,7 @@
  */
 
 import { db } from "../../data/default-database.js";
+import type { PlaidClient } from "../../data/plaid.client.js";
 import * as items from "../../data/repositories/items.repository.js";
 import * as accounts from "../../data/repositories/accounts.repository.js";
 import * as transactions from "../../data/repositories/transactions.repository.js";
@@ -40,9 +41,10 @@ export async function countData(): Promise<DataCounts> {
  * if ENCRYPTION_KEY has been lost or rotated — which is precisely one of the
  * reasons you would want to wipe and start over.
  */
-export async function removeAllItems(options: {
-  revoke: boolean;
-}): Promise<RemovalOutcome[]> {
+export async function removeAllItems(
+  plaid: PlaidClient,
+  options: { revoke: boolean },
+): Promise<RemovalOutcome[]> {
   if (!options.revoke) {
     // Listed before deleting, because afterwards there is nothing left to name.
     const existing = await items.listBasic(db);
@@ -53,7 +55,7 @@ export async function removeAllItems(options: {
   const stored = await items.listAllItems(db);
   const outcomes: RemovalOutcome[] = [];
   for (const item of stored) {
-    outcomes.push(await removeItem(item, { revoke: true }));
+    outcomes.push(await removeItem(plaid, item, { revoke: true }));
   }
   return outcomes;
 }

@@ -9,12 +9,10 @@
  * tests/desktop-status-presenter.test.mts rather than a database to build and
  * break. They stay functions: there is no state here and nothing to inject.
  *
- * Report-only. Nothing here suggests a fix, because this story offers none;
- * the stories that add setup and database controls will add the actions beside
- * the facts, not inside them.
+ * The profile and the Plaid keys are here. The database has more to say — what
+ * is wrong, and what to press — and has its own file, database.presenter.ts.
  */
 
-import type { DatabaseHealth } from "../../../../domain/services/database/database-health.service.js";
 import type { PlaidStatus, ProfileStatus } from "../../../../domain/services/status.service.js";
 import type { SectionView } from "../../bridge/contract.js";
 
@@ -44,57 +42,6 @@ export function presentProfile(profile: ProfileStatus): SectionView {
   };
 }
 
-export function presentDatabase(health: DatabaseHealth): SectionView {
-  const { cluster, connection, migrationsApplied } = health;
-
-  if (cluster.error !== undefined || cluster.state === "unknown") {
-    return couldNotCheck(cluster.error ?? "The database server's state could not be read.");
-  }
-
-  switch (cluster.state) {
-    case "uninitialised":
-      return {
-        tone: "neutral",
-        headline: "Not created",
-        details: ["No database has been created yet."],
-      };
-    case "stopped":
-      return {
-        tone: "warn",
-        headline: "Stopped",
-        details: ["The database exists but its server is not running."],
-      };
-    case "running":
-      break;
-    default:
-      return couldNotCheck(`Unexpected server state "${cluster.state}".`);
-  }
-
-  if (!connection.ok) {
-    return {
-      tone: "bad",
-      headline: "Running but not answering",
-      details: [connection.error ?? "The server is up but did not answer a query."],
-    };
-  }
-
-  const details = [`Listening on ${cluster.listenAddress}`];
-  if (cluster.uptimeSeconds !== null) {
-    details.push(
-      `Up ${formatDuration(cluster.uptimeSeconds)}` +
-        (cluster.startedAt === null ? "" : ` since ${cluster.startedAt}`),
-    );
-  }
-  if (migrationsApplied !== null) {
-    const latest = migrationsApplied[migrationsApplied.length - 1];
-    details.push(latest === undefined ? "No tables created yet." : `Schema version: ${latest}`);
-  } else if (connection.error !== undefined) {
-    details.push(`Schema could not be read: ${connection.error}`);
-  }
-
-  return { tone: "good", headline: "Running", details };
-}
-
 export function presentPlaid(plaid: PlaidStatus): SectionView {
   if (!plaid.configured) {
     return {
@@ -108,14 +55,14 @@ export function presentPlaid(plaid: PlaidStatus): SectionView {
     return {
       tone: "good",
       headline: "Keys present and working",
-      details: [`Environment: ${plaid.environment}`],
+      details: ["Plaid accepted these keys."],
     };
   }
 
   return {
     tone: "warn",
     headline: "Keys present but Plaid could not be reached",
-    details: [plaid.error ?? "Plaid did not respond.", `Environment: ${plaid.environment}`],
+    details: [plaid.error ?? "Plaid did not respond."],
   };
 }
 
@@ -132,14 +79,4 @@ export function couldNotCheck(error: unknown): SectionView {
     headline: "Could not check",
     details: [error instanceof Error ? error.message : String(error)],
   };
-}
-
-/** "45s", "3h 12m", "2d 5h" — enough precision to judge, no more. */
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ${minutes % 60}m`;
-  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }

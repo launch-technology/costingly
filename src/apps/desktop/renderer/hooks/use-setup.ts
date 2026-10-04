@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
-import type { SetupState } from "../../bridge/contract.js";
+import type { Problem, SetupState } from "../../bridge/contract.js";
 import { call } from "../api/client.js";
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ export function useKeysForm(onAccepted: () => void): KeysForm {
 export type DatabaseCreation =
   | { phase: "working" }
   | { phase: "ready" }
-  | { phase: "failed"; reason: string };
+  | { phase: "failed"; problem: Problem };
 
 /**
  * Starts on its own — there is nothing for the user to decide, and a button
@@ -150,10 +150,18 @@ export function useCreateDatabase(): { creation: DatabaseCreation; retry(): void
     try {
       const result = await call("setup.createDatabase");
       setCreation(
-        result.outcome === "ready" ? { phase: "ready" } : { phase: "failed", reason: result.reason },
+        result.outcome === "ready" ? { phase: "ready" } : { phase: "failed", problem: result.problem },
       );
     } catch (error) {
-      setCreation({ phase: "failed", reason: error instanceof Error ? error.message : String(error) });
+      // The call itself failed, which the main process does not do on purpose:
+      // a creation that fails comes back as a result with its explanation.
+      setCreation({
+        phase: "failed",
+        problem: {
+          cause: `The database could not be created. ${error instanceof Error ? error.message : String(error)}`,
+          nextStep: "Try again.",
+        },
+      });
     } finally {
       running.current = false;
     }

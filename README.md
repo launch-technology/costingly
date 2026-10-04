@@ -666,7 +666,11 @@ Settings resolve in this order, first hit wins:
 2. **Real environment variables** — `PLAID_SECRET=… costingly sync` works, and is
    how CI configures it with no file at all
 3. **`config.json`** in the profile — what `costingly init` writes
-4. **Defaults in source**
+
+The settings are the two Plaid keys and the encryption key, and none has a
+default. There is deliberately **no setting for which Plaid to talk to**:
+costingly talks to Plaid's production servers, and nothing in the environment
+or the config file can point it anywhere else.
 
 There is no file discovery and nothing relative to the current directory: the
 profile is named by `COSTINGLY_HOME` or the platform default, and the config
@@ -697,21 +701,20 @@ npm run setup:sandbox
 
 It asks for your Plaid **sandbox** keys (the Sandbox row at
 [dashboard.plaid.com/developers/keys](https://dashboard.plaid.com/developers/keys)),
-verifies them against the real API, and writes `.dev-sandbox/config.json` —
-git-ignored, mode 0600. `PLAID_CLIENT_ID` / `PLAID_SECRET` in the environment
-skip the prompts, so CI can run it unattended.
+verifies them against Plaid's sandbox, and writes `.dev-sandbox/config.json` —
+git-ignored, mode 0600. `PLAID_SANDBOX_CLIENT_ID` / `PLAID_SANDBOX_SECRET` in
+the environment skip the prompts, so CI can run it unattended. Those names are
+the tests' own: they are not the variables costingly reads its keys from.
 
-That profile has its own cluster and its own throwaway encryption key, so it
-cannot read or write your real transactions. Isolation is by directory, not by a
-rule anyone has to remember.
+That file is a store of test keys and nothing more. **The product cannot use
+the sandbox.** There is no `PLAID_ENV` variable and no config setting: every
+Plaid client the product builds is a production one. A suite that needs the
+sandbox reads the keys from that file, builds its own Plaid client in sandbox
+mode, and passes it to the code under test — the services are handed their
+Plaid client rather than choosing one, which is what makes that possible.
 
-The end-to-end suites skip with instructions until it exists, so a fresh clone
-runs everything else green.
-
-`costingly init` cannot create this profile — it always writes
-`plaidEnv: "production"`, which is what keeps sandbox out of the product.
-
-In sandbox, Plaid Link accepts `user_good` / `pass_good`, and `1234` for MFA.
+The suites that need those keys skip with instructions until the file exists,
+so a fresh clone runs everything else green.
 
 ### Scripts
 
@@ -722,7 +725,7 @@ In sandbox, Plaid Link accepts `user_good` / `pass_good`, and `1234` for MFA.
 | `npm run cli -- <command>` | Run from source via tsx, without rebuilding |
 | `npm test` | Run every suite |
 | `npm test -- <name>` | Run only suites matching `<name>` |
-| `npm run setup:sandbox` | Create the `.dev-sandbox` profile the e2e tests need |
+| `npm run setup:sandbox` | Save the Plaid sandbox keys the e2e tests need, in `.dev-sandbox` |
 | `npm run build:bundle` | Pack `build/costingly-<version>.mcpb` for Claude Desktop |
 | `npm run build:desktop` | Compile, then bundle the desktop app's window into `dist/apps/desktop/` |
 | `npm run desktop` | Build and open the desktop app |

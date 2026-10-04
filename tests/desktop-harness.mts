@@ -50,6 +50,20 @@ export function createChecks(watchdogMinutes = 8): Checks {
     process.exit(1);
   }, watchdogMinutes * 60_000);
 
+  // A suite that throws part-way must still say how far it got: the results
+  // are buffered, and an exception would otherwise take them with it.
+  const crashed = (error: unknown): void => {
+    clearTimeout(watchdog);
+    console.log(out.join("\n"));
+    console.log(`\n  FAIL  the suite threw after ${checks} checks:`);
+    console.log(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    const said = recentAppOutput();
+    if (said !== "") console.log(`\n  --    what the app itself reported:\n${said}`);
+    process.exit(1);
+  };
+  process.once("uncaughtException", crashed);
+  process.once("unhandledRejection", crashed);
+
   const eq = (a: unknown, b: unknown, what: string): void => {
     checks++;
     if (JSON.stringify(a) === JSON.stringify(b)) out.push(`  ok    ${what}`);
@@ -104,13 +118,33 @@ function envFor(home: string, extra: Record<string, string>): Record<string, str
   return { ...base, COSTINGLY_HOME: home, ...extra };
 }
 
+/**
+ * What the launched apps wrote to stderr, newest last. Printed when a suite
+ * fails: "the window closed" says nothing about why, and the app's own last
+ * words usually do.
+ */
+const appOutput: string[] = [];
+
+export function recentAppOutput(maxChars = 4_000): string {
+  return appOutput
+    .join("")
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "" && !/^Debugger (listening|attached)|^For help, see/.test(line))
+    .join("\n")
+    .slice(-maxChars);
+}
+
 /** Launch the built app against one profile. */
-export function launch(
+export async function launch(
   home: string,
   extra: Record<string, string> = {},
   timeout = 60_000,
 ): Promise<ElectronApplication> {
-  return electron.launch({ args: [MAIN], env: envFor(home, extra), timeout });
+  const app = await electron.launch({ args: [MAIN], env: envFor(home, extra), timeout });
+  const child = app.process();
+  child.stderr?.on("data", (chunk: Buffer) => appOutput.push(chunk.toString()));
+  child.once("exit", (code, signal) => appOutput.push(`\n[app pid ${child.pid} exited: code=${code} signal=${signal}]\n`));
+  return app;
 }
 
 export function headline(page: Page, section: string): Locator {

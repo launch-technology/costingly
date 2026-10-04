@@ -8,7 +8,7 @@
  */
 
 import type { Command } from "commander";
-import { get } from "../../../domain/config.js";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { startLinkServer, stopLinkServer } from "../../../domain/services/banks/link-session.service.js";
 import { publicDir } from "../../../platform/package.js";
 
@@ -38,9 +38,9 @@ Link as many banks as you like, then press Ctrl-C and run \`costingly sync\`.`,
  * action "finishes".
  */
 export async function runLinkServer(): Promise<void> {
-  const { url } = await startLinkServer(publicDir);
+  const { url } = await startLinkServer(plaid, publicDir);
 
-  console.log(`\nPlaid Link server running against the ${get("plaidEnv")} environment.`);
+  console.log("\nPlaid Link server running.");
   console.log(`Open ${url} to connect a bank.`);
   console.log("Press Ctrl-C when you are done.\n");
 

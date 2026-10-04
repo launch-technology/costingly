@@ -35,8 +35,8 @@ import { stat } from "node:fs/promises";
 import { CountryCode } from "plaid";
 
 import { database } from "../data/default-database.js";
-import { describeError, getPlaidClient } from "../data/plaid.client.js";
-import { describeConfig, get, getSecretIfSet, type ResolvedValue } from "../config.js";
+import { describeError, type PlaidClient } from "../data/plaid.client.js";
+import { describeConfig, type ResolvedValue } from "../config.js";
 import { platform, server } from "../project.js";
 import {
   listWithAccounts,
@@ -51,8 +51,6 @@ const PLAID_TIMEOUT_MS = 8_000;
 export interface PlaidStatus {
   /** Whether a client_id and secret are present at all. */
   configured: boolean;
-  /** "sandbox" or "production" — which set of Items these credentials see. */
-  environment: string;
   /**
    * True only when Plaid answered.
    *
@@ -105,21 +103,18 @@ export interface CostinglyStatus {
 /**
  * Is Plaid reachable, and are these credentials good?
  *
- * `/institutions/get` with a count of one is the cheapest call that proves all
- * three things worth proving: the network works, the client_id and secret are
- * valid, and the environment they belong to is the one configured. Deliberately
- * NOT `/item/get`: that would require decrypting an access token, and answering
- * "is Plaid up?" must not involve touching a bank credential.
+ * `/institutions/get` with a count of one is the cheapest call that proves the
+ * two things worth proving: the network works, and the client_id and secret
+ * are valid. Deliberately NOT `/item/get`: that would require decrypting an
+ * access token, and answering "is Plaid up?" must not involve touching a bank
+ * credential.
+ *
+ * Asks the client it is given, so "these keys" are that client's keys.
  */
-export async function checkPlaid(): Promise<PlaidStatus> {
-  const environment = get("plaidEnv");
-  const configured =
-    getSecretIfSet("plaidSecret") !== undefined && (readClientId() ?? "") !== "";
-
-  if (!configured) {
+export async function checkPlaid(plaid: PlaidClient): Promise<PlaidStatus> {
+  if (!plaid.hasCredentials()) {
     return {
       configured: false,
-      environment,
       reachable: false,
       error: "no Plaid credentials — run `costingly init`",
     };
@@ -127,25 +122,16 @@ export async function checkPlaid(): Promise<PlaidStatus> {
 
   try {
     await withTimeout(
-      getPlaidClient().institutionsGet({
+      plaid.api.institutionsGet({
         count: 1,
         offset: 0,
         country_codes: [CountryCode.Us],
       }),
       PLAID_TIMEOUT_MS,
     );
-    return { configured: true, environment, reachable: true };
+    return { configured: true, reachable: true };
   } catch (error) {
-    return { configured: true, environment, reachable: false, error: describeError(error) };
-  }
-}
-
-/** `get` throws when a key is missing; here that is an answer, not a failure. */
-function readClientId(): string | undefined {
-  try {
-    return get("plaidClientId");
-  } catch {
-    return undefined;
+    return { configured: true, reachable: false, error: describeError(error) };
   }
 }
 
@@ -219,11 +205,11 @@ async function describePath(
  * Neither can reject — both wrap their own failures — so there is no partial
  * result to reason about.
  */
-export async function costinglyStatus(): Promise<CostinglyStatus> {
-  const [profile, health, plaid] = await Promise.all([
+export async function costinglyStatus(plaid: PlaidClient): Promise<CostinglyStatus> {
+  const [profile, health, plaidStatus] = await Promise.all([
     checkProfile(),
     checkDatabase(),
-    checkPlaid(),
+    checkPlaid(plaid),
   ]);
   const { banks, error } = await readBanks(health.connection.ok);
 
@@ -231,7 +217,7 @@ export async function costinglyStatus(): Promise<CostinglyStatus> {
     version: packageVersion(),
     profile,
     database: health,
-    plaid,
+    plaid: plaidStatus,
     banks,
     ...(error === undefined ? {} : { banksError: error }),
   };

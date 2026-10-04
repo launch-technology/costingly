@@ -54,7 +54,7 @@ async function throwsWith(fn: () => unknown, fragment: string, what: string): Pr
 
 const dir = await mkdtemp(join(tmpdir(), "costingly-config-"));
 process.env["COSTINGLY_HOME"] = dir;
-for (const k of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
+for (const k of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY"]) {
   delete process.env[k];
 }
 
@@ -62,7 +62,6 @@ const SAMPLE = {
   plaidClientId: "client-abc",
   plaidSecret: "secret-xyz",
   encryptionKey: Buffer.alloc(32, 7).toString("base64"),
-  plaidEnv: "production" as const,
 };
 
 // --- nothing set up --------------------------------------------------------
@@ -72,8 +71,13 @@ await throwsWith(() => cfg.getSecret("plaidSecret"), "costingly init",
 await throwsWith(() => cfg.getSecret("plaidSecret"), displayPath(dir),
   "and names the profile it checked");
 
-// Defaults still resolve with no file at all — help and doctor must work.
-eq(cfg.get("plaidEnv"), "production", "plaidEnv defaults to production");
+// Nothing has a default: with no file and no environment, every setting is
+// missing, and describing them must still work — status has to run then.
+eq(
+  cfg.describeConfig().map((value) => value.source),
+  ["missing", "missing", "missing"],
+  "with nothing set, every setting reports missing — there are no defaults",
+);
 
 // --- writing ---------------------------------------------------------------
 await cfg.writeConfig(SAMPLE);
@@ -119,10 +123,19 @@ store.update({ ports: { link: 4100, bad: -1 } as Record<string, number> });
 eq(store.readPorts(), { link: 4100 }, "an out-of-range stored port is ignored, not fatal");
 if (posixModes) eq((await stat(configPath())).mode & 0o777, 0o600, "still 0600 after a rewrite");
 
-// --- validation ------------------------------------------------------------
-
-process.env["PLAID_ENV"] = "development";
-await throwsWith(() => cfg.get("plaidEnv"), "sandbox", "a retired plaidEnv is rejected by name");
+// --- there is no Plaid environment setting -----------------------------------
+//
+// There used to be: PLAID_ENV in the environment and plaidEnv in the file, and
+// either could point an install at Plaid's sandbox. Both are gone. Neither a
+// stray variable nor a key left in an old config file may bring it back.
+process.env["PLAID_ENV"] = "sandbox";
+eq(
+  cfg.describeConfig().map((value) => value.key),
+  ["plaidClientId", "plaidSecret", "encryptionKey"],
+  "the settings are the two keys and the encryption key — no environment among them",
+);
+const { plaid: productionPlaid } = await import("../src/domain/data/default-plaid.js");
+eq(productionPlaid.server, "production", "THE PRODUCT'S PLAID CLIENT IS PRODUCTION, WHATEVER PLAID_ENV SAYS");
 delete process.env["PLAID_ENV"];
 
 // --- secrets are never rendered --------------------------------------------
@@ -169,7 +182,7 @@ eq(cfg.readConfigFile().plaidClientId, undefined, "PROFILES ARE FULLY ISOLATED")
 
 const phDir = await mkdtemp(join(tmpdir(), "costingly-ph-"));
 process.env["COSTINGLY_HOME"] = phDir;
-for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY"]) {
   delete process.env[name];
 }
 
@@ -200,7 +213,7 @@ await rm(phDir, { recursive: true, force: true });
 
 const keyDir = await mkdtemp(join(tmpdir(), "costingly-key-"));
 process.env["COSTINGLY_HOME"] = keyDir;
-for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY", "PLAID_ENV"]) {
+for (const name of ["PLAID_CLIENT_ID", "PLAID_SECRET", "ENCRYPTION_KEY"]) {
   delete process.env[name];
 }
 
@@ -232,9 +245,11 @@ if (posixModes) eq(keyMode.mode & 0o777, 0o600, "the file written by updateConfi
 // An environment value is a per-invocation override, not state. Persisting one
 // would silently turn a temporary setting into a permanent one.
 process.env["PLAID_SECRET"] = "from-the-environment";
+// A key left behind by an older version, which had a Plaid environment setting.
 store.update({ plaidEnv: "sandbox" });
 const afterEnv = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, string>;
 eq(afterEnv["plaidEnv"], "sandbox", "updateConfigSync writes what it was given");
+eq(productionPlaid.server, "production", "…AND A LEFTOVER plaidEnv KEY IN THE FILE CHANGES NOTHING");
 eq(afterEnv["plaidSecret"], undefined,
    "AND NEVER PERSISTS A VALUE THAT CAME FROM THE ENVIRONMENT");
 delete process.env["PLAID_SECRET"];

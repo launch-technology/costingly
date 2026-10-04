@@ -26,7 +26,7 @@ import { useState } from "react";
 import { Sidebar, type ScreenId } from "./components/sidebar.js";
 import { useSetupGate } from "./hooks/use-setup.js";
 import { SetupScreen } from "./screens/setup/setup.screen.js";
-import { StatusScreen } from "./screens/status.screen.js";
+import { StatusScreen } from "./screens/status/status.screen.js";
 
 export function App() {
   const { gate, finish } = useSetupGate();

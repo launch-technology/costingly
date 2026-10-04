@@ -8,16 +8,16 @@
  * which is the whole reason it can be JSON and the reason `costingly config`
  * can rewrite it later without mangling anything.
  *
- * Deliberately does NOT ask which Plaid environment to use. Sandbox is a test
- * fixture — a separate profile with `plaidEnv: "sandbox"` in it — not a product
- * feature. Users are always on production.
+ * Deliberately does NOT ask which Plaid environment to use: there is only one.
+ * The product talks to production. Plaid's sandbox is something the test suites
+ * construct a client for themselves, and nothing a user can select.
  */
 
 import type { Command } from "commander";
 import { intro, outro, text, password, confirm, isCancel, cancel, log } from "@clack/prompts";
 import { stdin } from "node:process";
 import { generateEncryptionKey } from "../../../domain/crypto.js";
-import { describeError } from "../../../domain/data/plaid.client.js";
+import { describeError, PlaidClient } from "../../../domain/data/plaid.client.js";
 import { createLinkToken } from "../../../domain/services/banks/link.service.js";
 import { server } from "../../../domain/project.js";
 import { platform } from "../../../domain/project.js";
@@ -69,21 +69,24 @@ Get credentials from https://dashboard.plaid.com/developers/keys`,
  * makes first. Catching a bad secret here beats surfacing it later as an
  * inscrutable failure halfway through linking a bank.
  */
-async function verifyCredentials(clientId: string, secret: string): Promise<void> {
-  // The config layer reads the environment before the file, so setting these
-  // makes the Plaid client pick them up without anything being written to disk.
-  process.env["PLAID_CLIENT_ID"] = clientId;
-  process.env["PLAID_SECRET"] = secret;
-
-  // getPlaidClient() memoises on globalThis, so a retry after a failed attempt
-  // would otherwise reuse the client built from the previous credentials and
-  // report the same error against the new ones.
-  delete (globalThis as Record<string, unknown>)["__costinglyClient"];
-
-  await createLinkToken();
+async function verifyCredentials(candidate: PlaidClient): Promise<void> {
+  await createLinkToken(candidate);
 }
 
-export async function runInit(io: PromptIO = {}): Promise<void> {
+/**
+ * Builds the Plaid client a pair of typed keys is tried with.
+ *
+ * Production, for anyone running the command. A parameter so the suite can try
+ * its test keys against the Plaid they belong to — the same seam as the
+ * streams in `PromptIO`, and for the same reason: there is no other way to
+ * exercise init end to end.
+ */
+export type CandidateClient = (clientId: string, secret: string) => PlaidClient;
+
+export async function runInit(
+  io: PromptIO = {},
+  candidateFor: CandidateClient = (clientId, secret) => PlaidClient.withKeys(clientId, secret),
+): Promise<void> {
   // A test supplying its own streams does not need a TTY.
   if (io.input === undefined && stdin.isTTY !== true) {
     throw new CliError(
@@ -140,7 +143,7 @@ export async function runInit(io: PromptIO = {}): Promise<void> {
 
   // --- verify before writing anything -------------------------------------
   try {
-    await verifyCredentials(resolvedClientId, resolvedSecret);
+    await verifyCredentials(candidateFor(resolvedClientId, resolvedSecret));
     log.success("Plaid accepted the credentials", io);
   } catch (error) {
     // describeError strips the axios object, which carries the PLAID-SECRET
@@ -167,7 +170,6 @@ export async function runInit(io: PromptIO = {}): Promise<void> {
     plaidClientId: resolvedClientId,
     plaidSecret: resolvedSecret,
     encryptionKey,
-    plaidEnv: existing.plaidEnv ?? "production",
   };
   await writeConfig(values);
   log.success(`Wrote ${platform.displayPath(path)}`, io);

@@ -11,6 +11,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { blockersIn, costinglyStatus } from "../../../domain/services/status.service.js";
 import { formatCheck } from "./check-costingly.utils.js";
 
@@ -56,7 +57,7 @@ export function registerCheckCostinglyTool(server: McpServer): void {
             // anyway, because a health tool that fails is a contradiction and
             // the guarantee is worth belt and braces.
             try {
-                const status = await costinglyStatus();
+                const status = await costinglyStatus(plaid);
                 return {
                     content: [{ type: "text", text: formatCheck(status, blockersIn(status)) }],
                 };

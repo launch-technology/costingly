@@ -11,7 +11,7 @@
  */
 
 import type { Command } from "commander";
-import { get } from "../../../domain/config.js";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { countData, removeAllItems, resetSyncedData } from "../../../domain/services/banks/reset.service.js";
 import type { RemovalOutcome } from "../../../domain/services/banks/unlink.service.js";
 import { confirmDestructive } from "../ui/confirm.js";
@@ -112,7 +112,7 @@ export async function runReset(options: ResetOptions): Promise<void> {
   });
   if (!confirmed) return;
 
-  const outcomes = await removeAllItems({ revoke: options.revoke === true });
+  const outcomes = await removeAllItems(plaid, { revoke: options.revoke === true });
 
   console.log("");
   for (const outcome of outcomes) {
@@ -139,7 +139,7 @@ export async function runReset(options: ResetOptions): Promise<void> {
 
   if (!options.revoke) {
     console.log(
-      `\nNote: the Item(s) still exist at Plaid (${get("plaidEnv")}). Re-run with --revoke,\n` +
+      `\nNote: the Item(s) still exist at Plaid. Re-run with --revoke,\n` +
         `or remove them in the Plaid dashboard, if you want them gone there too.`,
     );
   }

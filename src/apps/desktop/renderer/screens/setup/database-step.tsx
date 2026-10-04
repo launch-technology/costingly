@@ -4,10 +4,13 @@
  * Drawing only; the creation itself is useCreateDatabase. The first run does
  * real work, which takes a few seconds, and silence for that long reads as a
  * hang — hence the line under the working state.
+ *
+ * A failure is shown with the same panel as the status screen's Database
+ * section: what went wrong, what to do, and the database's own log on request.
  */
 
-import { Alert, AlertReason } from "../../components/alert.js";
 import { Button } from "../../components/button.js";
+import { ProblemPanel } from "../../components/problem-panel.js";
 import { StatusDot } from "../../components/status-dot.js";
 import { useCreateDatabase } from "../../hooks/use-setup.js";
 
@@ -41,14 +44,16 @@ export function DatabaseStep({ onReady }: { onReady(): void }) {
       )}
 
       {creation.phase === "failed" && (
-        <>
-          <Alert data-testid="database-error" title="The database could not be created.">
-            <AlertReason>{creation.reason}</AlertReason>
-          </Alert>
-          <Button data-testid="database-retry" onClick={retry}>
+        <div data-testid="database-error">
+          <p className="flex items-center gap-2 text-lg">
+            <StatusDot tone="bad" />
+            The database could not be created.
+          </p>
+          <ProblemPanel problem={creation.problem} />
+          <Button data-testid="database-retry" onClick={retry} className="mt-4">
             Retry
           </Button>
-        </>
+        </div>
       )}
     </div>
   );

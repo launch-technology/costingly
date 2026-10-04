@@ -1,25 +1,27 @@
 /**
- * The status screen's wording — every state, as a table.
+ * The status screen's wording for the profile and the Plaid keys — every
+ * state, as a table.
  *
- * `status.presenter.ts` is pure functions over the domain's report objects, so each
- * state the screen can show is a fixture here rather than a database to build
- * and break. Two properties matter beyond "the right headline":
+ * `status.presenter.ts` is pure functions over the domain's report objects, so
+ * each state the screen can show is a fixture here rather than a profile to
+ * build and break. Two properties matter beyond "the right headline":
  *
- *   1. Every state has its own headline. "Stopped" and "Not created" are
- *      different problems with different fixes, and must never collapse.
+ *   1. Every state has its own headline. "No keys" and "keys Plaid rejected"
+ *      are different problems with different fixes, and must never collapse.
  *   2. Nothing the screen says is the CLI's wording. The reports carry hints
  *      like "run `costingly init`" for a terminal; a window must not repeat
  *      them, and this is the check that keeps them out.
+ *
+ * The Database section has its own presenter and its own table:
+ * desktop-database-presenter.test.mts.
  */
 
-import type { DatabaseHealth } from "../src/domain/services/database/database-health.service.js";
 import type { PlaidStatus, ProfileStatus } from "../src/domain/services/status.service.js";
 import type { SectionView } from "../src/apps/desktop/bridge/contract.js";
 import {
   couldNotCheck,
-  presentDatabase as databaseView,
-  presentPlaid as plaidView,
-  presentProfile as profileView,
+  presentPlaid,
+  presentProfile,
 } from "../src/apps/desktop/main/presenters/status.presenter.js";
 
 const out: string[] = [];
@@ -55,7 +57,7 @@ const profileBase: ProfileStatus = {
 };
 
 {
-  const v = view(profileView(profileBase));
+  const v = view(presentProfile(profileBase));
   eq(v.headline, "Not set up", "absent profile: Not set up");
   eq(v.tone, "neutral", "absent profile is a normal state, not an error");
   ok(v.details.some((d) => d.includes(profileBase.path)), "absent profile names where it would live");
@@ -64,7 +66,7 @@ const profileBase: ProfileStatus = {
 
 {
   const v = view(
-    profileView({
+    presentProfile({
       ...profileBase,
       exists: true,
       createdAt: "2026-10-01",
@@ -78,97 +80,11 @@ const profileBase: ProfileStatus = {
 }
 
 {
-  const v = view(profileView({ ...profileBase, chosenBy: "COSTINGLY_HOME" }));
+  const v = view(presentProfile({ ...profileBase, chosenBy: "COSTINGLY_HOME" }));
   ok(
     v.details.some((d) => d.includes("COSTINGLY_HOME")),
     "a moved profile says what moved it",
   );
-}
-
-// ===========================================================================
-// Database
-// ===========================================================================
-
-const dbBase: DatabaseHealth = {
-  profile: { path: "~/AppData/Local/costingly/Data", chosenBy: "platform default", exists: true },
-  cluster: {
-    path: "~/AppData/Local/costingly/Data/pg18",
-    exists: true,
-    state: "running",
-    listenAddress: "127.0.0.1:54320",
-    startedAt: "2026-10-03 09:00",
-    uptimeSeconds: 3725,
-  },
-  connection: { ok: true, elapsedMs: 12 },
-  migrationsApplied: ["0001-initial", "0002-item-source"],
-};
-
-{
-  const v = view(
-    databaseView({
-      ...dbBase,
-      cluster: { ...dbBase.cluster, exists: false, state: "uninitialised", startedAt: null, uptimeSeconds: null },
-      connection: { ok: false },
-      migrationsApplied: null,
-    }),
-  );
-  eq(v.headline, "Not created", "no cluster: Not created");
-  eq(v.tone, "neutral", "no cluster is a normal state");
-}
-
-{
-  const v = view(
-    databaseView({
-      ...dbBase,
-      cluster: { ...dbBase.cluster, state: "stopped", startedAt: null, uptimeSeconds: null },
-      connection: { ok: false, error: "ECONNREFUSED" },
-      migrationsApplied: null,
-    }),
-  );
-  eq(v.headline, "Stopped", "stopped server: Stopped — distinct from Not created");
-  eq(v.tone, "warn", "stopped is a warning, not an error");
-}
-
-{
-  const v = view(databaseView(dbBase));
-  eq(v.headline, "Running", "running and answering: Running");
-  eq(v.tone, "good", "running is good");
-  ok(v.details.some((d) => d.includes("127.0.0.1:54320")), "running says where it listens");
-  ok(v.details.some((d) => d.includes("1h 2m")), "running says for how long");
-  ok(v.details.some((d) => d.includes("0002-item-source")), "running names the schema version");
-}
-
-{
-  const v = view(databaseView({ ...dbBase, migrationsApplied: [] }));
-  ok(v.details.some((d) => /no tables/i.test(d)), "an empty schema is said out loud");
-}
-
-{
-  const v = view(
-    databaseView({
-      ...dbBase,
-      cluster: { ...dbBase.cluster, startedAt: null, uptimeSeconds: null },
-      connection: { ok: false, elapsedMs: 15000, error: "no response after 15000ms" },
-      migrationsApplied: null,
-    }),
-  );
-  eq(v.headline, "Running but not answering", "up but wedged: its own headline");
-  eq(v.tone, "bad", "not answering is bad");
-  ok(v.details.some((d) => d.includes("15000ms")), "not answering carries the reason");
-}
-
-{
-  const v = view(
-    databaseView({
-      ...dbBase,
-      cluster: { ...dbBase.cluster, state: "unknown", error: "pg_ctl: not found", startedAt: null, uptimeSeconds: null },
-      connection: { ok: false },
-      migrationsApplied: null,
-    }),
-  );
-  eq(v.headline, "Could not check", "pg_ctl itself failed: Could not check");
-  eq(v.tone, "bad", "could not check is bad");
-  ok(v.details.some((d) => d.includes("pg_ctl: not found")), "could not check carries the reason");
 }
 
 // ===========================================================================
@@ -177,12 +93,11 @@ const dbBase: DatabaseHealth = {
 
 {
   const v = view(
-    plaidView({
+    presentPlaid({
       configured: false,
-      environment: "production",
       reachable: false,
       error: "no Plaid credentials — run `costingly init`",
-    }),
+    } satisfies PlaidStatus),
   );
   eq(v.headline, "No keys entered", "no keys: No keys entered");
   eq(v.tone, "neutral", "no keys is a normal state");
@@ -190,17 +105,16 @@ const dbBase: DatabaseHealth = {
 }
 
 {
-  const v = view(plaidView({ configured: true, environment: "production", reachable: true }));
+  const v = view(presentPlaid({ configured: true, reachable: true }));
   eq(v.headline, "Keys present and working", "reachable: Keys present and working");
   eq(v.tone, "good", "reachable is good");
-  ok(v.details.some((d) => d.includes("production")), "reachable names the environment");
+  ok(!JSON.stringify(v).toLowerCase().includes("sandbox"), "and says nothing about a Plaid environment — there is only one");
 }
 
 {
   const v = view(
-    plaidView({
+    presentPlaid({
       configured: true,
-      environment: "production",
       reachable: false,
       error: "INVALID_INPUT/INVALID_API_KEYS: invalid client_id or secret provided",
     }),
@@ -227,14 +141,11 @@ const dbBase: DatabaseHealth = {
 // ===========================================================================
 
 const CLI_WORDING = /costingly\s+(init|migrate|status|stop|sync|link|unlink|uninstall|reset|seed)\b|`|Claude Desktop/;
-none(
+eq(
   produced.flatMap((v) => [v.headline, ...v.details]).filter((line) => CLI_WORDING.test(line)),
+  [],
   `${produced.length} views produced, and none tells the user to run a command`,
 );
-
-function none(offenders: string[], what: string): void {
-  eq(offenders, [], what);
-}
 
 console.log(out.join("\n"));
 console.log(fail === 0 ? `\nAll ${out.length} checks passed.` : `\n${fail} FAILED.`);

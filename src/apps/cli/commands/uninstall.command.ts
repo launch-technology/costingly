@@ -20,6 +20,7 @@
  */
 
 import type { Command } from "commander";
+import { plaid } from "../../../domain/data/default-plaid.js";
 import { platform } from "../../../domain/project.js";
 import { countData } from "../../../domain/services/banks/reset.service.js";
 import { uninstall } from "../../../domain/services/uninstall.service.js";
@@ -97,7 +98,7 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   });
   if (!confirmed) return;
 
-  const result = await uninstall({ revoke });
+  const result = await uninstall(plaid, { revoke });
 
   // ---- what happened at Plaid --------------------------------------------
   console.log("");
