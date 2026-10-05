@@ -106,7 +106,11 @@ function importsIn(text: string): string[] {
   // Covers `from "x"`, `import "x"` and dynamic `import("x")`. Deliberately
   // ignores whether the import is type-only: a type-only import still names a
   // dependency, and a layer that may not know a module may not know its types.
-  const pattern = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+  //
+  // The lookbehind keeps the keyword a keyword. Without it, any string that
+  // merely ends in "from" — an element id like "filter-from", followed by
+  // another quoted attribute — reads as an import of whatever comes next.
+  const pattern = /(?<![\w$.\-"'])(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
   for (const match of text.matchAll(pattern)) {
     const specifier = match[1];
     if (specifier !== undefined) found.push(specifier);

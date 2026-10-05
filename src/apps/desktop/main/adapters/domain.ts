@@ -39,12 +39,17 @@ import { createLinkToken } from "../../../../domain/services/banks/link.service.
 import { syncAllItems } from "../../../../domain/services/banks/sync.service.js";
 import { checkDatabase } from "../../../../domain/services/database/database-health.service.js";
 import { install } from "../../../../domain/services/install.service.js";
+import {
+  DEFAULT_TRANSACTION_LIMIT,
+  findTransactions,
+} from "../../../../domain/services/transactions/transaction-search.service.js";
 import { checkPlaid, checkProfile } from "../../../../domain/services/status.service.js";
 import type { StatusChecks } from "../controllers/status.controller.js";
 import type { AccountsDependencies } from "../services/accounts.service.js";
 import type { DatabaseDependencies } from "../services/database.service.js";
 import type { SetupDependencies } from "../services/setup.service.js";
 import type { SyncDependencies } from "../services/sync.service.js";
+import type { TransactionsDependencies } from "../services/transactions.service.js";
 import { DatabaseLog, createRedactor } from "./database-log.js";
 import { PlaidKeyVerifier } from "./plaid-key-verifier.js";
 
@@ -163,6 +168,21 @@ export const linkPage = {
     return `${url}/?repair=${encodeURIComponent(bankId)}`;
   },
 };
+
+/**
+ * What the Transactions screen is read from: the domain's own search, the
+ * same account listing the Accounts screen uses, and the domain's own page
+ * size.
+ */
+export function transactionsDependencies(): TransactionsDependencies {
+  return {
+    state: () => server.status(),
+    find: findTransactions,
+    listAccounts: () => listWithAccounts(adminDataSource()),
+    describeError,
+  };
+}
+export const transactionsPageSize = DEFAULT_TRANSACTION_LIMIT;
 
 /** The sync, as the domain runs it for every interface. */
 export function syncDependencies(): Pick<SyncDependencies, "run" | "describeError"> {

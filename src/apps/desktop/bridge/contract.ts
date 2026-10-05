@@ -178,6 +178,73 @@ export type SyncView =
       results: BankSyncResult[];
     };
 
+/**
+ * What the Transactions screen is asking to see.
+ *
+ * Dates are calendar days as "YYYY-MM-DD", exactly as a date field holds
+ * them, or empty for no bound. Nothing here is a span like "last 30 days":
+ * the window sends the days it was given and nobody works one out.
+ */
+export interface TransactionsQuery {
+  /** One account's id, or empty for every account. */
+  accountId: string;
+  from: string;
+  to: string;
+  /** Text to find in the description or merchant name. Empty for none. */
+  text: string;
+  /** How many of the newest matches to show. */
+  limit: number;
+}
+
+/** One transaction, as the Transactions screen shows it. Every field is ready to draw. */
+export interface TransactionRowView {
+  id: string;
+  /** "Oct 4, 2026". */
+  date: string;
+  /** The merchant's name when it is known, the bank's own text otherwise. */
+  description: string;
+  /** "Food and drink" — or empty when there is no category. */
+  category: string;
+  /** "Everyday Checking ••••1111". */
+  account: string;
+  /** As on a bank statement: "-$12.34" for spending, "+$500.00" for money in. */
+  amount: string;
+  moneyIn: boolean;
+  pending: boolean;
+}
+
+/** An account to filter by. */
+export interface AccountOption {
+  id: string;
+  /** "Maple Bank — Everyday Checking ••••1111". */
+  label: string;
+}
+
+/**
+ * Why there are no rows, when there are none. Four different things to tell
+ * someone, each fixed in a different place.
+ */
+export type NoTransactions =
+  | { reason: "no-banks" }
+  | { reason: "nothing-synced" }
+  /** The from date is after the to date. */
+  | { reason: "invalid-range" }
+  /** Nothing matches. `hint` says so when older or other transactions exist outside the filters. */
+  | { reason: "no-match"; hint: string };
+
+export type TransactionsView =
+  | {
+      state: "ready";
+      rows: TransactionRowView[];
+      /** How many match in all; `rows` holds the newest of them. */
+      total: number;
+      accounts: AccountOption[];
+      /** Set exactly when `rows` is empty. */
+      empty?: NoTransactions;
+    }
+  | { state: "database-stopped" }
+  | { state: "failed"; problem: Problem };
+
 // ---------------------------------------------------------------------------
 // The calls
 // ---------------------------------------------------------------------------
@@ -242,6 +309,9 @@ export interface DesktopContract {
    */
   "sync.start": { args: []; result: SyncView };
   "sync.state": { args: []; result: SyncView };
+
+  /** The newest transactions matching a query, and how many match in all. Read-only. */
+  "transactions.find": { args: [query: TransactionsQuery]; result: TransactionsView };
 }
 
 export type Call = keyof DesktopContract;

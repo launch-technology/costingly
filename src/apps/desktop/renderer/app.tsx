@@ -28,6 +28,7 @@ import { useSetupGate } from "./hooks/use-setup.js";
 import { AccountsScreen } from "./screens/accounts/accounts.screen.js";
 import { SetupScreen } from "./screens/setup/setup.screen.js";
 import { StatusScreen } from "./screens/status/status.screen.js";
+import { TransactionsScreen } from "./screens/transactions/transactions.screen.js";
 
 export function App() {
   const { gate, finish } = useSetupGate();
@@ -53,6 +54,7 @@ export function App() {
       <main className="flex-1 overflow-y-auto px-8 py-6">
         {screen === "status" && <StatusScreen />}
         {screen === "accounts" && <AccountsScreen />}
+        {screen === "transactions" && <TransactionsScreen />}
       </main>
     </div>
   );

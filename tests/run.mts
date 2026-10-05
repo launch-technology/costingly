@@ -35,11 +35,13 @@ const ORDER = [
   "desktop-database-presenter",
   "desktop-accounts-presenter",
   "desktop-sync-presenter",
+  "desktop-transactions-presenter",
   "desktop-services",
   "picker",
   "confirm",
   "schema",
   "views",
+  "transactions-search",
   "seed",
   "health",
   "status",
@@ -54,6 +56,7 @@ const ORDER = [
   "desktop-setup",
   "desktop-database",
   "desktop-accounts",
+  "desktop-transactions",
 ];
 
 interface Outcome {
@@ -110,7 +113,7 @@ if (files.length === 0) {
 console.log("");
 const results: Outcome[] = [];
 for (const { file, name } of files) {
-  process.stdout.write(`  ${name.padEnd(28)}`);
+  process.stdout.write(`  ${name.padEnd(32)}`);
   const outcome = await run(file, name);
   results.push(outcome);
 
