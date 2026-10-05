@@ -198,6 +198,12 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Screens" }
   await page.getByTestId("finish-continue").click();
   await expectVisible(checks, sidebar(page), "Continue shows the app, with its sidebar");
   eq(await setupScreen(page).count(), 0, "and setup is gone");
+  await expectVisible(
+    checks,
+    page.locator("[data-testid='accounts-screen'][data-state='empty']"),
+    "SETUP ENDS ON ACCOUNTS, which explains how to link the first bank",
+  );
+  await page.getByTestId("nav-status").click();
   await expectHeadline(checks, page, "profile", /^Set up$/, "Status — profile: Set up");
   await expectHeadline(checks, page, "database", /^Running$/, "Status — database: Running");
   const database = (await page.getByTestId("section-database").textContent()) ?? "";
@@ -291,6 +297,8 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Screens" }
 
   await page.getByTestId("finish-continue").click();
   await expectVisible(checks, sidebar(page), "Continue shows the app");
+  await expectVisible(checks, page.getByTestId("accounts-screen"), "on the Accounts screen");
+  await page.getByTestId("nav-status").click();
   await expectHeadline(checks, page, "database", /^Running$/, "Status — database: Running");
 
   eq(await quit(app), 0, "Quit ends the process, exit code 0");

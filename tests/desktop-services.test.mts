@@ -16,6 +16,9 @@
  *   6. SettingsService        forgiving on read
  *   7. The real wiring        the same service over the real domain, on a
  *                             throwaway profile — asking must create nothing
+ *   8. AccountsService        never asks a stopped database
+ *   9. The local link page    what "Link a bank" opens in the browser: served
+ *                             on this machine only, and really stops
  *
  * Runs on every platform: nothing here imports Electron, which the
  * architecture suite enforces.
@@ -851,6 +854,75 @@ eq(keyed.keysPresent, true, "real profile: both keys saved, keys present");
 eq(keyed.databaseCreated, false, "…and still no database — the two are independent");
 
 await rm(HOME, { recursive: true, force: true });
+
+// ===========================================================================
+// 8. AccountsService — never asks a stopped database
+// ===========================================================================
+{
+  const { AccountsService } = await import("../src/apps/desktop/main/services/accounts.service.js");
+
+  let listed = 0;
+  const stopped = new AccountsService({
+    state: async () => "stopped",
+    list: async () => {
+      listed++;
+      return [];
+    },
+    describeError: String,
+  });
+  eq(await stopped.read(), { state: "database-stopped" }, "accounts: a stopped database is its own answer");
+  eq(listed, 0, "accounts: AND IT WAS NOT QUERIED");
+
+  const running = new AccountsService({ state: async () => "running", list: async () => [], describeError: String });
+  eq(await running.read(), { state: "ready", rows: [] }, "accounts: a running database with no banks is ready and empty");
+
+  const broken = new AccountsService({
+    state: async () => "running",
+    list: async () => {
+      throw new Error("relation \"items\" does not exist");
+    },
+    describeError: (error) => (error instanceof Error ? error.message : String(error)),
+  });
+  eq(
+    await broken.read(),
+    { state: "failed", reason: 'relation "items" does not exist' },
+    "accounts: a failed read is described, never thrown",
+  );
+
+  const unknowable = new AccountsService({
+    state: async () => {
+      throw new Error("cannot stat");
+    },
+    list: async () => [],
+    describeError: (error) => (error instanceof Error ? error.message : String(error)),
+  });
+  eq((await unknowable.read()).state, "failed", "accounts: nor is a state that cannot be asked");
+}
+
+// ===========================================================================
+// 9. The local link page — what "Link a bank" opens in the browser
+// ===========================================================================
+// The app starts the same page server the CLI and the MCP server use, and
+// hands its address to the browser. Opening a browser is not something a test
+// should do to whoever runs it; that the page is really served, on this
+// machine only, and really stops, is.
+{
+  const { url } = await domain.linkPage.start();
+  ok(/^http:\/\/127\.0\.0\.1:\d+$/.test(url), `link page: served on this machine only (${url})`);
+  const page = await fetch(url);
+  eq(page.status, 200, "link page: it answers");
+  ok((await page.text()).includes("cdn.plaid.com"), "link page: with the page that loads Plaid's form");
+  eq((await domain.linkPage.start()).url, url, "link page: asking again while it is up gives the same address");
+
+  eq(await domain.linkPage.stop(), true, "link page: stop stops it");
+  const after = await fetch(url).then(
+    () => "still answering",
+    () => "gone",
+  );
+  eq(after, "gone", "link page: AND NOTHING IS LEFT LISTENING");
+  eq(await domain.linkPage.stop(), false, "link page: stopping again does nothing");
+  await rm(HOME, { recursive: true, force: true });
+}
 
 console.log(out.join("\n"));
 console.log(fail === 0 ? `\nAll ${out.length} checks passed.` : `\n${fail} FAILED.`);

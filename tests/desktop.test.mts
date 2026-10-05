@@ -87,7 +87,12 @@ const page = await app.firstWindow();
 const nav = page.getByRole("navigation", { name: "Screens" });
 await nav.waitFor({ timeout: 30_000 });
 eq(await page.getByTestId("setup-screen").count(), 0, "a set-up machine is not shown setup");
-eq(await nav.getByRole("button").allTextContents(), ["Status"], "the sidebar lists Status and nothing else");
+eq(
+  await nav.getByRole("button").allTextContents(),
+  ["Status", "Accounts"],
+  "the sidebar lists the screens that exist: Status, then Accounts",
+);
+eq(await page.getByTestId("status-screen").count(), 1, "and opens on Status");
 eq(await page.locator("article[data-testid^='section-']").count(), 3, "the status screen has three sections");
 
 await expectHeadline(checks, page, "profile", /^Set up$/, "profile: Set up");

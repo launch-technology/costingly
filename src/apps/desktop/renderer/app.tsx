@@ -25,6 +25,7 @@ import { useState } from "react";
 
 import { Sidebar, type ScreenId } from "./components/sidebar.js";
 import { useSetupGate } from "./hooks/use-setup.js";
+import { AccountsScreen } from "./screens/accounts/accounts.screen.js";
 import { SetupScreen } from "./screens/setup/setup.screen.js";
 import { StatusScreen } from "./screens/status/status.screen.js";
 
@@ -36,13 +37,22 @@ export function App() {
   // machine that is about to be shown setup.
   if (gate.name === "loading") return <div data-testid="app-loading" className="h-full" />;
 
-  if (gate.name === "setup") return <SetupScreen initial={gate.state} onDone={finish} />;
+  if (gate.name === "setup") {
+    // Setup ends on Accounts: with keys and a database in place, linking a
+    // bank is the next thing to do, and that screen is where it is explained.
+    const done = (): void => {
+      setScreen("accounts");
+      finish();
+    };
+    return <SetupScreen initial={gate.state} onDone={done} />;
+  }
 
   return (
     <div className="flex h-full">
       <Sidebar current={screen} onSelect={setScreen} />
       <main className="flex-1 overflow-y-auto px-8 py-6">
         {screen === "status" && <StatusScreen />}
+        {screen === "accounts" && <AccountsScreen />}
       </main>
     </div>
   );

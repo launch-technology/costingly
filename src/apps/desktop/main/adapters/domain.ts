@@ -26,18 +26,21 @@ import {
   writeConfig,
 } from "../../../../domain/config.js";
 import { generateEncryptionKey } from "../../../../domain/crypto.js";
-import { closeDb } from "../../../../domain/data/default-database.js";
+import { adminDataSource, closeDb } from "../../../../domain/data/default-database.js";
 import { plaid } from "../../../../domain/data/default-plaid.js";
+import { listWithAccounts } from "../../../../domain/data/repositories/items.repository.js";
 import {
   describeError as describeDomainError,
   PlaidClient,
 } from "../../../../domain/data/plaid.client.js";
 import { configStore, platform, server } from "../../../../domain/project.js";
+import { startLinkServer, stopLinkServer } from "../../../../domain/services/banks/link-session.service.js";
 import { createLinkToken } from "../../../../domain/services/banks/link.service.js";
 import { checkDatabase } from "../../../../domain/services/database/database-health.service.js";
 import { install } from "../../../../domain/services/install.service.js";
 import { checkPlaid, checkProfile } from "../../../../domain/services/status.service.js";
 import type { StatusChecks } from "../controllers/status.controller.js";
+import type { AccountsDependencies } from "../services/accounts.service.js";
 import type { DatabaseDependencies } from "../services/database.service.js";
 import type { SetupDependencies } from "../services/setup.service.js";
 import { DatabaseLog, createRedactor } from "./database-log.js";
@@ -117,6 +120,32 @@ export function databaseDependencies(report: (line: string) => void): DatabaseDe
     report,
   };
 }
+
+/**
+ * What the Accounts screen is read from.
+ *
+ * Through the superuser connection, like the status report's own bank list:
+ * the application connection starts a stopped server when it is first used,
+ * and looking at a screen must never start anything.
+ */
+export function accountsDependencies(): AccountsDependencies {
+  return {
+    state: () => server.status(),
+    list: () => listWithAccounts(adminDataSource()),
+    describeError,
+  };
+}
+
+/**
+ * costingly's local link page: the one the CLI and the MCP server already
+ * link banks through, served on this machine only, and shut down by itself
+ * when idle. Linking from the app means starting it and opening the user's
+ * browser on it; the app stops it on Quit.
+ */
+export const linkPage = {
+  start: () => startLinkServer(plaid),
+  stop: stopLinkServer,
+};
 
 /** Everything setup needs except creating the database, which the app supplies. */
 export function setupDependencies(): Omit<SetupDependencies, "createDatabase"> {

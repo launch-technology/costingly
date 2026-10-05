@@ -33,6 +33,7 @@ const ORDER = [
   "smoke",
   "desktop-status-presenter",
   "desktop-database-presenter",
+  "desktop-accounts-presenter",
   "desktop-services",
   "picker",
   "confirm",
@@ -51,6 +52,7 @@ const ORDER = [
   "desktop",
   "desktop-setup",
   "desktop-database",
+  "desktop-accounts",
 ];
 
 interface Outcome {
