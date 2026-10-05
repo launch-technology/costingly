@@ -26,7 +26,7 @@ process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
 const { db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");
-const { checkDatabase, restartDatabase } = await import("../src/domain/services/database/database-health.service.js");
+const { checkDatabase, restartDatabase, resumeDatabase } = await import("../src/domain/services/database/database-health.service.js");
 const { blockersIn, costinglyStatus } = await import("../src/domain/services/status.service.js");
 const { plaid } = await import("../src/domain/data/default-plaid.js");
 const { formatCheck } = await import("../src/apps/mcp/tools/check-costingly.utils.js");
@@ -88,6 +88,10 @@ eq(existsSync(HOME), false, "…and endpoint() created NOTHING");
 eq(await server.stop(), false, "stop() on an absent cluster is a no-op");
 eq(existsSync(costinglyPlatform.configPath()), false, "…and wrote no config.json");
 
+await resumeDatabase();
+eq(await server.status(), "uninitialised", "resumeDatabase() with no database resumes nothing");
+eq(existsSync(HOME), false, "…and CREATED NOTHING");
+
 // ===========================================================================
 // 1. Nothing exists yet — the very first thing a broken install looks like
 // ===========================================================================
@@ -148,7 +152,31 @@ eq(await server.status(), "stopped", "CHECKING DID NOT START IT");
 // 4. Restart
 // ===========================================================================
 
-await db.query(`SELECT 1`);
+// A QUERY DOES NOT START A STOPPED SERVER. It used to — and a background sync
+// could then undo a Stop, or start a server on the way out of a process that
+// was quitting. Starting is now something a caller does on purpose.
+const queried = await db.query(`SELECT 1`).then(
+  () => "answered",
+  () => "failed",
+);
+eq(queried, "failed", "a query against a stopped server fails");
+eq(await server.status(), "stopped", "AND THE QUERY DID NOT START IT");
+await closeDb();
+
+await resumeDatabase();
+eq(await server.status(), "running", "resumeDatabase() starts a stopped server");
+await resumeDatabase();
+eq(await server.status(), "running", "and does nothing to one already running");
+eq((await db.query<{ one: number }>(`SELECT 1 AS one`)).rows[0]?.one, 1, "which then answers queries");
+
+// Restart from stopped as well as from running: it must bring the server up
+// itself, not lean on a later query to do it.
+await closeDb();
+await server.stop();
+const fromStopped = await restartDatabase();
+eq([fromStopped.wasRunning, fromStopped.ok], [false, true], "restart_database on a STOPPED server starts it");
+eq(await server.status(), "running", "and it is running afterwards");
+
 const restart = await restartDatabase();
 eq(restart.wasRunning, true, "restart_database saw a running server");
 eq(restart.ok, true, "RESTART BROUGHT THE DATABASE BACK");

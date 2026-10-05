@@ -72,9 +72,16 @@ await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, 
 // In-memory: the protocol surface
 // ---------------------------------------------------------------------------
 
+// The database is stopped before the server starts — the state after a
+// reboot. No query starts it any more, so the server has to, as it comes up.
+await closeDb();
+await server.stop();
+eq(await server.status(), "stopped", "the database is stopped before the MCP server starts");
+
 const [clientEnd, serverEnd] = InMemoryTransport.createLinkedPair();
 const app = new CostinglyMcpApplication("9.9.9-test", serverEnd);
 await app.start();
+eq(await server.status(), "running", "STARTING THE MCP SERVER BRINGS A STOPPED DATABASE UP, before any tool is called");
 
 // run() resolves only when the client disconnects, so it is deliberately NOT
 // awaited here — it is awaited at the end, which also proves shutdown works.

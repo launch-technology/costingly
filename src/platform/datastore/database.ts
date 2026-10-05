@@ -10,17 +10,15 @@
  * rather than importing them, so the whole graph can be built differently — a
  * test cluster, a second profile — without this file knowing.
  *
- * TWO KINDS OF SOURCE, AND THEY ARE NOT SYMMETRIC
+ * TWO KINDS OF SOURCE
  *
  *   app     pooled, as the runtime role, against the project's database.
- *           Provisions the whole stack on first use.
  *   admin   unpooled, as the superuser, against whichever database is named.
- *           Provisions NOTHING.
+ *           What provisioning itself connects through, to create the database
+ *           and the role the app source needs.
  *
- * The asymmetry is load-bearing rather than an oversight. Provisioning is what
- * the admin source is *for* — it creates the database and the role the app
- * source needs — so an admin source that provisioned on first use would call
- * itself forever.
+ * NEITHER STARTS THE SERVER OR CREATES ANYTHING. Both connect to what is
+ * there and fail if it is not. See the constructor for why.
  */
 
 import { ConnectionFactory } from "../postgres/connection-factory.js";
@@ -58,10 +56,15 @@ export class Database {
     // Now: an absent cluster is refused. Creating one is `ensureReady()`, which
     // callers invoke deliberately.
     //
-    // STARTING a stopped server stays implicit, and the distinction is the whole
-    // point. Starting resumes something that already exists and creates nothing;
-    // after a reboot the next command should just work, which is what
-    // "the server starts itself" has always meant.
+    // NOR IS STARTING. A stopped server stays stopped until something starts it
+    // on purpose. It used to be started here, by whichever query came first —
+    // right for a command that runs once and exits, and wrong for anything that
+    // stays up: a Stop button that a background sync's next query quietly
+    // undoes is not a Stop button, and a process on its way out could start a
+    // server that then outlived it. Each interface now decides when the
+    // database comes up: the CLI before a command that needs it, the MCP
+    // server when it starts, the desktop app at launch and from its buttons.
+    // A query against a stopped server fails, and says the server is stopped.
     this.pooled = new PooledDataSource(async () => {
       if ((await this.postgres.status()) === "uninitialised") {
         throw new DatabaseNotSetUpError(
@@ -70,9 +73,6 @@ export class Database {
             "create it — that is a deliberate step.",
         );
       }
-      // START, never provision. The service split makes that a property of the
-      // call rather than of this comment: `start()` cannot run initdb.
-      await this.postgres.start();
       return this.factory.createAppPool();
     }, "local PostgreSQL");
 

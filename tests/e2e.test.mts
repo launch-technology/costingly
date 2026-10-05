@@ -51,6 +51,7 @@ const { install } = await import("../src/domain/services/install.service.js");
 const { PlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/domain/services/banks/link.service.js");
 const { syncAllItems } = await import("../src/domain/services/banks/sync.service.js");
+const { markItemRepaired } = await import("../src/domain/services/banks/relink.service.js");
 const { listAllItems } = await import("../src/domain/data/repositories/items.repository.js");
 const { server } = await import("../src/domain/project.js");
 const { readFile, rm } = await import("node:fs/promises");
@@ -147,10 +148,15 @@ out.push(`  --    sync 1: +${run1.added} added, status=${run1.results[0]?.update
 // the historical pull in instalments, so "some rows arrived" can still be
 // followed by hundreds more — and the idempotence check below would then
 // measure Plaid still working rather than this code re-applying a batch.
-// Settled means: rows exist AND the last sync found nothing new.
-for (let attempt = 0; attempt < 12; attempt++) {
+// Settled means: rows exist AND TWO syncs in a row found nothing new. One
+// quiet sync is not enough — the sandbox has been seen to report
+// HISTORICAL_UPDATE_COMPLETE with nothing new and then deliver 176 more rows
+// to the very next call.
+let quiet = 0;
+for (let attempt = 0; attempt < 16 && quiet < 2; attempt++) {
   const c = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
-  if (Number(c.rows[0]!.c) > 0 && run1.added === 0 && run1.modified === 0) break;
+  quiet = Number(c.rows[0]!.c) > 0 && run1.added === 0 && run1.modified === 0 ? quiet + 1 : 0;
+  if (quiet >= 2) break;
   await new Promise((r) => setTimeout(r, 2500));
   run1 = await syncAllItems(plaid);
   out.push(`  --    retry ${attempt + 1}: +${run1.added} added, status=${run1.results[0]?.updateStatus}`);
@@ -186,6 +192,37 @@ eq(after.rows[0]!.s, before.rows[0]!.s, "sum unchanged");
 ok(items[0]!.cursor === null, "cursor was null before the first sync");
 const after2 = await listAllItems(db);
 ok((after2[0]!.cursor ?? "").length > 0, "cursor persisted after sync");
+
+// --- a login that expires ----------------------------------------------------
+// The sandbox can force this on demand; a real bank cannot. It is the one
+// failure a sync reacts to rather than just reporting: the bank is marked, and
+// left alone until the user reconnects it.
+const linkedItem = (await listAllItems(db))[0]!;
+await plaid.api.sandboxItemResetLogin({ access_token: linkedItem.accessToken! });
+
+const expired = await syncAllItems(plaid);
+eq([expired.itemsTotal, expired.results[0]?.ok], [1, false], "with the login expired, the sync reports that bank as failed");
+ok(
+  /\bITEM_LOGIN_REQUIRED\b/.test(expired.results[0]?.error ?? ""),
+  `and the reason carries Plaid's code for it (${expired.results[0]?.error})`,
+);
+eq((await listAllItems(db))[0]!.status, "login_required", "THE BANK IS MARKED AS NEEDING ITS LOGIN RENEWED");
+
+const skipped = await syncAllItems(plaid);
+eq(skipped.itemsTotal, 0, "AND THE NEXT SYNC LEAVES IT ALONE rather than failing on it again");
+
+// Reconnecting is done in Plaid's form, which no test can drive. What it ends
+// with is this call, and what that must do is return the bank to the syncable
+// set — after which Plaid decides. The sandbox login is still expired, so the
+// next sync marks it again, which is the documented behaviour for a repair
+// that did not take.
+await markItemRepaired(linkedItem.itemId);
+eq((await listAllItems(db))[0]!.status, "active", "marking it repaired returns it to the banks a sync covers");
+const retried = await syncAllItems(plaid);
+eq(retried.itemsTotal, 1, "and the next sync tries it again");
+eq((await listAllItems(db))[0]!.status, "login_required", "a repair that did not really take is marked again");
+const rowsAfterExpiry = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
+eq(rowsAfterExpiry.rows[0]!.c, after.rows[0]!.c, "none of that touched the transactions already stored");
 
 // persistence across a process-level close/reopen
 await closeDb();

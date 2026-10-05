@@ -2,7 +2,8 @@
  * The Accounts screen's behaviour, in two hooks.
  *
  *   useAccounts   the linked banks, and when to read them again
- *   useLinkBank   opening the bank login in the user's browser
+ *   useLinkBank   opening the bank login in the user's browser, to link a
+ *                 bank or to reconnect one
  *
  * The list is read on mount, whenever the window is shown or brought forward,
  * and when asked. Never on a timer.
@@ -60,6 +61,8 @@ export interface LinkBank {
   problem: Problem | null;
   /** Open the bank login in the user's browser. */
   open(): void;
+  /** Open the browser to reconnect a bank whose login has expired. */
+  reconnect(bankId: string): void;
 }
 
 /**
@@ -71,9 +74,11 @@ export function useLinkBank(): LinkBank {
   const [opened, setOpened] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
 
-  const open = useCallback(() => {
+  // Linking and reconnecting end the same way from here: a browser was asked
+  // to open, or it was not.
+  const send = useCallback((asked: Promise<void>) => {
     setProblem(null);
-    call("link.openInBrowser").then(
+    asked.then(
       () => setOpened(true),
       (error: unknown) => {
         setOpened(false);
@@ -85,5 +90,8 @@ export function useLinkBank(): LinkBank {
     );
   }, []);
 
-  return { opened, problem, open };
+  const open = useCallback(() => send(call("link.openInBrowser")), [send]);
+  const reconnect = useCallback((bankId: string) => send(call("link.reconnectInBrowser", bankId)), [send]);
+
+  return { opened, problem, open, reconnect };
 }

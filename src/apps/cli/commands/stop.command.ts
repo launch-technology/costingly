@@ -1,8 +1,8 @@
 /**
  * `costingly stop` — shut down the local database server.
  *
- * Nothing requires this. The server starts itself on first use and staying
- * running is what lets a sync, a CLI read and the Claude Desktop integration
+ * Nothing requires this. The CLI starts the server before any command that
+ * needs it (see program.ts), and staying running is what lets a sync, a CLI read and the Claude Desktop integration
  * work at the same time. This exists for when you want the process gone: before
  * a backup, to free memory, or just to be sure nothing is holding your financial
  * data open.

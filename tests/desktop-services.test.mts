@@ -19,6 +19,8 @@
  *   8. AccountsService        never asks a stopped database
  *   9. The local link page    what "Link a bank" opens in the browser: served
  *                             on this machine only, and really stops
+ *  10. SyncService            a sync is started, not awaited; one at a time;
+ *                             the last result is remembered
  *
  * Runs on every platform: nothing here imports Electron, which the
  * architecture suite enforces.
@@ -922,6 +924,136 @@ await rm(HOME, { recursive: true, force: true });
   eq(after, "gone", "link page: AND NOTHING IS LEFT LISTENING");
   eq(await domain.linkPage.stop(), false, "link page: stopping again does nothing");
   await rm(HOME, { recursive: true, force: true });
+}
+
+// ===========================================================================
+// 10. SyncService — started, not awaited; one at a time; remembers the last
+// ===========================================================================
+{
+  const { SyncService } = await import("../src/apps/desktop/main/services/sync.service.js");
+  type SyncState = import("../src/apps/desktop/main/services/sync.service.js").SyncState;
+  type SyncSummary = import("../src/domain/services/banks/sync.types.js").SyncSummary;
+
+  const summary = (added: number): SyncSummary => ({
+    ok: true,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    durationMs: 1000,
+    itemsTotal: 1,
+    itemsSucceeded: 1,
+    itemsFailed: 0,
+    added,
+    modified: 0,
+    removed: 0,
+    results: [],
+  });
+
+  /** A sync that runs until the test says it is done, or says it failed. */
+  function syncService() {
+    const announced: string[] = [];
+    let runs = 0;
+    let finish: (value: SyncSummary) => void = () => {};
+    let fail: (error: unknown) => void = () => {};
+    const service = new SyncService({
+      run: () => {
+        runs++;
+        return new Promise<SyncSummary>((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        });
+      },
+      describeError: (error) => (error instanceof Error ? error.message : String(error)),
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+      onChange: (state: SyncState) => void announced.push(state.phase),
+    });
+    return {
+      service,
+      announced,
+      runs: () => runs,
+      finish: (value: SyncSummary) => finish(value),
+      fail: (error: unknown) => fail(error),
+    };
+  }
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
+
+  // --- started, not awaited -------------------------------------------------
+  {
+    const { service, announced, runs, finish } = syncService();
+    eq(service.state().phase, "idle", "sync: idle before anything is asked");
+
+    const answer = service.start();
+    eq(answer.phase, "running", "sync: START ANSWERS AT ONCE, with running — the sync is not waited for");
+    eq(answer.phase === "running" ? answer.trigger : null, "manual", "sync: and records what started it");
+    eq(runs(), 1, "sync: the run is under way");
+    eq(announced, ["running"], "sync: the start was announced");
+
+    // --- one at a time ---
+    eq(service.start().phase, "running", "sync: asked again while running, it answers running");
+    eq(runs(), 1, "sync: AND STARTS NOTHING NEW");
+    eq(announced, ["running"], "sync: and announces nothing new");
+
+    // --- the end is announced, and remembered ---
+    finish(summary(12));
+    await settle();
+    const ended = service.state();
+    eq(ended.phase, "finished", "sync: when the run ends, the state is finished");
+    eq(ended.phase === "finished" ? ended.summary.added : null, 12, "sync: with the run's own summary");
+    eq(announced, ["running", "finished"], "sync: and the end was announced");
+    eq(service.state().phase, "finished", "sync: THE LAST RESULT IS REMEMBERED for whoever asks later");
+
+    // --- the next run replaces it ---
+    service.start();
+    eq(service.state().phase, "running", "sync: a new run can start once the last has ended");
+    eq(runs(), 2, "sync: and really runs");
+    finish(summary(0));
+    await settle();
+    eq(announced, ["running", "finished", "running", "finished"], "sync: each run is announced at both ends");
+    const latest = service.state();
+    eq(latest.phase === "finished" ? latest.summary.added : null, 0, "sync: and the newer result replaces the older");
+  }
+
+  // --- a sync that cannot run at all ----------------------------------------
+  {
+    const { service, announced, fail } = syncService();
+    service.start();
+    fail(new Error("connect ECONNREFUSED 127.0.0.1:54320"));
+    await settle();
+    eq(
+      service.state(),
+      { phase: "failed", trigger: "manual", reason: "connect ECONNREFUSED 127.0.0.1:54320" },
+      "sync: a sync that throws becomes a failed STATE, described — never a rejection",
+    );
+    eq(announced, ["running", "failed"], "sync: and that is announced too");
+    eq(service.start().phase, "running", "sync: and another can be started afterwards");
+  }
+
+  // --- a listener that throws ------------------------------------------------
+  {
+    const { SyncService: Service } = await import("../src/apps/desktop/main/services/sync.service.js");
+    const service = new Service({
+      run: async () => summary(1),
+      describeError: String,
+      now: () => new Date(),
+      onChange: () => {
+        throw new Error("the window has gone");
+      },
+    });
+    service.start();
+    await settle();
+    eq(service.state().phase, "finished", "sync: a listener that throws does not turn into a failed sync");
+  }
+
+  // --- the app quits during a run -------------------------------------------
+  {
+    const { service, announced, runs, finish } = syncService();
+    service.start();
+    service.stop();
+    finish(summary(5));
+    await settle();
+    eq(announced, ["running"], "sync: after stop, a run that ends ANNOUNCES NOTHING");
+    eq(service.start().phase, "running", "sync: and start after stop reports the old state");
+    eq(runs(), 1, "sync: WITHOUT STARTING ANOTHER RUN");
+  }
 }
 
 console.log(out.join("\n"));

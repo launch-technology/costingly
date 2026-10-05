@@ -125,8 +125,9 @@ ok(
 // a reboot, and the only cold start that occurs in practice.
 //
 // `sync`, not `status`: status is deliberately passive — it reports on the
-// database without touching it — so it would not start the server. sync reads
-// through the pool, which is what starts a stopped cluster.
+// database without touching it — so it would not start the server. The CLI
+// resumes a stopped server before any command that needs the database, and
+// sync is one; a query alone no longer starts anything.
 //
 // There was a six-process version of this, asserting that simultaneous cold
 // starts all succeed. Removed: nothing launches six costingly processes at
@@ -148,6 +149,8 @@ const again = await cli("stop");
 ok(/not running/i.test(again.stdout), "`costingly stop` twice is not an error");
 
 // --- 6. data survived all of that -----------------------------------------
+// Started on purpose: this process is not the CLI, and a query starts nothing.
+await server.start();
 const survived = await db.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM _probe`);
 eq(survived.rows[0]!.c, "2", "data survived repeated stop/start cycles");
 

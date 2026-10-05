@@ -32,7 +32,7 @@
  * "which am I looking at?" is the first question in every confused session.
  */
 
-// `db` is for restartDatabase(), whose job IS to bring the database up.
+// `db` is for restartDatabase()'s probe, once it has started the server.
 // checkDatabase() uses `database.admin()` instead — see the comment there.
 import { database, db } from "../../data/default-database.js";
 
@@ -109,6 +109,24 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
       setTimeout(() => reject(new Error(`no response after ${ms}ms`)), ms).unref(),
     ),
   ]);
+}
+
+/**
+ * Start the database server if there is one here and it is stopped.
+ *
+ * RESUMES, NEVER CREATES. With no database in the profile this does nothing,
+ * and the caller's first query says so. With one already running it does
+ * nothing either.
+ *
+ * Nothing starts the server as a side effect of querying it (see
+ * platform/datastore/database.ts), so an interface that wants "the next
+ * command just works after a reboot" calls this, once, where it means it: the
+ * CLI before a command that needs the database, the MCP server as it starts.
+ * The desktop app has its own service for the same job, with a Stop button on
+ * the other side of it.
+ */
+export async function resumeDatabase(): Promise<void> {
+  if ((await server.status()) === "stopped") await server.start();
 }
 
 export async function checkDatabase(): Promise<DatabaseHealth> {
@@ -205,8 +223,7 @@ export interface RestartOutcome {
  * Stopping alone is never what anyone wants — it is a step towards being able
  * to connect again. So this completes the round trip and reports whether the
  * database actually came back, which is the only outcome worth telling someone
- * about. The restart itself is `stopServer()` plus a query, because opening a
- * connection is what starts the server.
+ * about. Stop, start, then one query to prove it answers.
  *
  * Loses no data. It can interrupt an in-flight sync, which resumes from its
  * stored cursor on the next run.
@@ -230,6 +247,7 @@ export async function restartDatabase(): Promise<RestartOutcome> {
   }
 
   try {
+    await pg.start();
     await withTimeout(db.query(`SELECT 1`), PROBE_TIMEOUT_MS);
     return { wasRunning, ok: true, elapsedMs: Date.now() - started };
   } catch (error) {
