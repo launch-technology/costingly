@@ -150,6 +150,12 @@ try {
     await page.getByTestId("database-continue").click();
     await page.getByTestId("finish-continue").click();
 
+    // Setup ends on Accounts. Linking a bank opens costingly's local link page
+    // in the browser, so that page has to have been packaged.
+    await expectVisible(checks, page.getByTestId("accounts-screen"), "setup ends on the Accounts screen");
+    ok(existsSync(join(APP, "resources", "app", "public", "index.html")), "the local link page is in the package");
+    await page.getByTestId("nav-status").click();
+
     await expectHeadline(checks, page, "database", /^Running$/, "the status screen shows the database Running");
     const section = (await page.getByTestId("section-database").textContent()) ?? "";
     ok(/Schema version: \S+/.test(section), "with its tables created");

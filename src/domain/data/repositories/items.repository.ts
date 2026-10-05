@@ -302,6 +302,8 @@ export interface ItemAccountListing {
   subtype: string | null;
   currency: string | null;
   current_balance: string | null;
+  /** When the balance above was last written. Null with no account. */
+  balance_updated_at: Date | null;
   txn_count: string;
   first_date: string | null;
   last_date: string | null;
@@ -330,6 +332,7 @@ export async function listWithAccounts(exec: Executor): Promise<ItemAccountListi
            a.subtype,
            a.currency,
            a.current_balance,
+           a.updated_at               AS balance_updated_at,
            COALESCE(t.txn_count, 0)::text AS txn_count,
            t.first_date::text         AS first_date,
            t.last_date::text          AS last_date

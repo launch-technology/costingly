@@ -251,6 +251,22 @@ for (const file of files.filter((f) => f.path.startsWith(RENDERER))) {
 }
 none(rendererLeaks, "the renderer imports only react, its own files and the contract");
 
+// --- the app's windows show only the app ------------------------------------
+//
+// Linking a bank happens in the user's own browser, by decision: a bank login
+// inside an app window was built, and some banks' fraud screening refused it
+// without saying so. So no window of the app loads anybody else's page — not
+// Plaid's form, not a bank's site — and the one bridge is handed only to our
+// own bundled code. A `loadURL`, or Plaid's address, appearing under
+// apps/desktop/ is that decision being undone by accident.
+none(
+  files
+    .filter((f) => f.path.startsWith(DESKTOP_HOME))
+    .filter((f) => /\.loadURL\(|cdn\.plaid\.com/.test(f.text))
+    .map((f) => f.path),
+  "no desktop window loads a remote page; bank logins happen in the user's browser",
+);
+
 // --- the desktop main process: layers behind the window ---------------------
 //
 //   controllers/   answer the window's calls

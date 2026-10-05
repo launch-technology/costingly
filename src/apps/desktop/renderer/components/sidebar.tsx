@@ -1,14 +1,17 @@
 /**
  * The left sidebar. Lists only the screens that exist.
  *
- * One entry today. The list is data so that adding a screen is adding a row,
- * and so the sidebar never advertises something that is not built yet — a
- * dead-end entry is exactly the kind of UI the stories promise not to ship.
+ * The list is data so that adding a screen is adding a row, and so the
+ * sidebar never advertises something that is not built yet — a dead-end entry
+ * is exactly the kind of UI the stories promise not to ship.
  */
 
-export type ScreenId = "status";
+export type ScreenId = "status" | "accounts";
 
-const SCREENS: ReadonlyArray<{ id: ScreenId; label: string }> = [{ id: "status", label: "Status" }];
+const SCREENS: ReadonlyArray<{ id: ScreenId; label: string }> = [
+  { id: "status", label: "Status" },
+  { id: "accounts", label: "Accounts" },
+];
 
 export interface SidebarProps {
   current: ScreenId;
@@ -29,6 +32,7 @@ export function Sidebar({ current, onSelect }: SidebarProps) {
             <li key={screen.id}>
               <button
                 type="button"
+                data-testid={`nav-${screen.id}`}
                 aria-current={selected ? "page" : undefined}
                 onClick={() => onSelect(screen.id)}
                 className={

@@ -101,6 +101,39 @@ export type LogExcerpt =
 
 export type DatabaseResult = { outcome: "ready" } | { outcome: "failed"; problem: Problem };
 
+/** One account, as the Accounts screen shows it. Every field is ready to draw. */
+export interface AccountView {
+  id: string;
+  name: string;
+  /** "Checking", "Credit card" — or empty when the bank did not say. */
+  type: string;
+  /** The last four digits, or empty when the bank did not give them. */
+  lastFour: string;
+  /** "$1,234.56", or a dash when the bank reported no balance. */
+  balance: string;
+}
+
+/** One bank login and the accounts under it. */
+export interface BankView {
+  id: string;
+  name: string;
+  /** Made-up data from the developer seed command, not a real bank. */
+  sample: boolean;
+  accounts: AccountView[];
+}
+
+/**
+ * The Accounts screen.
+ *
+ * `database-stopped` is its own answer, not a failure: nothing is wrong with
+ * the accounts, there is simply nothing to read them from right now, and the
+ * fix is on another screen.
+ */
+export type AccountsView =
+  | { state: "ready"; banks: BankView[]; /** When the balances were written, and what they are not. */ note: string }
+  | { state: "database-stopped" }
+  | { state: "failed"; problem: Problem };
+
 // ---------------------------------------------------------------------------
 // The calls
 // ---------------------------------------------------------------------------
@@ -137,6 +170,19 @@ export interface DesktopContract {
   "setup.openPlaidSite": { args: []; result: void };
   /** Opens Plaid's keys page in the default browser. Takes no address. */
   "setup.openPlaidKeysPage": { args: []; result: void };
+
+  "accounts.list": { args: []; result: AccountsView };
+
+  /**
+   * Linking a bank happens in the user's own browser: this opens costingly's
+   * local link page there. Takes no address. Answers once the browser has
+   * been asked to open — the linking itself is out of the app's sight, and
+   * the Accounts screen finds the result when it is next looked at.
+   *
+   * Not in an app window, by decision: some banks' fraud screening refuses a
+   * login from anything but a real browser, and says nothing when it does.
+   */
+  "link.openInBrowser": { args: []; result: void };
 }
 
 export type Call = keyof DesktopContract;

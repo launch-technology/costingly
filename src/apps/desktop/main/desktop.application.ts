@@ -33,7 +33,7 @@
  * so that is where it is caught, turned into "run() is finished", and left for
  * the host to unwind in order. One exit path, however the quit was asked for.
  *
- * WHY THERE IS NO SECOND WINDOW
+ * WHY THERE IS NO SECOND COPY
  *
  * `requestSingleInstanceLock()` fails in the second copy, which then finishes
  * `run()` immediately and exits having built nothing. The first copy is told
@@ -46,12 +46,15 @@ import { app, shell } from "electron";
 import type { Application } from "../../../platform/runtime/application.js";
 import { ResourceScope } from "../../../platform/runtime/resource-scope.js";
 import * as domain from "./adapters/domain.js";
+import { AccountsController } from "./controllers/accounts.controller.js";
 import type { AllHandlers } from "./controllers/controller.js";
 import { DatabaseController, databaseSectionReader } from "./controllers/database.controller.js";
+import { LinkController } from "./controllers/link.controller.js";
 import { SetupController } from "./controllers/setup.controller.js";
 import { StatusController } from "./controllers/status.controller.js";
 import { desktopDir, desktopSettingsPath } from "./desktop-paths.js";
 import { explainDatabaseFailure } from "./presenters/database.presenter.js";
+import { AccountsService } from "./services/accounts.service.js";
 import { CloseNoticeService } from "./services/close-notice.service.js";
 import { DatabaseService } from "./services/database.service.js";
 import { SettingsService } from "./services/settings.service.js";
@@ -140,15 +143,32 @@ export class DesktopApplication implements Application {
       },
     });
 
+    const icon = placeholderIcon();
+
+    // --- linking a bank, in the user's browser --------------------------------
+    // The local link page is started when asked for and stops itself when idle;
+    // this is so Quit never leaves it listening. Registered after the database,
+    // so released before it: the page stops while there is still a database
+    // for anything it was saving.
+    this.scope.onClose("link page", async () => void (await domain.linkPage.stop()));
+
     const handlers: AllHandlers = {
       ...new StatusController(domain.statusChecks(), databaseSection).handlers(),
       ...new DatabaseController(database, databaseSection, domain.databaseLog).handlers(),
       ...new SetupController(setup, (url) => shell.openExternal(url)).handlers(),
+      ...new AccountsController(new AccountsService(domain.accountsDependencies())).handlers(),
+      ...new LinkController(async () => {
+        const { url } = await domain.linkPage.start();
+        await shell.openExternal(url);
+      }).handlers(),
     };
-    registerHandlers(handlers, { describe: domain.describeError, log });
+    registerHandlers(handlers, {
+      isAppWindow: (sender) => this.window?.owns(sender) ?? false,
+      describe: domain.describeError,
+      log,
+    });
 
     // --- the tray, and the notice it shows once ------------------------------
-    const icon = placeholderIcon();
     const tray = new TrayIcon({
       icon,
       onOpen: () => this.window?.reveal(),

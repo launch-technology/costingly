@@ -13,7 +13,7 @@
  * attack surface.
  */
 
-import { BrowserWindow, type NativeImage } from "electron";
+import { BrowserWindow, type NativeImage, type WebContents } from "electron";
 import { join } from "node:path";
 
 import type { DesktopEvent, DesktopEvents } from "../../bridge/contract.js";
@@ -77,6 +77,11 @@ export class MainWindow {
     await this.window.loadFile(join(APP_ROOT, "renderer", "index.html"));
     await ready;
     this.window.show();
+  }
+
+  /** Is this page the main window's? Asked of every call that arrives. */
+  owns(contents: WebContents): boolean {
+    return !this.window.isDestroyed() && this.window.webContents === contents;
   }
 
   /** Bring a hidden or buried window back. */
