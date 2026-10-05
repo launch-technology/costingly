@@ -34,6 +34,7 @@ const ORDER = [
   "desktop-status-presenter",
   "desktop-database-presenter",
   "desktop-accounts-presenter",
+  "desktop-sync-presenter",
   "desktop-services",
   "picker",
   "confirm",

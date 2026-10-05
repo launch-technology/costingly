@@ -9,8 +9,8 @@ import { restartDatabase } from "../../../domain/services/database/database-heal
  * Stop the database and bring it back.
  *
  * Deliberately a restart rather than a stop. Stopping is never the goal —
- * it is a step towards connecting again, and costingly starts the server on
- * the next connection anyway. A stop tool would leave the model to guess
+ * it is a step towards connecting again, and with the server stopped every
+ * other tool here would fail. A stop tool would leave the model to guess
  * what to do next; this completes the round trip and reports whether the
  * database actually came back.
  */

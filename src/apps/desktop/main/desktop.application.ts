@@ -52,13 +52,16 @@ import { DatabaseController, databaseSectionReader } from "./controllers/databas
 import { LinkController } from "./controllers/link.controller.js";
 import { SetupController } from "./controllers/setup.controller.js";
 import { StatusController } from "./controllers/status.controller.js";
+import { SyncController } from "./controllers/sync.controller.js";
 import { desktopDir, desktopSettingsPath } from "./desktop-paths.js";
 import { explainDatabaseFailure } from "./presenters/database.presenter.js";
+import { presentSync } from "./presenters/sync.presenter.js";
 import { AccountsService } from "./services/accounts.service.js";
 import { CloseNoticeService } from "./services/close-notice.service.js";
 import { DatabaseService } from "./services/database.service.js";
 import { SettingsService } from "./services/settings.service.js";
 import { SetupService } from "./services/setup.service.js";
+import { SyncService } from "./services/sync.service.js";
 import { registerHandlers } from "./shell/ipc-router.js";
 import { MainWindow } from "./shell/main-window.js";
 import { placeholderIcon } from "./shell/placeholder-icon.js";
@@ -152,15 +155,30 @@ export class DesktopApplication implements Application {
     // for anything it was saving.
     this.scope.onClose("link page", async () => void (await domain.linkPage.stop()));
 
+    // --- the sync, in the background -------------------------------------------
+    // Started by the Sync button today; anything else that starts one later —
+    // a schedule — calls the same `start()`, and the window hears about it the
+    // same way. Quit does not wait for a run in flight: it silences the service
+    // and lets the database stop, which fails whatever the run does next. No
+    // query can start the database again, and the run's progress is committed
+    // bank by bank, so nothing is lost and nothing is left running.
+    const sync = new SyncService({
+      ...domain.syncDependencies(),
+      now: () => new Date(),
+      onChange: (state) => this.window?.emit("sync.changed", presentSync(state)),
+    });
+    this.scope.onClose("sync", async () => sync.stop());
+
     const handlers: AllHandlers = {
       ...new StatusController(domain.statusChecks(), databaseSection).handlers(),
       ...new DatabaseController(database, databaseSection, domain.databaseLog).handlers(),
       ...new SetupController(setup, (url) => shell.openExternal(url)).handlers(),
       ...new AccountsController(new AccountsService(domain.accountsDependencies())).handlers(),
-      ...new LinkController(async () => {
-        const { url } = await domain.linkPage.start();
-        await shell.openExternal(url);
-      }).handlers(),
+      ...new LinkController(
+        async () => shell.openExternal((await domain.linkPage.start()).url),
+        async (bankId) => shell.openExternal(await domain.linkPage.startForReconnect(bankId)),
+      ).handlers(),
+      ...new SyncController(sync).handlers(),
     };
     registerHandlers(handlers, {
       isAppWindow: (sender) => this.window?.owns(sender) ?? false,

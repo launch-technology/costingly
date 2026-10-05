@@ -36,6 +36,7 @@ import {
 import { configStore, platform, server } from "../../../../domain/project.js";
 import { startLinkServer, stopLinkServer } from "../../../../domain/services/banks/link-session.service.js";
 import { createLinkToken } from "../../../../domain/services/banks/link.service.js";
+import { syncAllItems } from "../../../../domain/services/banks/sync.service.js";
 import { checkDatabase } from "../../../../domain/services/database/database-health.service.js";
 import { install } from "../../../../domain/services/install.service.js";
 import { checkPlaid, checkProfile } from "../../../../domain/services/status.service.js";
@@ -43,6 +44,7 @@ import type { StatusChecks } from "../controllers/status.controller.js";
 import type { AccountsDependencies } from "../services/accounts.service.js";
 import type { DatabaseDependencies } from "../services/database.service.js";
 import type { SetupDependencies } from "../services/setup.service.js";
+import type { SyncDependencies } from "../services/sync.service.js";
 import { DatabaseLog, createRedactor } from "./database-log.js";
 import { PlaidKeyVerifier } from "./plaid-key-verifier.js";
 
@@ -125,8 +127,8 @@ export function databaseDependencies(report: (line: string) => void): DatabaseDe
  * What the Accounts screen is read from.
  *
  * Through the superuser connection, like the status report's own bank list:
- * the application connection starts a stopped server when it is first used,
- * and looking at a screen must never start anything.
+ * it holds no pool open between reads, so looking at a screen leaves nothing
+ * behind for a later Stop to wait on.
  */
 export function accountsDependencies(): AccountsDependencies {
   return {
@@ -145,7 +147,27 @@ export function accountsDependencies(): AccountsDependencies {
 export const linkPage = {
   start: () => startLinkServer(plaid),
   stop: stopLinkServer,
+
+  /**
+   * The page's address in reconnect mode for one bank — after checking that
+   * the id is a real, linked bank's. The id arrives from the window; an
+   * address is built only here, from the server's own and an id the database
+   * already holds.
+   */
+  async startForReconnect(bankId: string): Promise<string> {
+    const banks = await listWithAccounts(adminDataSource());
+    if (!banks.some((bank) => bank.item_id === bankId && bank.source === "plaid")) {
+      throw new Error("That bank is not one of your linked banks.");
+    }
+    const { url } = await startLinkServer(plaid);
+    return `${url}/?repair=${encodeURIComponent(bankId)}`;
+  },
 };
+
+/** The sync, as the domain runs it for every interface. */
+export function syncDependencies(): Pick<SyncDependencies, "run" | "describeError"> {
+  return { run: () => syncAllItems(plaid), describeError };
+}
 
 /** Everything setup needs except creating the database, which the app supplies. */
 export function setupDependencies(): Omit<SetupDependencies, "createDatabase"> {

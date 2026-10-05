@@ -102,8 +102,11 @@ export class MainWindow {
     if (!this.window.isDestroyed()) this.window.destroy();
   }
 
-  /** Tell the page something, by the contract's event names. */
-  private emit<E extends DesktopEvent>(event: E, ...args: DesktopEvents[E]): void {
+  /**
+   * Tell the page something, by the contract's event names. Hidden or not: a
+   * page that is not being looked at still keeps what it shows up to date.
+   */
+  emit<E extends DesktopEvent>(event: E, ...args: DesktopEvents[E]): void {
     if (!this.window.isDestroyed()) this.window.webContents.send(event, ...args);
   }
 

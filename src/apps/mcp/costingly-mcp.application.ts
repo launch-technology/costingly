@@ -15,6 +15,7 @@ import {
 } from "../../platform/mcp/mcp.application.js";
 import { closeDb } from "../../domain/data/default-database.js";
 import { stopLinkServer } from "../../domain/services/banks/link-session.service.js";
+import { resumeDatabase } from "../../domain/services/database/database-health.service.js";
 import { registerDescribeDatabaseTool } from "./tools/describe-database.tool.js";
 import { registerQueryTool } from "./tools/query.tool.js";
 import { registerCheckCostinglyTool } from "./tools/check-costingly.tool.js";
@@ -118,6 +119,18 @@ export class CostinglyMcpApplication extends McpApplication {
     // when the client disconnects, and it needs somewhere to write.
     this.scope.onClose("database", closeDb);
     this.scope.onClose("link server", stopLinkServer);
+
+    // Bring a stopped database up, once, before any tool can be called.
+    //
+    // Nothing starts the server as a side effect of a query any more, and the
+    // first tool call after a reboot should still just work. Awaited, so no
+    // tool can race it; it resumes what exists and creates nothing, so this is
+    // not the startup install that was removed below. A failure here must not
+    // stop the server from coming up — check_costingly and restart_database
+    // are how a broken database gets diagnosed.
+    await resumeDatabase().catch((error: unknown) => {
+      console.error(`[costingly] the database did not start: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   // No warmUp(). It used to install the database at startup, which meant the

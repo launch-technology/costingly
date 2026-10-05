@@ -33,7 +33,31 @@ export function presentAccounts(reading: AccountsReading): AccountsView {
     };
   }
 
-  return { state: "ready", banks: groupByBank(reading.rows), note: balancesNote(reading.rows) };
+  return {
+    state: "ready",
+    banks: groupByBank(reading.rows),
+    note: balancesNote(reading.rows),
+    canSync: reading.rows.some(isSyncable),
+  };
+}
+
+/**
+ * Would a sync refresh this bank? A real one, whose login still works: sample
+ * data has no bank behind it, and a bank that needs attention is skipped until
+ * it is reconnected.
+ */
+function isSyncable(row: ItemAccountListing): boolean {
+  return row.source === "plaid" && row.status === "active";
+}
+
+function needsAttention(row: ItemAccountListing): boolean {
+  return row.source === "plaid" && row.status === "login_required";
+}
+
+function lastSynced(row: ItemAccountListing): string {
+  if (row.source !== "plaid") return "";
+  if (row.last_synced_at === null) return "Not synced yet";
+  return `Last synced ${formatWhen(new Date(row.last_synced_at))}`;
 }
 
 /** One bank per login, in the order the rows arrive, each with its accounts. */
@@ -47,6 +71,8 @@ function groupByBank(rows: ItemAccountListing[]): BankView[] {
         id: row.item_id,
         name: row.institution_name ?? "Unnamed bank",
         sample: row.source === "seed",
+        lastSynced: lastSynced(row),
+        needsAttention: needsAttention(row),
         accounts: [],
       };
       banks.set(row.item_id, bank);
@@ -91,11 +117,10 @@ export function formatBalance(amount: string | null, currency: string | null): s
 }
 
 /**
- * When the balances were written, and what they are not.
+ * When the balances were written.
  *
- * Balances come from the bank at the moment of linking and are not refreshed
- * until there is a sync, so the date matters: an old balance shown without one
- * reads as today's.
+ * A balance is a snapshot from linking or from the last sync, never live, so
+ * the date matters: an old balance shown without one reads as today's.
  */
 function balancesNote(rows: ItemAccountListing[]): string {
   const written = rows
@@ -106,7 +131,7 @@ function balancesNote(rows: ItemAccountListing[]): string {
   if (written.length === 0) return "";
 
   const latest = new Date(Math.max(...written));
-  return `Balances as of ${formatWhen(latest)}. Transactions are not pulled yet.`;
+  return `Balances as of ${formatWhen(latest)}.`;
 }
 
 export function formatWhen(when: Date): string {

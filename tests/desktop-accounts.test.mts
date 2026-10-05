@@ -5,6 +5,8 @@
  *   2. Banks and accounts are listed, grouped, with what each account shows
  *   3. They are still there after quitting and reopening
  *   4. A stopped database is explained, and the accounts come back with it
+ *   5. Sync: offered for real banks, its result shown per bank, a bank that
+ *      needs attention marked — and quitting mid-sync leaves nothing running
  *
  * WHAT THIS DOES NOT DO IS CLICK "LINK A BANK". That button opens the real
  * default browser on whoever is running the suite, and from there linking
@@ -43,7 +45,8 @@ delete process.env["PLAID_CLIENT_ID"];
 delete process.env["PLAID_SECRET"];
 delete process.env["PLAID_ENV"];
 
-const { closeDb, generateEncryptionKey, server, writeConfig } = await import("../src/index.js");
+const { closeDb, db, generateEncryptionKey, server, writeConfig } = await import("../src/index.js");
+const { saveItem, setItemStatus } = await import("../src/domain/data/repositories/items.repository.js");
 const { install } = await import("../src/domain/services/install.service.js");
 const { generateSeedDataset } = await import("../src/domain/services/seed/seed.generator.js");
 const { applySeed } = await import("../src/domain/services/seed/seed.service.js");
@@ -130,6 +133,8 @@ eq(await quit(app), 0, "Quit, exit code 0");
 // ===========================================================================
 
 const dataset = generateSeedDataset({ seed: 7, years: 1, endDate: "2026-08-09" });
+// Quitting the app stopped the database, and nothing starts it by being queried.
+await server.start();
 await applySeed(dataset);
 await closeDb();
 await server.stop();
@@ -163,7 +168,7 @@ const balances = await card.getByTestId("account-balance").allInnerTexts();
 ok(balances.every((text) => /\d/.test(text)), `and a balance (${balances[0]})`);
 
 const note = (await page.getByTestId("accounts-note").textContent()) ?? "";
-ok(/^Balances as of .+\. Transactions are not pulled yet\.$/.test(note), `the screen says when balances were written: "${note}"`);
+ok(/^Balances as of .+\.$/.test(note), `the screen says when balances were written: "${note}"`);
 eq(await linkButton(page).count(), 1, "Link a bank is still offered, to add another");
 eq(await page.getByTestId("accounts-empty").count(), 0, "and the no-banks explanation is gone");
 
@@ -201,8 +206,121 @@ eq(await quit(app), 0, "Quit, exit code 0");
 await goToAccounts(page);
 await expectState(page, "ready", "reopened: Accounts lists the banks");
 eq(await banks(page).count(), dataset.items.length, "ALL OF THEM, AFTER A QUIT AND A RELAUNCH");
+eq(await page.getByTestId("sync").count(), 0, "SAMPLE DATA ALONE OFFERS NO SYNC");
+eq(await page.getByTestId("bank-last-synced").count(), 0, "and says nothing about when it was synced");
 eq(await quit(app), 0, "Quit, exit code 0");
 eq(await server.status(), "stopped", "and the database is stopped");
+
+// ===========================================================================
+// 5. Sync, and a bank that needs attention
+// ===========================================================================
+// Three banks recorded as REAL ones, written straight into the database with
+// a made-up access token: two working, one whose login has expired. Nothing
+// here is a bank Plaid knows, and the Plaid keys are placeholders, so a sync
+// reaches Plaid's production servers and is refused for every bank — or never
+// reaches them. Either way every bank fails alike, which is the case to see.
+
+const ACTIVE = ["Alder Bank", "Birch Credit Union"];
+const EXPIRED = "Cedar Savings";
+await server.start();
+for (const name of [...ACTIVE, EXPIRED]) {
+  await saveItem(db, {
+    itemId: `test-${name.toLowerCase().replace(/\W+/g, "-")}`,
+    institutionId: null,
+    institutionName: name,
+    source: "plaid",
+    accessToken: "access-not-a-real-token",
+  });
+}
+await setItemStatus(db, `test-${EXPIRED.toLowerCase().replace(/\W+/g, "-")}`, "login_required");
+await closeDb();
+await server.stop();
+
+const bankNamed = (name: string) =>
+  banks(page).filter({ has: page.getByTestId("bank-name").getByText(name, { exact: true }) });
+
+({ app, page } = await open());
+await goToAccounts(page);
+await expectState(page, "ready", "with real banks: Accounts lists them");
+
+eq(await page.getByTestId("sync").textContent(), "Sync", "REAL BANKS OFFER A SYNC BUTTON");
+eq(await page.getByTestId("sync").isDisabled(), false, "ready to press");
+eq(await bankNamed(ACTIVE[0] ?? "").getByTestId("bank-last-synced").textContent(), "Not synced yet", "a bank never synced says so");
+eq(await page.getByTestId("sync-summary").count(), 0, "no sync result is shown before one has run");
+
+// --- the bank whose login has expired ---
+const flagged = bankNamed(EXPIRED);
+eq(await flagged.getByTestId("bank-needs-attention").count(), 1, "THE BANK WITH AN EXPIRED LOGIN IS MARKED AS NEEDING ATTENTION");
+ok(/not being synced/.test((await flagged.getByTestId("bank-needs-attention").textContent()) ?? ""), "and says it is not being synced");
+// Offered, never clicked: Reconnect opens the real default browser.
+eq(await flagged.getByTestId("bank-reconnect").textContent(), "Reconnect", "with a Reconnect button");
+eq(await page.getByTestId("bank-needs-attention").count(), 1, "and only that bank is marked");
+
+// --- a sync in which every bank fails alike ---
+await page.getByTestId("sync").click();
+if (
+  await expectVisible(
+    checks,
+    page.locator("[data-testid='accounts-screen'][data-sync='finished']"),
+    "Sync runs and finishes",
+    60_000,
+  )
+) {
+  eq(await page.getByTestId("sync-summary").getAttribute("data-tone"), "bad", "the run is reported as failed");
+  ok(/No bank was synced/.test((await page.getByTestId("sync-summary").textContent()) ?? ""), "saying no bank was synced");
+
+  const cause = (await page.getByTestId("sync-problem").textContent()) ?? "";
+  const next = (await page.getByTestId("sync-problem-next-step").textContent()) ?? "";
+  eq(await page.getByTestId("sync-problem").count(), 1, "THE SHARED REASON IS SAID ONCE");
+  ok(/No bank could be synced: \S/.test(cause), `with the reason (${cause.slice(0, 70)}…)`);
+  ok(/sync again/i.test(next), "and what to do");
+  ok(!cause.includes("placeholder-secret") && !cause.includes("access-not-a-real-token"), "no secret is in what is shown");
+  ok(!/costingly\s+\w+|Claude Desktop|`/.test(cause + next), "nothing tells the user to run a command");
+
+  eq(
+    await Promise.all(ACTIVE.map((name) => bankNamed(name).getByTestId("bank-sync-result").textContent())),
+    ["Not synced.", "Not synced."],
+    "each bank that was tried says it was not synced",
+  );
+  eq(await flagged.getByTestId("bank-sync-result").count(), 0, "THE BANK THAT NEEDS ATTENTION WAS LEFT ALONE, not tried");
+  eq(await page.getByTestId("sync").textContent(), "Sync", "and Sync is ready to press again");
+}
+
+// --- the result belongs to the app, not the screen ---
+await page.getByTestId("nav-status").click();
+await page.getByTestId("status-screen").waitFor({ timeout: 15_000 });
+await goToAccounts(page);
+await expectVisible(checks, page.getByTestId("sync-summary"), "THE LAST RESULT IS STILL THERE after leaving the screen and coming back");
+
+// --- with the database stopped ---
+await page.getByTestId("nav-status").click();
+await page.getByTestId("database-action-stop").click();
+await expectHeadline(checks, page, "database", /^Stopped$/, "the database is stopped from Status");
+await goToAccounts(page);
+await expectState(page, "database-stopped", "Accounts says the database is not running");
+eq(
+  [await page.getByTestId("sync").count(), await page.getByTestId("bank-reconnect").count()],
+  [0, 0],
+  "NEITHER SYNC NOR RECONNECT IS OFFERED",
+);
+await page.getByTestId("nav-status").click();
+await page.getByTestId("database-action-start").click();
+await expectHeadline(checks, page, "database", /^Running$/, "started again");
+
+// --- quitting with a sync in flight ---
+// The sync is not waited for, so Quit must not hang on it — and nothing the
+// sync does afterwards may bring the database back.
+await goToAccounts(page);
+await expectState(page, "ready", "Accounts is back");
+await page.getByTestId("sync").click();
+eq(await quit(app), 0, "QUIT DURING A SYNC exits with code 0");
+eq(await server.status(), "stopped", "and the database is stopped");
+await new Promise((resolve) => setTimeout(resolve, 4_000));
+eq(
+  [await server.status(), await server.isServing()],
+  ["stopped", false],
+  "AND IT STAYS STOPPED — the interrupted sync started nothing",
+);
 
 await wipe();
 checks.finish();

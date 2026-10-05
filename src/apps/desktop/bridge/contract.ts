@@ -119,6 +119,13 @@ export interface BankView {
   name: string;
   /** Made-up data from the developer seed command, not a real bank. */
   sample: boolean;
+  /** "Last synced Oct 4, 2026, 8:03 PM", "Not synced yet" — or empty for sample data, which is never synced. */
+  lastSynced: string;
+  /**
+   * The bank login has expired. The bank is skipped by every sync until the
+   * user reconnects it.
+   */
+  needsAttention: boolean;
   accounts: AccountView[];
 }
 
@@ -130,9 +137,46 @@ export interface BankView {
  * fix is on another screen.
  */
 export type AccountsView =
-  | { state: "ready"; banks: BankView[]; /** When the balances were written, and what they are not. */ note: string }
+  | {
+      state: "ready";
+      banks: BankView[];
+      /** When the balances were written. Empty with no balances to speak of. */
+      note: string;
+      /** There is at least one real bank a sync would refresh. */
+      canSync: boolean;
+    }
   | { state: "database-stopped" }
   | { state: "failed"; problem: Problem };
+
+/** What the latest sync did for one bank, in one line. */
+export interface BankSyncResult {
+  bankId: string;
+  tone: SectionTone;
+  text: string;
+}
+
+/**
+ * The sync, as the Accounts screen shows it.
+ *
+ * A sync belongs to the app, not to a screen: it is started, runs in the
+ * background, and finishes whether or not anyone is looking. This is what a
+ * screen sees when it asks, or is told — the same whoever started the sync.
+ *
+ * Only the latest run is kept. `finished` stays until the next run starts or
+ * the app is restarted.
+ */
+export type SyncView =
+  | { state: "idle" }
+  | { state: "running" }
+  | {
+      state: "finished";
+      tone: SectionTone;
+      /** One line for the whole run: "Synced 2 banks." */
+      summary: string;
+      /** Set when the run failed as a whole, or every bank failed the same way. */
+      problem?: Problem;
+      results: BankSyncResult[];
+    };
 
 // ---------------------------------------------------------------------------
 // The calls
@@ -183,6 +227,21 @@ export interface DesktopContract {
    * login from anything but a real browser, and says nothing when it does.
    */
   "link.openInBrowser": { args: []; result: void };
+
+  /**
+   * For a bank whose login has expired: opens the link page in the browser in
+   * its reconnect mode for that bank. Takes the bank's id and nothing else;
+   * the app checks it is a bank it knows before opening anything.
+   */
+  "link.reconnectInBrowser": { args: [bankId: string]; result: void };
+
+  /**
+   * Start a sync of every linked bank and answer AT ONCE, with the sync as it
+   * now is — running. It is not waited for: it finishes in the background and
+   * `sync.changed` says when. With one already running this starts nothing.
+   */
+  "sync.start": { args: []; result: SyncView };
+  "sync.state": { args: []; result: SyncView };
 }
 
 export type Call = keyof DesktopContract;
@@ -197,6 +256,8 @@ export type CallResult<K extends Call> = DesktopContract[K]["result"];
  */
 export interface DesktopEvents {
   "window.shown": [];
+  /** A sync started or finished — whoever or whatever started it. */
+  "sync.changed": [sync: SyncView];
 }
 
 export type DesktopEvent = keyof DesktopEvents;

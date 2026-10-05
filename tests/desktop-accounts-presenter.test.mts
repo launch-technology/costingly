@@ -75,7 +75,11 @@ eq(presentAccounts({ state: "database-stopped" }), { state: "database-stopped" }
   }
 }
 
-eq(presentAccounts({ state: "ready", rows: [] }), { state: "ready", banks: [], note: "" }, "no rows: ready, no banks, and nothing to say about balances");
+eq(
+  presentAccounts({ state: "ready", rows: [] }),
+  { state: "ready", banks: [], note: "", canSync: false },
+  "no rows: ready, no banks, nothing to say about balances, and nothing to sync",
+);
 
 // ===========================================================================
 // Grouping
@@ -100,7 +104,10 @@ eq(presentAccounts({ state: "ready", rows: [] }), { state: "ready", banks: [], n
     );
     eq(view.banks[1]?.accounts[0]?.type, "Credit card", "the narrower type word is used, capitalised");
     eq(view.banks.map((bank) => bank.sample), [false, false], "real banks are not marked as sample data");
-    eq(view.note, `Balances as of ${formatWhen(WRITTEN)}. Transactions are not pulled yet.`, "the note says when balances were written and that transactions are not pulled");
+    eq(view.note, `Balances as of ${formatWhen(WRITTEN)}.`, "the note says when balances were written");
+    eq(view.banks.map((bank) => bank.lastSynced), ["Not synced yet", "Not synced yet"], "a bank never synced says so");
+    eq(view.banks.map((bank) => bank.needsAttention), [false, false], "and neither needs attention");
+    eq(view.canSync, true, "there are real banks, so a sync is offered");
   }
 }
 
@@ -126,7 +133,39 @@ eq(presentAccounts({ state: "ready", rows: [] }), { state: "ready", banks: [], n
       { id: "acct-odd", name: "Unnamed account", type: "Loan", lastFour: "", balance: "—" },
       "missing name, last four and balance each have something honest to show",
     );
+    eq(view.banks[1]?.lastSynced, "", "sample data says nothing about syncing: it never is");
   } else ok(false, "awkward rows: a ready view");
+}
+
+// ===========================================================================
+// Syncing: when, whether, and who needs attention
+// ===========================================================================
+
+{
+  const SYNCED = new Date("2026-05-06T07:08:00Z");
+  const view = presentAccounts({
+    state: "ready",
+    rows: [
+      row({ item_id: "synced", last_synced_at: SYNCED, never_synced: false }),
+      row({ item_id: "expired", institution_name: "Expired Bank", account_id: "acct-x", status: "login_required", last_synced_at: SYNCED, never_synced: false }),
+    ],
+  });
+  if (view.state === "ready") {
+    eq(view.banks[0]?.lastSynced, `Last synced ${formatWhen(SYNCED)}`, "a synced bank says when");
+    eq(view.banks.map((bank) => bank.needsAttention), [false, true], "A BANK WHOSE LOGIN HAS EXPIRED NEEDS ATTENTION");
+    eq(view.canSync, true, "one working bank is enough to offer a sync");
+  } else ok(false, "syncing: a ready view");
+}
+{
+  const onlyExpired = presentAccounts({ state: "ready", rows: [row({ status: "login_required" })] });
+  eq(onlyExpired.state === "ready" && onlyExpired.canSync, false, "with every bank needing attention there is nothing a sync would do");
+
+  const onlySample = presentAccounts({ state: "ready", rows: [row({ source: "seed" })] });
+  eq(onlySample.state === "ready" && onlySample.canSync, false, "SAMPLE DATA ALONE OFFERS NO SYNC");
+  eq(onlySample.state === "ready" && onlySample.banks[0]?.needsAttention, false, "and sample data never needs attention");
+
+  const flaggedSample = presentAccounts({ state: "ready", rows: [row({ source: "seed", status: "login_required" })] });
+  eq(flaggedSample.state === "ready" && flaggedSample.banks[0]?.needsAttention, false, "even if its row said so");
 }
 
 eq(formatBalance(null, "USD"), "—", "NO BALANCE IS A DASH, NOT ZERO");
