@@ -21,6 +21,7 @@
  *                             on this machine only, and really stops
  *  10. SyncService            a sync is started, not awaited; one at a time;
  *                             the last result is remembered
+ *  11. TransactionsService    never asks a stopped database, never throws
  *
  * Runs on every platform: nothing here imports Electron, which the
  * architecture suite enforces.
@@ -1053,6 +1054,69 @@ await rm(HOME, { recursive: true, force: true });
     eq(announced, ["running"], "sync: after stop, a run that ends ANNOUNCES NOTHING");
     eq(service.start().phase, "running", "sync: and start after stop reports the old state");
     eq(runs(), 1, "sync: WITHOUT STARTING ANOTHER RUN");
+  }
+}
+
+// ===========================================================================
+// 11. TransactionsService — never asks a stopped database, never throws
+// ===========================================================================
+{
+  const { TransactionsService } = await import("../src/apps/desktop/main/services/transactions.service.js");
+  type TransactionsDependencies = import("../src/apps/desktop/main/services/transactions.service.js").TransactionsDependencies;
+  type TransactionFilter = import("../src/domain/services/transactions/transaction-search.service.js").TransactionFilter;
+
+  const filter: TransactionFilter = { accountId: "a1", from: "2026-01-01", to: null, text: "coffee", limit: 100 };
+  const nothing = { outcome: "found" as const, rows: [], total: 0, banks: 1, stored: 0, newest: null };
+
+  function transactionsService(overrides: Partial<TransactionsDependencies> = {}) {
+    const asked: TransactionFilter[] = [];
+    let listed = 0;
+    const service = new TransactionsService({
+      state: async () => "running",
+      find: async (given) => {
+        asked.push(given);
+        return nothing;
+      },
+      listAccounts: async () => {
+        listed++;
+        return [];
+      },
+      describeError: (error) => (error instanceof Error ? error.message : String(error)),
+      ...overrides,
+    });
+    return { service, asked, listed: () => listed };
+  }
+
+  {
+    const { service, asked, listed } = transactionsService({ state: async () => "stopped" });
+    eq(await service.read(filter), { state: "database-stopped" }, "transactions: a stopped database is its own answer");
+    eq([asked.length, listed()], [0, 0], "transactions: AND NOTHING WAS QUERIED");
+  }
+  {
+    const { service, asked, listed } = transactionsService();
+    eq(await service.read(filter), { state: "ready", found: nothing, accounts: [] }, "transactions: a running database returns what was found, with the accounts to filter by");
+    eq(asked, [filter], "transactions: the filter reaches the domain exactly as given");
+    eq(listed(), 1, "transactions: and the accounts were read once");
+  }
+  {
+    const { service } = transactionsService({
+      find: async () => {
+        throw new Error("The from date is not a calendar day.");
+      },
+    });
+    eq(
+      await service.read(filter),
+      { state: "failed", reason: "The from date is not a calendar day." },
+      "transactions: a refused or failed search is described, never thrown",
+    );
+  }
+  {
+    const { service } = transactionsService({
+      state: async () => {
+        throw new Error("cannot stat");
+      },
+    });
+    eq((await service.read(filter)).state, "failed", "transactions: nor is a state that cannot be asked");
   }
 }
 

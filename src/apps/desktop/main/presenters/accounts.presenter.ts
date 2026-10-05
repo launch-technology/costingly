@@ -17,6 +17,7 @@
 import type { ItemAccountListing } from "../../../../domain/data/repositories/items.repository.js";
 import type { AccountView, AccountsView, BankView } from "../../bridge/contract.js";
 import type { AccountsReading } from "../services/accounts.service.js";
+import { formatMoney, formatWhen } from "./format.js";
 
 const NO_BALANCE = "—";
 
@@ -105,15 +106,7 @@ export function formatBalance(amount: string | null, currency: string | null): s
   if (amount === null) return NO_BALANCE;
   const value = Number(amount);
   if (!Number.isFinite(value)) return NO_BALANCE;
-
-  if (currency !== null) {
-    try {
-      return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value);
-    } catch {
-      // Not a currency code Intl knows. Fall through to the plain number.
-    }
-  }
-  return new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  return formatMoney(value, currency);
 }
 
 /**
@@ -134,6 +127,5 @@ function balancesNote(rows: ItemAccountListing[]): string {
   return `Balances as of ${formatWhen(latest)}.`;
 }
 
-export function formatWhen(when: Date): string {
-  return when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
+// The tests for this file read the formatter from here.
+export { formatWhen };

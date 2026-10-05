@@ -245,3 +245,117 @@ export async function summaryForAccounts(
   );
   return { newest: rows[0]?.newest ?? null, total: Number(rows[0]?.total ?? 0) };
 }
+
+/** What narrows a search. Every part is optional; with none, it is everything. */
+export interface TransactionSearch {
+  /** One account, or null for all of them. */
+  accountId: string | null;
+  /** Inclusive lower bound, "YYYY-MM-DD", or null. */
+  from: string | null;
+  /** Inclusive upper bound, "YYYY-MM-DD", or null. */
+  to: string | null;
+  /**
+   * A LIKE pattern for the description and the merchant name, or null. The
+   * caller builds it — wildcards placed, the user's own text escaped with
+   * PATTERN_ESCAPE — because what counts as a match is the caller's decision,
+   * not this file's.
+   */
+  pattern: string | null;
+}
+
+/** A transaction found by a search: enough to show it and to tell rows apart. */
+export interface FoundTransaction {
+  transaction_id: string;
+  date: string;
+  name: string;
+  merchant_name: string | null;
+  amount: string;
+  pending: boolean;
+  category: string | null;
+  account_id: string;
+  account_name: string | null;
+  mask: string | null;
+  currency: string | null;
+  institution_name: string | null;
+}
+
+/**
+ * The character that makes the next one literal in a search pattern. Not the
+ * usual backslash: that one means something to JavaScript strings, to SQL
+ * strings and to LIKE all at once, and three layers of doubling is where a
+ * search for "50%" quietly starts matching everything.
+ */
+export const PATTERN_ESCAPE = "!";
+
+/** The WHERE both search queries share, so a count can never disagree with its rows. */
+const SEARCH_WHERE = `
+      ($1::text IS NULL OR t.account_id = $1)
+  AND ($2::date IS NULL OR t.date >= $2::date)
+  AND ($3::date IS NULL OR t.date <= $3::date)
+  AND ($4::text IS NULL
+       OR t.name ILIKE $4 ESCAPE '${PATTERN_ESCAPE}'
+       OR t.merchant_name ILIKE $4 ESCAPE '${PATTERN_ESCAPE}')`;
+
+function searchParams(search: TransactionSearch): unknown[] {
+  return [search.accountId, search.from, search.to, search.pattern];
+}
+
+/**
+ * The newest `limit` transactions matching a search.
+ *
+ * Newest first; on one day, pending before settled, as a bank shows them; the
+ * id last, so the order is the same every time and a longer limit returns the
+ * same rows followed by more.
+ */
+export async function search(
+  exec: Executor,
+  criteria: TransactionSearch,
+  limit: number,
+): Promise<FoundTransaction[]> {
+  const { rows } = await exec.query<FoundTransaction>(
+    `
+    SELECT t.transaction_id, t.date::text AS date, t.name, t.merchant_name, t.amount, t.pending,
+           t.pfc->>'primary' AS category,
+           a.account_id,
+           a.name            AS account_name,
+           a.mask,
+           COALESCE(t.iso_currency_code, a.currency) AS currency,
+           i.institution_name
+      FROM transactions t
+      JOIN accounts a ON a.account_id = t.account_id
+      JOIN items    i ON i.item_id    = t.item_id
+     WHERE ${SEARCH_WHERE}
+     ORDER BY t.date DESC, t.pending DESC, t.transaction_id
+     LIMIT $5
+    `,
+    [...searchParams(criteria), limit],
+  );
+  return rows;
+}
+
+/** How many transactions match a search, whatever the limit. */
+export async function countMatching(exec: Executor, criteria: TransactionSearch): Promise<number> {
+  const { rows } = await exec.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM transactions t WHERE ${SEARCH_WHERE}`,
+    searchParams(criteria),
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+/**
+ * How many transactions there are in all, for one account or for every
+ * account, and the newest date among them. What lets "nothing matches" be told
+ * apart from "there is nothing here at all".
+ */
+export async function extent(
+  exec: Executor,
+  accountId: string | null,
+): Promise<{ total: number; newest: string | null }> {
+  const { rows } = await exec.query<{ total: string; newest: string | null }>(
+    `SELECT COUNT(*)::text AS total, MAX(date)::text AS newest
+       FROM transactions
+      WHERE ($1::text IS NULL OR account_id = $1)`,
+    [accountId],
+  );
+  return { total: Number(rows[0]?.total ?? 0), newest: rows[0]?.newest ?? null };
+}

@@ -53,6 +53,7 @@ import { LinkController } from "./controllers/link.controller.js";
 import { SetupController } from "./controllers/setup.controller.js";
 import { StatusController } from "./controllers/status.controller.js";
 import { SyncController } from "./controllers/sync.controller.js";
+import { TransactionsController } from "./controllers/transactions.controller.js";
 import { desktopDir, desktopSettingsPath } from "./desktop-paths.js";
 import { explainDatabaseFailure } from "./presenters/database.presenter.js";
 import { presentSync } from "./presenters/sync.presenter.js";
@@ -62,6 +63,7 @@ import { DatabaseService } from "./services/database.service.js";
 import { SettingsService } from "./services/settings.service.js";
 import { SetupService } from "./services/setup.service.js";
 import { SyncService } from "./services/sync.service.js";
+import { TransactionsService } from "./services/transactions.service.js";
 import { registerHandlers } from "./shell/ipc-router.js";
 import { MainWindow } from "./shell/main-window.js";
 import { placeholderIcon } from "./shell/placeholder-icon.js";
@@ -179,6 +181,10 @@ export class DesktopApplication implements Application {
         async (bankId) => shell.openExternal(await domain.linkPage.startForReconnect(bankId)),
       ).handlers(),
       ...new SyncController(sync).handlers(),
+      ...new TransactionsController(
+        new TransactionsService(domain.transactionsDependencies()),
+        domain.transactionsPageSize,
+      ).handlers(),
     };
     registerHandlers(handlers, {
       isAppWindow: (sender) => this.window?.owns(sender) ?? false,
