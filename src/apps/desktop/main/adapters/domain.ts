@@ -37,6 +37,7 @@ import { configStore, platform, server } from "../../../../domain/project.js";
 import { startLinkServer, stopLinkServer } from "../../../../domain/services/banks/link-session.service.js";
 import { createLinkToken } from "../../../../domain/services/banks/link.service.js";
 import { syncAllItems } from "../../../../domain/services/banks/sync.service.js";
+import { describeBank, unlinkBank } from "../../../../domain/services/banks/unlink.service.js";
 import { checkDatabase } from "../../../../domain/services/database/database-health.service.js";
 import { install } from "../../../../domain/services/install.service.js";
 import {
@@ -50,6 +51,7 @@ import type { DatabaseDependencies } from "../services/database.service.js";
 import type { SetupDependencies } from "../services/setup.service.js";
 import type { SyncDependencies } from "../services/sync.service.js";
 import type { TransactionsDependencies } from "../services/transactions.service.js";
+import type { UnlinkDependencies } from "../services/unlink.service.js";
 import { DatabaseLog, createRedactor } from "./database-log.js";
 import { PlaidKeyVerifier } from "./plaid-key-verifier.js";
 
@@ -183,6 +185,19 @@ export function transactionsDependencies(): TransactionsDependencies {
   };
 }
 export const transactionsPageSize = DEFAULT_TRANSACTION_LIMIT;
+
+/**
+ * Unlinking a bank: the domain's one operation for it, bound to the app's
+ * Plaid client. The app adds only who may run it and when.
+ */
+export function unlinkDependencies(): Pick<UnlinkDependencies, "state" | "describe" | "unlink" | "describeError"> {
+  return {
+    state: () => server.status(),
+    describe: describeBank,
+    unlink: (bankId, options) => unlinkBank(plaid, bankId, options),
+    describeError,
+  };
+}
 
 /** The sync, as the domain runs it for every interface. */
 export function syncDependencies(): Pick<SyncDependencies, "run" | "describeError"> {

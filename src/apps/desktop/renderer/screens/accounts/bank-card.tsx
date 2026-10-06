@@ -21,9 +21,11 @@ export interface BankCardProps {
   /** What the latest sync did for this bank, if there was one and it covered it. */
   result: BankSyncResult | undefined;
   onReconnect(bankId: string): void;
+  /** Open the unlink confirmation for this bank. Absent while unlinking is not on offer. */
+  onUnlink?: (bankId: string) => void;
 }
 
-export function BankCard({ bank, result, onReconnect }: BankCardProps) {
+export function BankCard({ bank, result, onReconnect, onUnlink }: BankCardProps) {
   return (
     <section
       data-testid="bank"
@@ -42,6 +44,11 @@ export function BankCard({ bank, result, onReconnect }: BankCardProps) {
             >
               Sample data
             </span>
+          )}
+          {onUnlink !== undefined && (
+            <Button variant="link" data-testid="bank-unlink" onClick={() => onUnlink(bank.id)} className="ml-auto">
+              Unlink
+            </Button>
           )}
         </div>
         {bank.lastSynced !== "" && (

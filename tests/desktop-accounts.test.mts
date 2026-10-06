@@ -7,6 +7,8 @@
  *   4. A stopped database is explained, and the accounts come back with it
  *   5. Sync: offered for real banks, its result shown per bank, a bank that
  *      needs attention marked — and quitting mid-sync leaves nothing running
+ *   6. Unlink: a typed confirmation; when Plaid will not remove the bank
+ *      nothing is deleted; unlinking from this computer only then removes it
  *
  * WHAT THIS DOES NOT DO IS CLICK "LINK A BANK". That button opens the real
  * default browser on whoever is running the suite, and from there linking
@@ -33,6 +35,7 @@ import {
   launch,
   quit,
   skipUnlessWindows,
+  until,
 } from "./desktop-harness.mjs";
 
 skipUnlessWindows();
@@ -233,6 +236,16 @@ for (const name of [...ACTIVE, EXPIRED]) {
   });
 }
 await setItemStatus(db, `test-${EXPIRED.toLowerCase().replace(/\W+/g, "-")}`, "login_required");
+// One of them holds something, so unlinking it has something to count and delete.
+await db.query(
+  `INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
+   VALUES ('test-alder-spending', 'test-alder-bank', 'Spending', '4242', 'depository', 'checking', 'USD', 12)`,
+);
+await db.query(
+  `INSERT INTO transactions (transaction_id, account_id, item_id, amount, iso_currency_code, date, name, pending, raw)
+   VALUES ('test-alder-1', 'test-alder-spending', 'test-alder-bank', 1, 'USD', '2026-03-01', 'ONE', false, '{}'::jsonb),
+          ('test-alder-2', 'test-alder-spending', 'test-alder-bank', 2, 'USD', '2026-03-02', 'TWO', false, '{}'::jsonb)`,
+);
 await closeDb();
 await server.stop();
 
@@ -292,6 +305,97 @@ await page.getByTestId("status-screen").waitFor({ timeout: 15_000 });
 await goToAccounts(page);
 await expectVisible(checks, page.getByTestId("sync-summary"), "THE LAST RESULT IS STILL THERE after leaving the screen and coming back");
 
+// ===========================================================================
+// 6. Unlinking a bank
+// ===========================================================================
+// The keys are placeholders and the token is made up, so Plaid will not remove
+// this bank — or cannot be reached. Either way the removal at Plaid fails,
+// which is the path to see: nothing deleted, the reason shown, and the way on.
+
+const dialog = page.getByTestId("unlink-dialog");
+const confirmUnlink = page.getByTestId("unlink-dialog-confirm");
+const alderRows = async (): Promise<string> =>
+  (await db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM transactions WHERE item_id = 'test-alder-bank'`)).rows[0]?.n ?? "?";
+
+eq(await page.getByTestId("bank-unlink").count(), await banks(page).count(), "EVERY BANK HAS AN UNLINK ACTION");
+
+await page.getByTestId("nav-transactions").click();
+await page.getByTestId("transaction-filters").waitFor({ timeout: 15_000 });
+ok(
+  (await page.getByTestId("filter-account").locator("option").allInnerTexts()).includes("Alder Bank — Spending ••••4242"),
+  "before unlinking, the bank's account is offered on the Transactions screen",
+);
+await goToAccounts(page);
+await expectState(page, "ready", "back on Accounts");
+
+// --- the confirmation ---
+await bankNamed("Alder Bank").getByTestId("bank-unlink").click();
+await expectVisible(checks, page.getByTestId("unlink-summary"), "Unlink opens a confirmation");
+ok(/Unlink Alder Bank\?/.test((await dialog.textContent()) ?? ""), "naming the bank");
+eq(
+  await page.getByTestId("unlink-summary").textContent(),
+  "1 account and 2 transactions will be deleted from this computer.",
+  "AND SAYING WHAT WILL BE DELETED",
+);
+eq(await page.getByTestId("unlink-remove-at-plaid").isChecked(), true, "'Also remove this bank at Plaid' is ticked by default");
+ok(/stops counting toward your Plaid bill/.test((await page.getByTestId("unlink-plaid-explanation").textContent()) ?? ""), "with what that does");
+await page.getByTestId("unlink-remove-at-plaid").uncheck();
+ok(/stays active at Plaid/.test((await page.getByTestId("unlink-plaid-explanation").textContent()) ?? ""), "unticked, it says the connection stays active at Plaid");
+await page.getByTestId("unlink-remove-at-plaid").check();
+
+eq(await confirmUnlink.isDisabled(), true, "THE UNLINK BUTTON IS DISABLED until the bank's name is typed");
+await page.getByTestId("unlink-dialog-word").fill("Alder");
+eq(await confirmUnlink.isDisabled(), true, "part of the name is not enough");
+await page.getByTestId("unlink-dialog-word").fill("  alder bank ");
+eq(await confirmUnlink.isDisabled(), false, "the whole name enables it, whatever the case and with stray spaces");
+
+await page.getByTestId("unlink-dialog-cancel").click();
+eq(await dialog.count(), 0, "Cancel closes the confirmation");
+eq([await bankNamed("Alder Bank").count(), await alderRows()], [1, "2"], "AND CHANGES NOTHING");
+
+// --- Plaid will not remove it ---
+await bankNamed("Alder Bank").getByTestId("bank-unlink").click();
+await page.getByTestId("unlink-dialog-word").fill("alder bank");
+await confirmUnlink.click();
+if (await expectVisible(checks, page.getByTestId("unlink-plaid-failed"), "when Plaid will not remove the bank, the confirmation says so", 45_000)) {
+  const cause = (await page.getByTestId("unlink-plaid-failed").textContent()) ?? "";
+  ok(/Alder Bank could not be removed at Plaid: \S/.test(cause), `with the reason (${cause.slice(0, 80)}…)`);
+  ok(/Nothing was deleted/.test((await page.getByTestId("unlink-problem-next-step").textContent()) ?? ""), "and that nothing was deleted");
+  ok(!cause.includes("placeholder-secret") && !cause.includes("access-not-a-real-token"), "no secret is in what is shown");
+  eq([await bankNamed("Alder Bank").count(), await alderRows()], [1, "2"], "NOTHING WAS DELETED: the bank and its transactions are still there");
+  eq(await confirmUnlink.textContent(), "Try again", "the main button now offers to try again");
+  eq(await page.getByTestId("unlink-local-only").textContent(), "Unlink from this computer only", "beside the other way on");
+}
+
+// --- from this computer only ---
+await page.getByTestId("unlink-local-only").click();
+if (await expectVisible(checks, page.getByTestId("unlinked-message"), "Unlink from this computer only goes ahead")) {
+  const said = (await page.getByTestId("unlinked-message").textContent()) ?? "";
+  ok(/Unlinked Alder Bank from this computer/.test(said), "and says the bank was unlinked from this computer");
+  ok(/still active at Plaid/.test(said), "AND THAT ITS CONNECTION IS STILL ACTIVE AT PLAID");
+}
+eq(await dialog.count(), 0, "the confirmation has closed");
+// The list re-reads itself once the bank has gone; give that answer a moment to land.
+ok(await until(async () => (await bankNamed("Alder Bank").count()) === 0, 15_000), "THE BANK IS GONE FROM ACCOUNTS, without restarting");
+eq(await alderRows(), "0", "and its transactions are gone from the database");
+eq(await bankNamed(ACTIVE[1] ?? "").count(), 1, "the other banks are untouched");
+
+await page.getByTestId("nav-transactions").click();
+await page.getByTestId("transaction-filters").waitFor({ timeout: 15_000 });
+ok(
+  !(await page.getByTestId("filter-account").locator("option").allInnerTexts()).some((label) => label.includes("Alder Bank")),
+  "AND ITS ACCOUNT IS GONE FROM THE TRANSACTIONS SCREEN",
+);
+await goToAccounts(page);
+await expectState(page, "ready", "back on Accounts");
+
+// --- a bank with nothing at Plaid ---
+await banks(page).filter({ has: page.getByTestId("bank-sample") }).first().getByTestId("bank-unlink").click();
+await expectVisible(checks, page.getByTestId("unlink-summary"), "a sample-data bank can be unlinked too");
+eq(await page.getByTestId("unlink-remove-at-plaid").count(), 0, "WITH NO CHOICE ABOUT PLAID: there is nothing there to remove");
+await page.keyboard.press("Escape");
+eq(await dialog.count(), 0, "Escape closes the confirmation");
+
 // --- with the database stopped ---
 await page.getByTestId("nav-status").click();
 await page.getByTestId("database-action-stop").click();
@@ -299,9 +403,9 @@ await expectHeadline(checks, page, "database", /^Stopped$/, "the database is sto
 await goToAccounts(page);
 await expectState(page, "database-stopped", "Accounts says the database is not running");
 eq(
-  [await page.getByTestId("sync").count(), await page.getByTestId("bank-reconnect").count()],
-  [0, 0],
-  "NEITHER SYNC NOR RECONNECT IS OFFERED",
+  [await page.getByTestId("sync").count(), await page.getByTestId("bank-reconnect").count(), await page.getByTestId("bank-unlink").count()],
+  [0, 0, 0],
+  "NEITHER SYNC NOR RECONNECT NOR UNLINK IS OFFERED",
 );
 await page.getByTestId("nav-status").click();
 await page.getByTestId("database-action-start").click();

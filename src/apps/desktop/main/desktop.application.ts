@@ -64,6 +64,7 @@ import { SettingsService } from "./services/settings.service.js";
 import { SetupService } from "./services/setup.service.js";
 import { SyncService } from "./services/sync.service.js";
 import { TransactionsService } from "./services/transactions.service.js";
+import { UnlinkService } from "./services/unlink.service.js";
 import { registerHandlers } from "./shell/ipc-router.js";
 import { MainWindow } from "./shell/main-window.js";
 import { placeholderIcon } from "./shell/placeholder-icon.js";
@@ -175,7 +176,11 @@ export class DesktopApplication implements Application {
       ...new StatusController(domain.statusChecks(), databaseSection).handlers(),
       ...new DatabaseController(database, databaseSection, domain.databaseLog).handlers(),
       ...new SetupController(setup, (url) => shell.openExternal(url)).handlers(),
-      ...new AccountsController(new AccountsService(domain.accountsDependencies())).handlers(),
+      ...new AccountsController(
+        new AccountsService(domain.accountsDependencies()),
+        // An unlink takes exclusive use from the sync: the two never overlap.
+        new UnlinkService({ ...domain.unlinkDependencies(), exclusively: (work) => sync.runExclusive(work) }),
+      ).handlers(),
       ...new LinkController(
         async () => shell.openExternal((await domain.linkPage.start()).url),
         async (bankId) => shell.openExternal(await domain.linkPage.startForReconnect(bankId)),

@@ -18,6 +18,8 @@ import {
   formatBalance,
   formatWhen,
   presentAccounts,
+  presentUnlinkPreview,
+  presentUnlinkResult,
 } from "../src/apps/desktop/main/presenters/accounts.presenter.js";
 
 const out: string[] = [];
@@ -174,6 +176,86 @@ eq(formatBalance("-42.10", "USD"), usd(-42.1), "a negative balance keeps its sig
 eq(formatBalance("not a number", "USD"), "—", "a balance that is not a number is a dash");
 eq(formatBalance("12.5", null), new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(12.5), "no currency: the plain number");
 eq(formatBalance("12.5", "NOT-A-CODE"), new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(12.5), "an unknown currency code: the plain number, no crash");
+
+// ===========================================================================
+// Unlinking: what will go, and how it ended
+// ===========================================================================
+
+{
+  const preview = presentUnlinkPreview({
+    outcome: "found",
+    bank: { itemId: "i1", institutionName: "First Bank", atPlaid: true, accounts: 2, transactions: 1250 },
+  });
+  eq(
+    preview,
+    {
+      state: "found",
+      bankName: "First Bank",
+      confirmWord: "First Bank",
+      summary: `2 accounts and ${new Intl.NumberFormat().format(1250)} transactions will be deleted from this computer.`,
+      atPlaid: true,
+    },
+    "the unlink preview names the bank, the word to type, and what will be deleted",
+  );
+
+  const one = presentUnlinkPreview({ outcome: "found", bank: { itemId: "i1", institutionName: null, atPlaid: false, accounts: 1, transactions: 0 } });
+  eq(
+    one.state === "found" ? [one.bankName, one.confirmWord, one.summary, one.atPlaid] : null,
+    ["Unnamed bank", "unlink", "1 account and no transactions will be deleted from this computer.", false],
+    "a bank with no name is confirmed by typing 'unlink'; one account is 'account'; none is 'no transactions'",
+  );
+
+  for (const outcome of ["not-found", "database-stopped", "busy"] as const) {
+    const unavailable = presentUnlinkPreview({ outcome });
+    ok(unavailable.state === "unavailable", `${outcome}: the preview is unavailable`);
+    if (unavailable.state === "unavailable") problems.push(unavailable.problem);
+  }
+}
+
+eq(
+  presentUnlinkResult({ outcome: "unlinked", institutionName: "First Bank", revokedAtPlaid: true }, true),
+  { outcome: "unlinked", message: "Unlinked First Bank. It was also removed at Plaid." },
+  "unlinked and removed at Plaid: says both",
+);
+{
+  const local = presentUnlinkResult({ outcome: "unlinked", institutionName: "First Bank", revokedAtPlaid: false }, false);
+  ok(
+    local.outcome === "unlinked" && /still active at Plaid/.test(local.message) && /Plaid bill/.test(local.message),
+    "UNLINKED FROM THIS COMPUTER ONLY: says the connection is still active at Plaid and still billed",
+  );
+  eq(
+    presentUnlinkResult({ outcome: "unlinked", institutionName: "Sample Bank", revokedAtPlaid: false }, true),
+    { outcome: "unlinked", message: "Unlinked Sample Bank." },
+    "a bank with nothing at Plaid: just unlinked, with no warning about a connection that never existed",
+  );
+  eq(
+    presentUnlinkResult({ outcome: "unlinked", institutionName: null, revokedAtPlaid: true }, true),
+    { outcome: "unlinked", message: "Unlinked The bank. It was also removed at Plaid." },
+    "a bank with no name still gets a sentence",
+  );
+}
+{
+  const refused = presentUnlinkResult({ outcome: "plaid-failed", institutionName: "First Bank", reason: "getaddrinfo ENOTFOUND" }, true);
+  ok(refused.outcome === "plaid-failed", "Plaid would not remove it: its own outcome, not a general failure");
+  if (refused.outcome === "plaid-failed") {
+    problems.push(refused.problem);
+    ok(refused.problem.cause.includes("First Bank") && refused.problem.cause.includes("ENOTFOUND"), "naming the bank and the reason");
+    ok(/Nothing was deleted/.test(refused.problem.nextStep), "SAYING NOTHING WAS DELETED");
+    ok(/try again/.test(refused.problem.nextStep) && /this computer only/.test(refused.problem.nextStep), "and offering both ways on");
+  }
+
+  const causes: string[] = [];
+  for (const attempt of [{ outcome: "not-found" }, { outcome: "database-stopped" }, { outcome: "busy" }, { outcome: "failed", reason: "THE-REASON" }] as const) {
+    const result = presentUnlinkResult(attempt, true);
+    ok(result.outcome === "failed", `${attempt.outcome}: a failed result`);
+    if (result.outcome === "failed") {
+      problems.push(result.problem);
+      causes.push(result.problem.cause);
+    }
+  }
+  eq(new Set(causes).size, 4, "each reason an unlink did not happen has its own explanation");
+  ok(causes.some((cause) => cause.includes("THE-REASON")), "and an unexpected failure carries its reason");
+}
 
 // ===========================================================================
 // Every problem has both halves, and none is CLI wording

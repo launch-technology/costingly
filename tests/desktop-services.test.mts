@@ -22,6 +22,7 @@
  *  10. SyncService            a sync is started, not awaited; one at a time;
  *                             the last result is remembered
  *  11. TransactionsService    never asks a stopped database, never throws
+ *  12. Unlinking              never during a sync, in either direction
  *
  * Runs on every platform: nothing here imports Electron, which the
  * architecture suite enforces.
@@ -1117,6 +1118,149 @@ await rm(HOME, { recursive: true, force: true });
       },
     });
     eq((await service.read(filter)).state, "failed", "transactions: nor is a state that cannot be asked");
+  }
+}
+
+// ===========================================================================
+// 12. Unlinking — never during a sync, in either direction; never throws
+// ===========================================================================
+{
+  const { SyncService } = await import("../src/apps/desktop/main/services/sync.service.js");
+  const { UnlinkService } = await import("../src/apps/desktop/main/services/unlink.service.js");
+  type UnlinkDependencies = import("../src/apps/desktop/main/services/unlink.service.js").UnlinkDependencies;
+  type SyncSummary = import("../src/domain/services/banks/sync.types.js").SyncSummary;
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
+
+  /** A sync service whose run finishes when the test says so. */
+  function controlledSync() {
+    let runs = 0;
+    let finish: () => void = () => {};
+    const service = new SyncService({
+      run: () => {
+        runs++;
+        return new Promise<SyncSummary>((resolve) => {
+          finish = () => resolve({ ok: true, startedAt: "", finishedAt: "", durationMs: 0, itemsTotal: 0, itemsSucceeded: 0, itemsFailed: 0, added: 0, modified: 0, removed: 0, results: [] });
+        });
+      },
+      describeError: String,
+      now: () => new Date(),
+      onChange: () => {},
+    });
+    return { service, runs: () => runs, finish: () => finish() };
+  }
+
+  // --- exclusive use, as the sync service grants it --------------------------
+  {
+    const { service, runs, finish } = controlledSync();
+    service.start();
+    let worked = false;
+    eq(
+      await service.runExclusive(async () => {
+        worked = true;
+      }),
+      { ran: false },
+      "exclusive: REFUSED WHILE A SYNC IS RUNNING",
+    );
+    eq(worked, false, "exclusive: and the work was not run");
+    finish();
+    await settle();
+
+    let release: () => void = () => {};
+    const holding = service.runExclusive(() => new Promise<string>((resolve) => (release = () => resolve("done"))));
+    await settle();
+    service.start();
+    eq(runs(), 1, "exclusive: WHILE IT IS HELD, NO SYNC STARTS");
+    release();
+    eq(await holding, { ran: true, value: "done" }, "exclusive: the work's own answer comes back");
+    service.start();
+    eq(runs(), 2, "exclusive: and once it is released a sync can start again");
+    finish();
+    await settle();
+
+    const threw = await service
+      .runExclusive(async () => {
+        throw new Error("the work failed");
+      })
+      .then(
+        () => "resolved",
+        () => "rejected",
+      );
+    eq(threw, "rejected", "exclusive: work that throws is the caller's to handle");
+    service.start();
+    eq(runs(), 3, "exclusive: BUT EXCLUSIVE USE IS RELEASED EVEN SO");
+  }
+
+  // --- the unlink service ----------------------------------------------------
+  const bank = { itemId: "b1", institutionName: "Test Bank", atPlaid: true, accounts: 2, transactions: 250 };
+  function unlinkService(overrides: Partial<UnlinkDependencies> = {}) {
+    const asked: Array<{ bankId: string; revokeAtPlaid: boolean }> = [];
+    let described = 0;
+    const service = new UnlinkService({
+      state: async () => "running",
+      describe: async () => {
+        described++;
+        return bank;
+      },
+      unlink: async (bankId, options) => {
+        asked.push({ bankId, ...options });
+        return { outcome: "unlinked", institutionName: "Test Bank", revokedAtPlaid: options.revokeAtPlaid };
+      },
+      exclusively: async (work) => ({ ran: true, value: await work() }),
+      describeError: (error) => (error instanceof Error ? error.message : String(error)),
+      ...overrides,
+    });
+    return { service, asked, described: () => described };
+  }
+
+  {
+    const { service, asked } = unlinkService();
+    eq(await service.preview("b1"), { outcome: "found", bank }, "unlink: the preview is the bank and what it holds");
+    eq(
+      await service.unlink("b1", { revokeAtPlaid: true }),
+      { outcome: "unlinked", institutionName: "Test Bank", revokedAtPlaid: true },
+      "unlink: the domain's outcome is passed straight back",
+    );
+    eq(asked, [{ bankId: "b1", revokeAtPlaid: true }], "unlink: with the bank and the choice exactly as given");
+  }
+  {
+    const { service, asked, described } = unlinkService({ state: async () => "stopped" });
+    eq(await service.preview("b1"), { outcome: "database-stopped" }, "unlink: with the database stopped, the preview says so");
+    eq(await service.unlink("b1", { revokeAtPlaid: true }), { outcome: "database-stopped" }, "unlink: and so does the unlink");
+    eq([asked.length, described()], [0, 0], "unlink: AND NOTHING WAS ASKED OF IT");
+  }
+  {
+    const { service, asked } = unlinkService({ exclusively: async () => ({ ran: false }) });
+    eq(await service.unlink("b1", { revokeAtPlaid: true }), { outcome: "busy" }, "unlink: REFUSED AS BUSY WHILE A SYNC HAS THE FLOOR");
+    eq(asked, [], "unlink: and nothing was unlinked");
+  }
+  {
+    const { service } = unlinkService({ describe: async () => null });
+    eq(await service.preview("gone"), { outcome: "not-found" }, "unlink: a bank that is not there is not-found");
+  }
+  {
+    const { service } = unlinkService({
+      unlink: async () => {
+        throw new Error("could not delete the row");
+      },
+      describe: async () => {
+        throw new Error("could not read the row");
+      },
+    });
+    eq(await service.unlink("b1", { revokeAtPlaid: true }), { outcome: "failed", reason: "could not delete the row" }, "unlink: an unlink that throws is described, never thrown");
+    eq(await service.preview("b1"), { outcome: "failed", reason: "could not read the row" }, "unlink: and so is a preview that throws");
+  }
+
+  // --- the two together: the real sync service guarding a real unlink service ---
+  {
+    const { service: sync, finish } = controlledSync();
+    const { service, asked } = unlinkService({ exclusively: (work) => sync.runExclusive(work) });
+    sync.start();
+    eq((await service.unlink("b1", { revokeAtPlaid: false })).outcome, "busy", "together: an unlink during a sync is refused");
+    finish();
+    await settle();
+    eq((await service.unlink("b1", { revokeAtPlaid: false })).outcome, "unlinked", "together: and goes ahead once the sync has finished");
+    eq(asked.length, 1, "together: having run exactly once");
   }
 }
 

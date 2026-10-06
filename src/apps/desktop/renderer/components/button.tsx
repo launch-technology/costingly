@@ -1,9 +1,10 @@
 /**
- * The app's button, in the three forms it comes in.
+ * The app's button, in the four forms it comes in.
  *
  *   primary     the one thing to do next on a screen
  *   secondary   something available but not the point (Refresh)
  *   link        an action that reads as text
+ *   danger      something that deletes, and cannot be taken back
  */
 
 import type { ButtonHTMLAttributes } from "react";
@@ -20,6 +21,9 @@ const VARIANT = {
   link:
     "text-sky-700 underline underline-offset-2 hover:text-sky-900 " +
     "dark:text-sky-400 dark:hover:text-sky-300",
+  danger:
+    "rounded-md bg-rose-700 px-4 py-2 font-medium text-white hover:bg-rose-800 " +
+    "dark:bg-rose-600 dark:hover:bg-rose-500",
 } as const;
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

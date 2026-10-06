@@ -13,7 +13,7 @@ import { db } from "../../../domain/data/default-database.js";
 import { plaid } from "../../../domain/data/default-plaid.js";
 import { listBasic } from "../../../domain/data/repositories/items.repository.js";
 import { explainDbError } from "../utils/database-errors.js";
-import { countItemData, removeBankById } from "../../../domain/services/banks/unlink.service.js";
+import { countItemData, unlinkBank } from "../../../domain/services/banks/unlink.service.js";
 import { ConfirmationStore } from "../utils/confirmations.js";
 
 /**
@@ -164,15 +164,26 @@ export function registerUnlinkBankTool(server: McpServer): void {
                 }
 
                 // One service call, not a revoke plus a delete assembled here.
-                // Revoking needs the decrypted token and can fail independently
-                // of the delete — a lost encryption key, a Plaid outage — and
-                // neither may leave the user unable to remove the row. The
-                // service tolerates all of that; a seeded bank simply has
+                // The service revokes first and deletes nothing if that fails,
+                // so the token survives to try again; a seeded bank simply has
                 // nothing to revoke.
-                const revocation = await removeBankById(plaid, item_id, { revoke: true });
-                if (revocation === null) {
+                const unlinked = await unlinkBank(plaid, item_id, { revokeAtPlaid: true });
+                if (unlinked.outcome === "not-found") {
                     return {
                         content: [{ type: "text", text: `No bank has item_id "".` }],
+                        isError: true,
+                    };
+                }
+                if (unlinked.outcome === "plaid-failed") {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text:
+                                    `${name} was NOT disconnected. Revoking it at Plaid failed: ${unlinked.reason}\n\n` +
+                                    "Nothing was deleted, so this can be tried again.",
+                            },
+                        ],
                         isError: true,
                     };
                 }
@@ -182,12 +193,9 @@ export function registerUnlinkBankTool(server: McpServer): void {
                     `  ${accounts} account(s)`,
                     `  ${transactions} transaction(s)`,
                     "",
-                    revocation.revoked
+                    unlinked.revokedAtPlaid
                         ? "The connection was also revoked at Plaid."
-                        : revocation.revokeError !== undefined
-                          ? `The local data is gone, but revoking at Plaid failed: ${revocation.revokeError}` +
-                            "\nThe user may want to remove it from their Plaid dashboard."
-                          : "This bank had no Plaid connection to revoke.",
+                        : "This bank had no Plaid connection to revoke.",
                 ];
 
                 return { content: [{ type: "text", text: lines.join("\n") }] };

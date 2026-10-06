@@ -81,10 +81,12 @@ export {
 } from "./domain/services/banks/sync.service.js";
 export type { ItemSyncResult, SyncSummary } from "./domain/services/banks/sync.types.js";
 export {
-  removeItem,
+  unlinkBank,
+  describeBank,
   countItemData,
   revokeIfPossible,
   type RemovalOutcome,
+  type UnlinkOutcome,
 } from "./domain/services/banks/unlink.service.js";
 export {
   countData,

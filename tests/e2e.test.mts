@@ -52,6 +52,7 @@ const { PlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { exchangePublicToken } = await import("../src/domain/services/banks/link.service.js");
 const { syncAllItems } = await import("../src/domain/services/banks/sync.service.js");
 const { markItemRepaired } = await import("../src/domain/services/banks/relink.service.js");
+const { unlinkBank } = await import("../src/domain/services/banks/unlink.service.js");
 const { listAllItems } = await import("../src/domain/data/repositories/items.repository.js");
 const { server } = await import("../src/domain/project.js");
 const { readFile, rm } = await import("node:fs/promises");
@@ -237,6 +238,26 @@ const { db: db2, closeDb: close2 } = (await import(REOPEN)) as typeof import("..
 const persisted = await db2.query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM transactions`);
 eq(persisted.rows[0]!.c, after.rows[0]!.c, "data survives close/reopen");
 await close2();
+
+// --- unlinking, for real -----------------------------------------------------
+// Last, because it destroys the Item everything above depended on. Every other
+// suite hands the unlink a stand-in for Plaid; this is the one place it removes
+// an Item from Plaid's own servers.
+const unlinked = await unlinkBank(plaid, linkedItem.itemId, { revokeAtPlaid: true });
+eq(
+  unlinked.outcome === "unlinked" ? unlinked.revokedAtPlaid : unlinked.outcome,
+  true,
+  "unlinking with removal at Plaid: unlinked, and removed at Plaid",
+);
+const leftBehind = await db.query<{ items: string; transactions: string }>(
+  `SELECT (SELECT COUNT(*) FROM items)::text AS items, (SELECT COUNT(*) FROM transactions)::text AS transactions`);
+eq(leftBehind.rows[0], { items: "0", transactions: "0" }, "the bank and its transactions are gone from the database");
+const stillAtPlaid = await plaid.api.itemGet({ access_token: linkedItem.accessToken! }).then(
+  () => "Plaid still knows the Item",
+  () => "Plaid no longer accepts its token",
+);
+eq(stillAtPlaid, "Plaid no longer accepts its token", "AND THE ITEM IS REALLY GONE AT PLAID");
+await closeDb();
 
 console.log(out.join("\n"));
 console.log(fail === 0 ? `\nAll ${out.filter(l => l.startsWith("  ok") || l.startsWith("  FAIL")).length} checks passed.` : `\n${fail} FAILED.`);

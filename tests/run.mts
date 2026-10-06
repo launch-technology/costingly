@@ -42,6 +42,7 @@ const ORDER = [
   "schema",
   "views",
   "transactions-search",
+  "unlink",
   "seed",
   "health",
   "status",

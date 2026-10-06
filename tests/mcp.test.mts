@@ -398,10 +398,25 @@ const crossed = await client.callTool({
 eq(crossed.isError, true, "a token is bound to the item it was issued for");
 eq(await stillThere("doomed"), "1", "so it cannot be redirected at another bank");
 
-// PHASE TWO. The right token, for the right bank.
-const gone = await client.callTool({
+// PHASE TWO, WHEN PLAID CANNOT REMOVE IT. This bank's token is made up and
+// there are no Plaid keys here, so the revoke fails — and unlinking has one
+// rule for every interface: a failed revoke deletes NOTHING, because the row
+// holds the only credential that could remove the Item at Plaid later.
+const refused = await client.callTool({
   name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: unlinkToken } });
-eq(gone.isError, undefined, "removing a real bank succeeds once confirmed");
+eq(refused.isError, true, "when Plaid cannot remove the bank, unlinking is reported as failed");
+ok(/NOT disconnected/.test(text(refused)) && /Nothing was deleted/.test(text(refused)),
+   "saying it was not disconnected and nothing was deleted");
+eq(await stillThere("doomed"), "1", "A FAILED REVOKE DELETES NOTHING — the bank is still there");
+
+// PHASE TWO. A bank with nothing at Plaid to revoke — sample data — goes
+// straight through, which is what shows the delete and its cascade.
+await db.query(`UPDATE items SET source = 'seed', access_token_enc = NULL WHERE item_id = 'doomed'`);
+const again = await client.callTool({ name: "unlink_bank", arguments: { item_id: "doomed" } });
+const secondToken = /confirmation_token:\s*(\S+)/.exec(text(again))?.[1] ?? "";
+const gone = await client.callTool({
+  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: secondToken } });
+eq(gone.isError, undefined, "removing a bank succeeds once confirmed");
 const goneText = text(gone);
 ok(/Doomed Bank/.test(goneText), "the result names the bank");
 ok(/1 account\(s\)/.test(goneText), "and counts the accounts deleted");
@@ -417,7 +432,7 @@ eq(left.rows[0], { i: "0", a: "0", t: "0" },
 
 // A spent token is spent. Replaying it must not delete anything else.
 const replay = await client.callTool({
-  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: unlinkToken } });
+  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: secondToken } });
 eq(replay.isError, true, "a token works exactly once");
 
 const survivors = await db.query<{ n: string }>(
