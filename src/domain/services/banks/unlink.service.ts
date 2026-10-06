@@ -11,28 +11,34 @@
  *                   access_token at Plaid and stops the billing. Cannot be
  *                   undone; the user must go through Link again.
  *
- * Revoking is opt-in, and a revoke failure never blocks the local delete —
- * otherwise a dead Plaid credential could wedge the database forever.
+ * ONE WAY TO UNLINK, FOR EVERY INTERFACE: `unlinkBank`.
+ *
+ * REVOKE FIRST, AND IF THAT FAILS, DELETE NOTHING. The access token lives in
+ * the row. Delete the row after a revoke that did not happen and the Item is
+ * still alive at Plaid, still billing, and the one credential that could have
+ * removed it is gone — fixable only by hand in Plaid's dashboard. So a failed
+ * revoke stops the unlink and says why, with everything still in place to try
+ * again. Someone who wants the local data gone regardless asks for exactly
+ * that: an unlink without the revoke, which never talks to Plaid.
  *
  * Wiping everything at once is a different operation with a different blast
- * radius. See reset.service.ts.
+ * radius, and a different answer to a failed revoke. See reset.service.ts.
  */
 
 import type { ItemRemoveRequest } from "plaid";
+
 import { db } from "../../data/default-database.js";
 import * as items from "../../data/repositories/items.repository.js";
 import * as accounts from "../../data/repositories/accounts.repository.js";
 import * as transactions from "../../data/repositories/transactions.repository.js";
-import type { StoredItem } from "../../data/repositories/items.repository.js";
 import { describeError, type PlaidClient } from "../../data/plaid.client.js";
 
 /**
  * How much data one Item holds.
  *
- * Both interfaces ask this before destroying a bank, and both used to ask it
- * with their own copy of the same SQL. Counted before anything is deleted,
- * because afterwards there is nothing left to count and the user deserves to be
- * told what went.
+ * Every interface asks this before destroying a bank. Counted before anything
+ * is deleted, because afterwards there is nothing left to count and the user
+ * deserves to be told what went.
  */
 export async function countItemData(itemId: string): Promise<{ accounts: number; transactions: number }> {
   const [accountCount, transactionCount] = await Promise.all([
@@ -40,6 +46,39 @@ export async function countItemData(itemId: string): Promise<{ accounts: number;
     transactions.countForItem(db, itemId),
   ]);
   return { accounts: accountCount, transactions: transactionCount };
+}
+
+/** A bank, as much as is needed to ask "are you sure?" about it. */
+export interface BankToUnlink {
+  itemId: string;
+  institutionName: string | null;
+  /** False for sample data, which has no Plaid Item behind it and nothing to revoke. */
+  atPlaid: boolean;
+  accounts: number;
+  transactions: number;
+}
+
+/**
+ * Describe one bank before unlinking it, or null if no bank has that id.
+ *
+ * Reads no access token: a token that no longer decrypts must not make a bank
+ * impossible to look at, which is the first step to removing it.
+ */
+export async function describeBank(itemId: string): Promise<BankToUnlink | null> {
+  const { rows } = await db.query<{ institution_name: string | null; source: string }>(
+    `SELECT institution_name, source FROM items WHERE item_id = $1`,
+    [itemId],
+  );
+  const bank = rows[0];
+  if (bank === undefined) return null;
+
+  const counts = await countItemData(itemId);
+  return {
+    itemId,
+    institutionName: bank.institution_name,
+    atPlaid: bank.source === "plaid",
+    ...counts,
+  };
 }
 
 /**
@@ -56,8 +95,8 @@ async function revokeAtPlaid(plaid: PlaidClient, accessToken: string): Promise<v
  * Revoke an Item's token at Plaid, tolerating every way that can fail.
  *
  * Reading the token can fail independently of anything else — a rotated or lost
- * encryption key — and so can Plaid itself. Neither must leave a user unable to
- * delete the row, so both come back as a description rather than a throw.
+ * encryption key — and so can Plaid itself. Both come back as a description
+ * rather than a throw, so the caller decides what a failure means.
  *
  * A seeded bank has no token and no Plaid Item, so there is nothing to revoke.
  * That is reported as `attempted: false`, which is a different outcome from a
@@ -72,6 +111,7 @@ export async function revokeIfPossible(
     if (stored === null || stored.accessToken === null) {
       return { attempted: false, revoked: false };
     }
+
     await revokeAtPlaid(plaid, stored.accessToken);
     return { attempted: true, revoked: true };
   } catch (error) {
@@ -79,7 +119,7 @@ export async function revokeIfPossible(
   }
 }
 
-
+/** One bank removed during a wipe. See reset.service.ts. */
 export interface RemovalOutcome {
   itemId: string;
   institutionName: string | null;
@@ -89,78 +129,44 @@ export interface RemovalOutcome {
   revokeError?: string;
 }
 
-/**
- * Delete one Item locally, optionally revoking it at Plaid first.
- *
- * Accounts and transactions disappear via ON DELETE CASCADE.
- */
-export async function removeItem(
-  plaid: PlaidClient,
-  item: StoredItem,
-  options: { revoke: boolean },
-): Promise<RemovalOutcome> {
-  const outcome: RemovalOutcome = {
-    itemId: item.itemId,
-    institutionName: item.institutionName,
-    revoked: false,
-  };
-
-  // Nothing to revoke for an Item that was never a bank login. Seeded data is
-  // deleted exactly like anything else — it just skips the Plaid call, so
-  // `unlink` needs no branch of its own and the model needs no second tool.
-  if (options.revoke && item.accessToken !== null) {
-    try {
-      await revokeAtPlaid(plaid, item.accessToken);
-      outcome.revoked = true;
-    } catch (error) {
-      // Deliberately non-fatal: the user asked for this row to go away, and
-      // refusing would leave them stuck. Surfaced so they can clean up in the
-      // Plaid dashboard.
-      outcome.revokeError = describeError(error);
-    }
-  }
-
-  await items.deleteItem(db, item.itemId);
-  return outcome;
-}
+export type UnlinkOutcome =
+  /** The bank and everything under it are gone from this database. */
+  | { outcome: "unlinked"; institutionName: string | null; revokedAtPlaid: boolean }
+  /** Plaid would not remove it — or its token could not be read. NOTHING was deleted. */
+  | { outcome: "plaid-failed"; institutionName: string | null; reason: string }
+  /** No bank has that id. */
+  | { outcome: "not-found" };
 
 /**
- * Remove one bank by id, revoking at Plaid first when asked.
+ * Unlink one bank.
  *
- * The id-taking form of `removeItem`, for callers that have an item_id and no
- * StoredItem — the MCP tool, which deliberately lists banks WITHOUT decrypting
- * their tokens. It used to do the revoke and the delete itself, which meant two
- * implementations of "remove a bank" that had to agree.
+ * With `revokeAtPlaid`, the Item is removed at Plaid first, and only if that
+ * works is anything deleted here. Without it, Plaid is never contacted and the
+ * local data is simply deleted — the Item stays alive at Plaid.
  *
- * Deliberately does not decrypt to find the item: `revokeIfPossible` handles the
- * token, and it tolerates every way reading one can fail.
- *
- * Returns null when no bank has that id, so the caller can say so in its own
- * words rather than being handed a throw to reword.
+ * Accounts and transactions go with the bank: both foreign keys are ON DELETE
+ * CASCADE. See migrations/0001-initial.sql.
  */
-export async function removeBankById(
+export async function unlinkBank(
   plaid: PlaidClient,
   itemId: string,
-  options: { revoke: boolean },
-): Promise<RemovalOutcome | null> {
+  options: { revokeAtPlaid: boolean },
+): Promise<UnlinkOutcome> {
+  // Found without decrypting anything: one unreadable token must not make a
+  // bank impossible to name, or to remove locally.
   const known = await items.listBasic(db);
   const bank = known.find((row) => row.itemId === itemId);
-  if (bank === undefined) return null;
+  if (bank === undefined) return { outcome: "not-found" };
 
-  const outcome: RemovalOutcome = {
-    itemId,
-    institutionName: bank.institutionName,
-    revoked: false,
-  };
-
-  if (options.revoke) {
+  let revokedAtPlaid = false;
+  if (options.revokeAtPlaid) {
     const revocation = await revokeIfPossible(plaid, itemId);
-    outcome.revoked = revocation.revoked;
-    if (revocation.error !== undefined) outcome.revokeError = revocation.error;
+    if (revocation.error !== undefined) {
+      return { outcome: "plaid-failed", institutionName: bank.institutionName, reason: revocation.error };
+    }
+    revokedAtPlaid = revocation.revoked;
   }
 
-  // Accounts and transactions go with it: both foreign keys are ON DELETE
-  // CASCADE. See migrations/0001-initial.sql.
   await items.deleteItem(db, itemId);
-  return outcome;
+  return { outcome: "unlinked", institutionName: bank.institutionName, revokedAtPlaid };
 }

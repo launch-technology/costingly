@@ -14,7 +14,7 @@ import { stdin } from "node:process";
 import { db } from "../../../domain/data/default-database.js";
 import { plaid } from "../../../domain/data/default-plaid.js";
 import { listAllItems, type StoredItem } from "../../../domain/data/repositories/items.repository.js";
-import { countItemData, removeItem } from "../../../domain/services/banks/unlink.service.js";
+import { countItemData, unlinkBank } from "../../../domain/services/banks/unlink.service.js";
 import { confirmDestructive } from "../ui/confirm.js";
 
 function label(item: StoredItem): string {
@@ -137,18 +137,24 @@ export async function runUnlink(
   });
   if (!confirmed) return;
 
-  const outcome = await removeItem(plaid, target, { revoke: options.revoke === true });
+  const outcome = await unlinkBank(plaid, target.itemId, { revokeAtPlaid: options.revoke === true });
 
-  console.log(`\nUnlinked ${label(target)}.`);
-  if (outcome.revokeError !== undefined) {
+  if (outcome.outcome === "plaid-failed") {
     console.error(
-      `Plaid revoke FAILED: ${outcome.revokeError}\n` +
-        `The local rows are gone, but the Item may still be active at Plaid.\n` +
-        `Remove it from https://dashboard.plaid.com/ if so.`,
+      `\nPlaid revoke FAILED: ${outcome.reason}\n` +
+        `Nothing was removed — ${label(target)} is still linked.\n` +
+        `Try again, or run without --revoke to remove the local rows only.\n`,
     );
     process.exitCode = 1;
-  } else if (outcome.revoked) {
-    console.log("Access token invalidated at Plaid.");
+    return;
   }
+  if (outcome.outcome === "not-found") {
+    console.error(`\n${label(target)} is no longer linked.\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`\nUnlinked ${label(target)}.`);
+  if (outcome.revokedAtPlaid) console.log("Access token invalidated at Plaid.");
   console.log("");
 }

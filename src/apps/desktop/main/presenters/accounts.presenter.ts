@@ -15,8 +15,16 @@
  */
 
 import type { ItemAccountListing } from "../../../../domain/data/repositories/items.repository.js";
-import type { AccountView, AccountsView, BankView } from "../../bridge/contract.js";
+import type {
+  AccountView,
+  AccountsView,
+  BankView,
+  Problem,
+  UnlinkPreview,
+  UnlinkResult,
+} from "../../bridge/contract.js";
 import type { AccountsReading } from "../services/accounts.service.js";
+import type { UnlinkAttempt, UnlinkPreviewed } from "../services/unlink.service.js";
 import { formatMoney, formatWhen } from "./format.js";
 
 const NO_BALANCE = "—";
@@ -129,3 +137,83 @@ function balancesNote(rows: ItemAccountListing[]): string {
 
 // The tests for this file read the formatter from here.
 export { formatWhen };
+
+// ---------------------------------------------------------------------------
+// Unlinking a bank
+// ---------------------------------------------------------------------------
+
+/** What a bank with no name is confirmed by typing. */
+const NAMELESS_CONFIRM_WORD = "unlink";
+
+export function presentUnlinkPreview(previewed: UnlinkPreviewed): UnlinkPreview {
+  if (previewed.outcome !== "found") return { state: "unavailable", problem: explainBlocked(previewed) };
+
+  const { bank } = previewed;
+  return {
+    state: "found",
+    bankName: bank.institutionName ?? "Unnamed bank",
+    confirmWord: bank.institutionName ?? NAMELESS_CONFIRM_WORD,
+    summary: `${counted(bank.accounts, "account")} and ${counted(bank.transactions, "transaction")} will be deleted from this computer.`,
+    atPlaid: bank.atPlaid,
+  };
+}
+
+/**
+ * How an unlink ended. `askedToRemoveAtPlaid` is what the user chose: it is
+ * what tells "left active at Plaid on purpose" from "there was never anything
+ * at Plaid", which the outcome alone cannot.
+ */
+export function presentUnlinkResult(attempt: UnlinkAttempt, askedToRemoveAtPlaid: boolean): UnlinkResult {
+  if (attempt.outcome === "unlinked") {
+    const name = attempt.institutionName ?? "The bank";
+    if (attempt.revokedAtPlaid) {
+      return { outcome: "unlinked", message: `Unlinked ${name}. It was also removed at Plaid.` };
+    }
+    return {
+      outcome: "unlinked",
+      message: askedToRemoveAtPlaid
+        ? `Unlinked ${name}.`
+        : `Unlinked ${name} from this computer. Its connection is still active at Plaid and still counts ` +
+          `toward your Plaid bill. Remove it in Plaid's dashboard if you no longer want it.`,
+    };
+  }
+
+  if (attempt.outcome === "plaid-failed") {
+    return {
+      outcome: "plaid-failed",
+      problem: {
+        cause: `${attempt.institutionName ?? "This bank"} could not be removed at Plaid: ${attempt.reason}`,
+        nextStep:
+          "Nothing was deleted. Check your internet connection and try again, or unlink it from this computer only.",
+      },
+    };
+  }
+
+  return { outcome: "failed", problem: explainBlocked(attempt) };
+}
+
+function explainBlocked(blocked: Exclude<UnlinkAttempt | UnlinkPreviewed, { outcome: "found" | "unlinked" | "plaid-failed" }>): Problem {
+  switch (blocked.outcome) {
+    case "not-found":
+      return { cause: "That bank is no longer linked.", nextStep: "There is nothing left to unlink." };
+    case "database-stopped":
+      return { cause: "The database is not running.", nextStep: "Start it from the Status screen, then try again." };
+    case "busy":
+      return { cause: "A sync is running.", nextStep: "Wait for it to finish, then unlink the bank." };
+    case "failed":
+      return {
+        cause: `The bank could not be unlinked: ${blocked.reason}`,
+        // Removal at Plaid comes first, so it may already have happened when
+        // the delete here failed — and it cannot be repeated or undone.
+        nextStep:
+          "If you chose to remove it at Plaid, that may already have happened. Try unlinking again; " +
+          "if Plaid then reports a problem, choose to unlink from this computer only.",
+      };
+  }
+}
+
+/** "1 account", "2 accounts", "no transactions". */
+function counted(count: number, noun: string): string {
+  if (count === 0) return `no ${noun}s`;
+  return `${new Intl.NumberFormat().format(count)} ${noun}${count === 1 ? "" : "s"}`;
+}

@@ -148,6 +148,33 @@ export type AccountsView =
   | { state: "database-stopped" }
   | { state: "failed"; problem: Problem };
 
+/**
+ * What unlinking a bank would do, shown before it is done.
+ *
+ * Read by the main process from the bank's id: the window never supplies the
+ * name or the counts it then displays.
+ */
+export type UnlinkPreview =
+  | {
+      state: "found";
+      bankName: string;
+      /** What the user types to confirm: the bank's name, or "unlink" for a bank with none. */
+      confirmWord: string;
+      /** "2 accounts and 250 transactions will be deleted from this computer." */
+      summary: string;
+      /** False for sample data, which has nothing at Plaid to remove. */
+      atPlaid: boolean;
+    }
+  /** The bank cannot be unlinked right now, or is not there. */
+  | { state: "unavailable"; problem: Problem };
+
+/** How an unlink ended. */
+export type UnlinkResult =
+  | { outcome: "unlinked"; /** What was done, in a sentence or two. */ message: string }
+  /** Plaid would not remove it. Nothing was deleted; it can be tried again, or unlinked here only. */
+  | { outcome: "plaid-failed"; problem: Problem }
+  | { outcome: "failed"; problem: Problem };
+
 /** What the latest sync did for one bank, in one line. */
 export interface BankSyncResult {
   bankId: string;
@@ -283,6 +310,14 @@ export interface DesktopContract {
   "setup.openPlaidKeysPage": { args: []; result: void };
 
   "accounts.list": { args: []; result: AccountsView };
+  /** What unlinking a bank would delete. Takes the bank's id; changes nothing. */
+  "accounts.unlinkPreview": { args: [bankId: string]; result: UnlinkPreview };
+  /**
+   * Unlink a bank. With `removeAtPlaid`, its connection at Plaid is ended
+   * first, and if that fails nothing is deleted. Without it, only the data on
+   * this computer goes and Plaid is not contacted.
+   */
+  "accounts.unlink": { args: [bankId: string, removeAtPlaid: boolean]; result: UnlinkResult };
 
   /**
    * Linking a bank happens in the user's own browser: this opens costingly's

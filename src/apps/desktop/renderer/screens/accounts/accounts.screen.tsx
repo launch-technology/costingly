@@ -20,6 +20,10 @@
  * Sync refreshes every bank. The screen shows that one is running and what
  * the latest did, overall and per bank — it does not run the sync, which
  * carries on if this screen goes away (hooks/use-sync.ts).
+ *
+ * Unlink, on each bank, opens a confirmation that has to be typed into before
+ * anything is deleted (unlink-dialog.tsx). It is not offered while a sync is
+ * running, and Sync is not available while an unlink is.
  */
 
 import type { Problem } from "../../../bridge/contract.js";
@@ -28,13 +32,16 @@ import { Button } from "../../components/button.js";
 import { StatusDot } from "../../components/status-dot.js";
 import { useAccounts, useLinkBank } from "../../hooks/use-accounts.js";
 import { useSync } from "../../hooks/use-sync.js";
+import { useUnlink } from "../../hooks/use-unlink.js";
 import { BankCard } from "./bank-card.js";
+import { UnlinkDialog } from "./unlink-dialog.js";
 
 export function AccountsScreen() {
   const { accounts, reload } = useAccounts();
   const link = useLinkBank();
   // A sync changes balances and last-synced times, so its end re-reads the list.
   const sync = useSync(reload);
+  const unlink = useUnlink(reload);
 
   const view = accounts.phase === "loaded" ? accounts.view : null;
   const canLink = view !== null && view.state === "ready";
@@ -55,7 +62,13 @@ export function AccountsScreen() {
         <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
         <div className="flex items-center gap-2">
           {canSync && (
-            <Button variant="secondary" data-testid="sync" onClick={sync.start} disabled={syncing}>
+            <Button
+              variant="secondary"
+              data-testid="sync"
+              onClick={sync.start}
+              // An unlink in flight has the floor: the two never overlap.
+              disabled={syncing || unlink.dialog?.working === true}
+            >
               {syncing ? "Syncing…" : "Sync"}
             </Button>
           )}
@@ -79,6 +92,17 @@ export function AccountsScreen() {
           {lastSync.problem !== undefined && <ProblemAlert testId="sync-problem" problem={lastSync.problem} />}
         </div>
       )}
+
+      {unlink.unlinked !== null && (
+        <p
+          data-testid="unlinked-message"
+          className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900"
+        >
+          {unlink.unlinked}
+        </p>
+      )}
+
+      {unlink.dialog !== null && <UnlinkDialog unlink={unlink} dialog={unlink.dialog} />}
 
       {link.problem !== null && <ProblemAlert testId="link-problem" problem={link.problem} />}
 
@@ -145,6 +169,8 @@ export function AccountsScreen() {
                 bank={bank}
                 result={lastSync?.results.find((result) => result.bankId === bank.id)}
                 onReconnect={link.reconnect}
+                // Not while a sync is writing the rows an unlink would delete.
+                {...(syncing ? {} : { onUnlink: unlink.open })}
               />
             ))}
           </div>

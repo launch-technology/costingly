@@ -53,6 +53,8 @@ export interface SyncDependencies {
 export class SyncService {
   private current: SyncState = { phase: "idle" };
   private stopped = false;
+  /** How many pieces of work currently hold exclusive use. Above zero, no sync starts. */
+  private exclusive = 0;
 
   constructor(private readonly deps: SyncDependencies) {}
 
@@ -65,11 +67,33 @@ export class SyncService {
    * which, having just started, is `running`.
    */
   start(trigger: SyncTrigger = "manual"): SyncState {
-    if (this.stopped || this.current.phase === "running") return this.current;
+    if (this.stopped || this.current.phase === "running" || this.exclusive > 0) return this.current;
 
     this.change({ phase: "running", trigger, startedAt: this.deps.now() });
     void this.runToEnd(trigger);
     return this.current;
+  }
+
+  /**
+   * Run something that must not overlap a sync — unlinking a bank, say, which
+   * deletes the rows a sync would be writing.
+   *
+   * Refused (`ran: false`) while a sync is running. Otherwise the work runs,
+   * and until it settles no sync can start, whoever asks: the button, or
+   * whatever starts syncs later. The rule lives here, with the sync, so it
+   * cannot be got round by a caller that did not think to check.
+   *
+   * What the work throws is the caller's to handle; exclusive use is released
+   * either way.
+   */
+  async runExclusive<T>(work: () => Promise<T>): Promise<{ ran: true; value: T } | { ran: false }> {
+    if (this.current.phase === "running") return { ran: false };
+    this.exclusive++;
+    try {
+      return { ran: true, value: await work() };
+    } finally {
+      this.exclusive--;
+    }
   }
 
   /**

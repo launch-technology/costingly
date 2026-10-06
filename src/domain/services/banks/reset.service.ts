@@ -16,7 +16,7 @@ import type { PlaidClient } from "../../data/plaid.client.js";
 import * as items from "../../data/repositories/items.repository.js";
 import * as accounts from "../../data/repositories/accounts.repository.js";
 import * as transactions from "../../data/repositories/transactions.repository.js";
-import { removeItem, type RemovalOutcome } from "./unlink.service.js";
+import { revokeIfPossible, type RemovalOutcome } from "./unlink.service.js";
 
 export interface DataCounts {
   items: number;
@@ -52,10 +52,22 @@ export async function removeAllItems(
     return existing.map((row) => ({ ...row, revoked: false }));
   }
 
-  const stored = await items.listAllItems(db);
+  // NOT `unlinkBank`, on purpose. Unlinking one bank stops when Plaid cannot
+  // remove it, so the token survives to try again. A wipe is the opposite
+  // promise: everything goes, and what follows it — a reset, an uninstall
+  // that deletes the whole profile — goes ahead regardless. So each bank is
+  // revoked if it can be, deleted either way, and a revoke that failed is
+  // reported for the caller to tell the user about.
   const outcomes: RemovalOutcome[] = [];
-  for (const item of stored) {
-    outcomes.push(await removeItem(plaid, item, { revoke: true }));
+  for (const bank of await items.listBasic(db)) {
+    const revocation = await revokeIfPossible(plaid, bank.itemId);
+    await items.deleteItem(db, bank.itemId);
+    outcomes.push({
+      itemId: bank.itemId,
+      institutionName: bank.institutionName,
+      revoked: revocation.revoked,
+      ...(revocation.error === undefined ? {} : { revokeError: revocation.error }),
+    });
   }
   return outcomes;
 }
