@@ -175,6 +175,26 @@ export type UnlinkResult =
   | { outcome: "plaid-failed"; problem: Problem }
   | { outcome: "failed"; problem: Problem };
 
+/** The Settings screen: what can be changed, and two facts that have nowhere else to live. */
+export interface SettingsView {
+  /** The Plaid client ID in use, or null when none is saved. The secret is never sent. */
+  plaidClientId: string | null;
+  /** Set when the keys could not be read; the rest of the view still stands. */
+  plaidProblem?: Problem;
+  /** Is Costingly registered to start when the user signs in to Windows? As Windows has it, right now. */
+  startAtSignIn: boolean;
+  version: string;
+  /** The profile directory, shortened for display. */
+  dataFolder: string;
+}
+
+/**
+ * What became of asking for start-at-sign-in to be on or off. `on` is what
+ * Windows has afterwards — read back, not assumed — so a change that did not
+ * take shows as the old value.
+ */
+export type StartAtSignInResult = { outcome: "set"; on: boolean } | { outcome: "failed"; on: boolean; problem: Problem };
+
 /** What the latest sync did for one bank, in one line. */
 export interface BankSyncResult {
   bankId: string;
@@ -347,6 +367,10 @@ export interface DesktopContract {
 
   /** The newest transactions matching a query, and how many match in all. Read-only. */
   "transactions.find": { args: [query: TransactionsQuery]; result: TransactionsView };
+
+  "settings.read": { args: []; result: SettingsView };
+  /** Register, or unregister, Costingly to start at Windows sign-in. Changing the keys is `setup.submitKeys`. */
+  "settings.setStartAtSignIn": { args: [on: boolean]; result: StartAtSignInResult };
 }
 
 export type Call = keyof DesktopContract;

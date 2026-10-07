@@ -34,6 +34,7 @@ import {
   PlaidClient,
 } from "../../../../domain/data/plaid.client.js";
 import { configStore, platform, server } from "../../../../domain/project.js";
+import { packageVersion } from "../../../../platform/package.js";
 import { startLinkServer, stopLinkServer } from "../../../../domain/services/banks/link-session.service.js";
 import { createLinkToken } from "../../../../domain/services/banks/link.service.js";
 import { syncAllItems } from "../../../../domain/services/banks/sync.service.js";
@@ -48,6 +49,7 @@ import { checkPlaid, checkProfile } from "../../../../domain/services/status.ser
 import type { StatusChecks } from "../controllers/status.controller.js";
 import type { AccountsDependencies } from "../services/accounts.service.js";
 import type { DatabaseDependencies } from "../services/database.service.js";
+import type { SettingsDependencies } from "../services/settings.service.js";
 import type { SetupDependencies } from "../services/setup.service.js";
 import type { SyncDependencies } from "../services/sync.service.js";
 import type { TransactionsDependencies } from "../services/transactions.service.js";
@@ -202,6 +204,30 @@ export function unlinkDependencies(): Pick<UnlinkDependencies, "state" | "descri
 /** The sync, as the domain runs it for every interface. */
 export function syncDependencies(): Pick<SyncDependencies, "run" | "describeError"> {
   return { run: () => syncAllItems(plaid), describeError };
+}
+
+/**
+ * What the Settings screen shows, except the sign-in registration, which is
+ * Electron's and the app supplies.
+ *
+ * The client ID is read from the config FILE, not through the resolver that
+ * also looks at environment variables: the screen shows what is saved, which
+ * is what the keys form changes.
+ *
+ * The version is costingly's own, from package.json, the same one the CLI
+ * prints. Electron's `app.getVersion()` is Electron's own version when the
+ * app runs from source, and only becomes ours once packaged.
+ */
+export function settingsDependencies(): Pick<SettingsDependencies, "plaidClientId" | "version" | "dataFolder" | "describeError"> {
+  return {
+    plaidClientId: () => {
+      const saved = readConfigFile().plaidClientId;
+      return typeof saved === "string" && saved.trim() !== "" ? saved : null;
+    },
+    version: packageVersion,
+    dataFolder: () => platform.displayPath(platform.profileDir()),
+    describeError,
+  };
 }
 
 /** Everything setup needs except creating the database, which the app supplies. */

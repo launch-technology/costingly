@@ -13,7 +13,7 @@
  *                             a time; never throws
  *   4. DatabaseLog            the tail, only what is new, and nothing secret
  *   5. CloseNoticeService     once
- *   6. SettingsService        forgiving on read
+ *   6. DesktopStateService    forgiving on read
  *   7. The real wiring        the same service over the real domain, on a
  *                             throwaway profile — asking must create nothing
  *   8. AccountsService        never asks a stopped database
@@ -23,6 +23,8 @@
  *                             the last result is remembered
  *  11. TransactionsService    never asks a stopped database, never throws
  *  12. Unlinking              never during a sync, in either direction
+ *  13. Settings               start at sign-in is what Windows has; the
+ *                             facts, gathered
  *
  * Runs on every platform: nothing here imports Electron, which the
  * architecture suite enforces.
@@ -46,7 +48,7 @@ const { DatabaseService } = await import("../src/apps/desktop/main/services/data
 const { DatabaseLog, createRedactor } = await import("../src/apps/desktop/main/adapters/database-log.js");
 const { databaseSectionReader } = await import("../src/apps/desktop/main/controllers/database.controller.js");
 const { CloseNoticeService } = await import("../src/apps/desktop/main/services/close-notice.service.js");
-const { SettingsService } = await import("../src/apps/desktop/main/services/settings.service.js");
+const { DesktopStateService } = await import("../src/apps/desktop/main/services/desktop-state.service.js");
 const { PlaidKeyVerifier, classifyKeyFailure } = await import(
   "../src/apps/desktop/main/adapters/plaid-key-verifier.js"
 );
@@ -807,13 +809,13 @@ const failToStart = async (): Promise<void> => {
 }
 
 // ===========================================================================
-// 6. SettingsService
+// 6. DesktopStateService — what the app remembers about itself
 // ===========================================================================
 
 {
   const dir = join(HOME, "settings");
   const path = join(dir, "nested", "settings.json");
-  const settings = new SettingsService(path);
+  const settings = new DesktopStateService(path);
 
   eq(await settings.read(), { closeNoticeShown: false }, "no file: the defaults");
   eq(existsSync(dir), false, "reading created nothing");
@@ -1261,6 +1263,94 @@ await rm(HOME, { recursive: true, force: true });
     await settle();
     eq((await service.unlink("b1", { revokeAtPlaid: false })).outcome, "unlinked", "together: and goes ahead once the sync has finished");
     eq(asked.length, 1, "together: having run exactly once");
+  }
+}
+
+// ===========================================================================
+// 13. Settings — start at sign-in is what Windows has; the facts, gathered
+// ===========================================================================
+{
+  const { StartAtSignInService } = await import("../src/apps/desktop/main/services/start-at-sign-in.service.js");
+  const { SettingsService } = await import("../src/apps/desktop/main/services/settings.service.js");
+
+  /** A Windows that remembers a registration, and can be made to refuse. */
+  function windows(behaviour: "keeps" | "refuses" | "ignores" = "keeps") {
+    let registered = false;
+    const writes: boolean[] = [];
+    const service = new StartAtSignInService({
+      registered: () => registered,
+      register: (on) => {
+        writes.push(on);
+        if (behaviour === "refuses") throw new Error("Access is denied.");
+        if (behaviour === "keeps") registered = on;
+      },
+      describeError: (error) => (error instanceof Error ? error.message : String(error)),
+    });
+    return { service, writes, set: (on: boolean) => void (registered = on) };
+  }
+
+  {
+    const { service, writes } = windows();
+    eq(service.isOn(), false, "sign-in: OFF when nothing is registered");
+    eq(service.set(true), { changed: true, on: true }, "sign-in: asking for on registers, and reports what Windows has");
+    eq(service.isOn(), true, "sign-in: which is on");
+    eq(service.set(false), { changed: true, on: false }, "sign-in: asking for off unregisters");
+    eq(writes, [true, false], "sign-in: one write per change");
+  }
+  {
+    const { service, set } = windows();
+    set(true);
+    eq(service.isOn(), true, "sign-in: a registration made elsewhere is seen — Windows is asked, not remembered");
+  }
+  {
+    const { service } = windows("refuses");
+    eq(
+      service.set(true),
+      { changed: false, on: false, reason: "Access is denied." },
+      "sign-in: WINDOWS REFUSING is reported with the reason, and the state is what Windows still has",
+    );
+  }
+  {
+    const { service } = windows("ignores");
+    eq(service.set(true).changed, false, "sign-in: a write that did not take is not reported as a change");
+    eq(service.set(true), { changed: false, on: false, reason: "Windows did not keep the change." }, "sign-in: and says so");
+  }
+  {
+    const broken = new StartAtSignInService({
+      registered: () => {
+        throw new Error("registry unavailable");
+      },
+      register: () => {},
+      describeError: String,
+    });
+    eq(broken.isOn(), false, "sign-in: a registration that cannot be read counts as off, never a throw");
+  }
+
+  // --- the facts, gathered ---
+  const settings = (overrides: Partial<ConstructorParameters<typeof SettingsService>[0]> = {}) =>
+    new SettingsService({
+      plaidClientId: () => "client-id-123",
+      version: () => "1.6.4",
+      dataFolder: () => "~/AppData/Local/costingly/Data",
+      startAtSignIn: { isOn: () => true },
+      describeError: (error) => (error instanceof Error ? error.message : String(error)),
+      ...overrides,
+    });
+  eq(
+    settings().read(),
+    { plaidClientId: "client-id-123", startAtSignIn: true, version: "1.6.4", dataFolder: "~/AppData/Local/costingly/Data" },
+    "settings: the four facts, on one plate",
+  );
+  eq(settings({ plaidClientId: () => null }).read().plaidClientId, null, "settings: no keys saved is null, not a problem");
+  {
+    const reading = settings({
+      plaidClientId: () => {
+        throw new Error("config.json is not valid JSON");
+      },
+    }).read();
+    eq(reading.plaidClientId, null, "settings: keys that cannot be read show as none");
+    eq(reading.plaidKeysUnreadable, "config.json is not valid JSON", "settings: with the reason, for the presenter to word");
+    eq([reading.version, reading.startAtSignIn], ["1.6.4", true], "settings: AND THE REST OF THE PLATE IS STILL SERVED");
   }
 }
 

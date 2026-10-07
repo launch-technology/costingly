@@ -50,24 +50,28 @@ import { AccountsController } from "./controllers/accounts.controller.js";
 import type { AllHandlers } from "./controllers/controller.js";
 import { DatabaseController, databaseSectionReader } from "./controllers/database.controller.js";
 import { LinkController } from "./controllers/link.controller.js";
+import { SettingsController } from "./controllers/settings.controller.js";
 import { SetupController } from "./controllers/setup.controller.js";
 import { StatusController } from "./controllers/status.controller.js";
 import { SyncController } from "./controllers/sync.controller.js";
 import { TransactionsController } from "./controllers/transactions.controller.js";
-import { desktopDir, desktopSettingsPath } from "./desktop-paths.js";
+import { desktopDir, desktopStatePath } from "./desktop-paths.js";
 import { explainDatabaseFailure } from "./presenters/database.presenter.js";
 import { presentSync } from "./presenters/sync.presenter.js";
 import { AccountsService } from "./services/accounts.service.js";
 import { CloseNoticeService } from "./services/close-notice.service.js";
 import { DatabaseService } from "./services/database.service.js";
+import { DesktopStateService } from "./services/desktop-state.service.js";
 import { SettingsService } from "./services/settings.service.js";
 import { SetupService } from "./services/setup.service.js";
+import { StartAtSignInService } from "./services/start-at-sign-in.service.js";
 import { SyncService } from "./services/sync.service.js";
 import { TransactionsService } from "./services/transactions.service.js";
 import { UnlinkService } from "./services/unlink.service.js";
 import { registerHandlers } from "./shell/ipc-router.js";
 import { MainWindow } from "./shell/main-window.js";
 import { placeholderIcon } from "./shell/placeholder-icon.js";
+import { startAtSignInRegistration, startedHidden } from "./shell/start-at-sign-in.js";
 import { TrayIcon } from "./shell/tray-icon.js";
 
 export class DesktopApplication implements Application {
@@ -172,6 +176,13 @@ export class DesktopApplication implements Application {
     });
     this.scope.onClose("sync", async () => sync.stop());
 
+    // Starting at sign-in is a Windows registration; Electron reads and writes
+    // it, and the service decides what to say about it.
+    const startAtSignIn = new StartAtSignInService({
+      ...startAtSignInRegistration(),
+      describeError: domain.describeError,
+    });
+
     const handlers: AllHandlers = {
       ...new StatusController(domain.statusChecks(), databaseSection).handlers(),
       ...new DatabaseController(database, databaseSection, domain.databaseLog).handlers(),
@@ -190,6 +201,10 @@ export class DesktopApplication implements Application {
         new TransactionsService(domain.transactionsDependencies()),
         domain.transactionsPageSize,
       ).handlers(),
+      ...new SettingsController(
+        new SettingsService({ ...domain.settingsDependencies(), startAtSignIn }),
+        startAtSignIn,
+      ).handlers(),
     };
     registerHandlers(handlers, {
       isAppWindow: (sender) => this.window?.owns(sender) ?? false,
@@ -206,7 +221,7 @@ export class DesktopApplication implements Application {
     this.scope.onClose("tray", async () => tray.destroy());
 
     const closeNotice = new CloseNoticeService(
-      new SettingsService(desktopSettingsPath(domain.profile)),
+      new DesktopStateService(desktopStatePath(domain.profile)),
       () =>
         tray.notify(
           "Costingly is still running",
@@ -222,7 +237,9 @@ export class DesktopApplication implements Application {
     });
     this.window = window;
     this.scope.onClose("window", async () => window.destroy());
-    await window.open();
+    // Started at sign-in, the app comes up in the tray and shows no window:
+    // the registration launches it with the flag (shell/start-at-sign-in.ts).
+    await window.open({ show: !startedHidden(process.argv) });
   }
 
   private requestQuit(): void {

@@ -36,6 +36,7 @@ const ORDER = [
   "desktop-accounts-presenter",
   "desktop-sync-presenter",
   "desktop-transactions-presenter",
+  "desktop-settings-presenter",
   "desktop-services",
   "picker",
   "confirm",
@@ -58,6 +59,7 @@ const ORDER = [
   "desktop-database",
   "desktop-accounts",
   "desktop-transactions",
+  "desktop-settings",
 ];
 
 interface Outcome {

@@ -9,23 +9,23 @@
  * that draws it.
  */
 
-import type { DesktopSettings } from "./settings.service.js";
+import type { DesktopState } from "./desktop-state.service.js";
 
-export interface NoticeSettings {
-  read(): Promise<DesktopSettings>;
-  update(changes: Partial<DesktopSettings>): Promise<void>;
+export interface NoticeMemory {
+  read(): Promise<DesktopState>;
+  update(changes: Partial<DesktopState>): Promise<void>;
 }
 
 export class CloseNoticeService {
   constructor(
-    private readonly settings: NoticeSettings,
+    private readonly memory: NoticeMemory,
     private readonly show: () => void,
   ) {}
 
   /** The window was closed and hidden instead. */
   async windowHidden(): Promise<void> {
-    if ((await this.settings.read()).closeNoticeShown) return;
-    await this.settings.update({ closeNoticeShown: true });
+    if ((await this.memory.read()).closeNoticeShown) return;
+    await this.memory.update({ closeNoticeShown: true });
     this.show();
   }
 }
