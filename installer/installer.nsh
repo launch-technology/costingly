@@ -1,8 +1,8 @@
 ; Costingly's additions to the Windows installer and uninstaller.
 ;
-; TWO THINGS: what happens when Costingly is running, and a copy of the
-; installer that would otherwise be left on the machine for good (at the end
-; of this file).
+; THREE THINGS: what happens when Costingly is running, a copy of the
+; installer that would otherwise be left on the machine for good, and the
+; start-at-sign-in registration (both at the end of this file).
 ;
 ; WHEN COSTINGLY IS RUNNING
 ;
@@ -48,4 +48,25 @@
     Delete "$LOCALAPPDATA\${APP_INSTALLER_STORE_FILE}"
     RMDir "$LOCALAPPDATA\${APP_PACKAGE_NAME}-updater"
   !endif
+!macroend
+
+; THE START-AT-SIGN-IN REGISTRATION
+;
+; The app's Settings screen can register Costingly to start when the user
+; signs in to Windows. That is a value in the user's Run key, written by the
+; app under the name below (src/apps/desktop/main/shell/start-at-sign-in.ts),
+; and nothing in electron-builder knows about it. Left behind, Windows would
+; try to start a program that is gone at every sign-in. So the uninstaller
+; removes it. Deleting a value that is not there is not an error.
+;
+; NOT ON AN UPGRADE. Installing over an existing copy runs the old copy's
+; uninstaller first, with this macro in it. The user's choice to start at
+; sign-in must survive that, so the delete is skipped when the uninstaller is
+; running as part of an install — the same test electron-builder's own data
+; cleanup makes.
+
+!macro customUnInstall
+  ${ifNot} ${isUpdated}
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Costingly"
+  ${endIf}
 !macroend

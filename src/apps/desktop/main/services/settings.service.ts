@@ -1,50 +1,58 @@
 /**
- * The desktop app's own settings. One of them, so far.
+ * The Settings screen's facts, gathered.
  *
- * Deliberately not `config.json`: that file is costingly's, holds secrets, and
- * creating it would create a profile. This holds nothing sensitive and lives in
- * the app's folder (see ../desktop-paths.ts), so writing it leaves the profile
- * exactly as it was.
+ * Settings is a screen with no store of its own. The Plaid keys live in the
+ * profile's config file and are changed through the same check-and-save that
+ * first-run setup uses (setup.service.ts). Start at sign-in lives in Windows
+ * (start-at-sign-in.service.ts). The version and the data folder are read
+ * from where they already are. This puts them on one plate.
  *
- * Reading is forgiving. A missing, unreadable or malformed file means the
- * defaults — the worst outcome of losing this file is seeing the tray notice a
- * second time, which is not worth an error dialog.
+ * Reads only. Never throws: keys that cannot be read are reported as a
+ * reason, for the presenter to word, and the rest of the plate is still
+ * served.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import type { StartAtSignInService } from "./start-at-sign-in.service.js";
 
-export interface DesktopSettings {
-  /** The "still running in the tray" notice has been shown once. */
-  closeNoticeShown: boolean;
+export interface SettingsDependencies {
+  /** The Plaid client ID saved in the profile, or null when none is. Never the secret. */
+  plaidClientId(): string | null;
+  version(): string;
+  /** The profile directory, shortened for display. */
+  dataFolder(): string;
+  startAtSignIn: Pick<StartAtSignInService, "isOn">;
+  /** A safe one-line description of any error — never the error object. */
+  describeError(error: unknown): string;
 }
 
-const DEFAULTS: DesktopSettings = { closeNoticeShown: false };
+export interface SettingsReading {
+  /** The saved client ID; null when none is saved, or when the keys could not be read. */
+  plaidClientId: string | null;
+  /** Why the keys could not be read, when they could not. */
+  plaidKeysUnreadable?: string;
+  startAtSignIn: boolean;
+  version: string;
+  dataFolder: string;
+}
 
 export class SettingsService {
-  /** @param path The settings file. Its folder is created on first write. */
-  constructor(private readonly path: string) {}
+  constructor(private readonly deps: SettingsDependencies) {}
 
-  async read(): Promise<DesktopSettings> {
+  read(): SettingsReading {
+    let plaidClientId: string | null = null;
+    let plaidKeysUnreadable: string | undefined;
     try {
-      const parsed: unknown = JSON.parse(await readFile(this.path, "utf8"));
-      if (typeof parsed !== "object" || parsed === null) return { ...DEFAULTS };
-      const raw = parsed as Record<string, unknown>;
-      return {
-        closeNoticeShown:
-          typeof raw["closeNoticeShown"] === "boolean"
-            ? raw["closeNoticeShown"]
-            : DEFAULTS.closeNoticeShown,
-      };
-    } catch {
-      return { ...DEFAULTS };
+      plaidClientId = this.deps.plaidClientId();
+    } catch (error) {
+      plaidKeysUnreadable = this.deps.describeError(error);
     }
-  }
 
-  /** Change some settings, keeping the rest. */
-  async update(changes: Partial<DesktopSettings>): Promise<void> {
-    const next = { ...(await this.read()), ...changes };
-    await mkdir(dirname(this.path), { recursive: true });
-    await writeFile(this.path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    return {
+      plaidClientId,
+      ...(plaidKeysUnreadable === undefined ? {} : { plaidKeysUnreadable }),
+      startAtSignIn: this.deps.startAtSignIn.isOn(),
+      version: this.deps.version(),
+      dataFolder: this.deps.dataFolder(),
+    };
   }
 }

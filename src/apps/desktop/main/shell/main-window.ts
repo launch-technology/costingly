@@ -71,12 +71,21 @@ export class MainWindow {
     this.window.on("focus", () => this.announceShown());
   }
 
-  /** Load the page and show the window once it has something to show. */
-  async open(): Promise<void> {
+  /**
+   * Load the page and, unless told otherwise, show the window once it has
+   * something to show.
+   *
+   * `show: false` is for a start nobody asked to look at — sign-in. The page
+   * is loaded all the same, so the tray's Open reveals a finished window, and
+   * the window counts as hidden from the start: revealing it announces
+   * `window.shown`, like a return from the tray.
+   */
+  async open(options: { show: boolean } = { show: true }): Promise<void> {
     const ready = new Promise<void>((resolve) => this.window.once("ready-to-show", resolve));
     await this.window.loadFile(join(APP_ROOT, "renderer", "index.html"));
     await ready;
-    this.window.show();
+    if (options.show) this.window.show();
+    else this.hidden = true;
   }
 
   /** Is this page the main window's? Asked of every call that arrives. */

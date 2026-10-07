@@ -134,13 +134,14 @@ export function recentAppOutput(maxChars = 4_000): string {
     .slice(-maxChars);
 }
 
-/** Launch the built app against one profile. */
+/** Launch the built app against one profile, with any extra command-line arguments. */
 export function launch(
   home: string,
   extra: Record<string, string> = {},
   timeout = 60_000,
+  args: readonly string[] = [],
 ): Promise<ElectronApplication> {
-  return start({ args: [MAIN], env: envFor(home, extra), timeout });
+  return start({ args: [MAIN, ...args], env: envFor(home, extra), timeout });
 }
 
 /**

@@ -30,7 +30,7 @@ export function desktopDir(profile: PlatformConfig): string {
   return parent === null ? `${dir}-desktop` : join(parent, "Desktop");
 }
 
-/** The app's own settings file — not costingly's config.json. */
-export function desktopSettingsPath(profile: PlatformConfig): string {
+/** The file the app remembers itself in (desktop-state.service.ts) — not costingly's config.json. */
+export function desktopStatePath(profile: PlatformConfig): string {
   return join(desktopDir(profile), "settings.json");
 }

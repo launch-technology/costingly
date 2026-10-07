@@ -28,6 +28,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { promisify } from "node:util";
 import { Arch, build, Platform } from "electron-builder";
 import type { ElectronApplication, Page } from "playwright";
 
@@ -93,6 +94,7 @@ function pathWithoutNode(): Record<string, string> {
 }
 const ENV = pathWithoutNode();
 const open = (timeout?: number): Promise<ElectronApplication> => launchPackaged(EXE, HOME, ENV, timeout);
+const run = promisify((await import("node:child_process")).execFile);
 
 const action = (page: Page, name: string) => page.getByTestId(`database-action-${name}`);
 
@@ -185,7 +187,42 @@ try {
     await expectHeadline(checks, page, "database", /^Running$/, "and the first copy carries on");
 
     // =======================================================================
-    // 5. Quit stops the database
+    // 5. Start at sign-in registers THIS executable
+    // =======================================================================
+    // Run from source the registration points at the development Electron;
+    // installed, it must point at Costingly.exe. On, read, off — and the
+    // machine's own registration, if it had one, is put back at the end.
+
+    const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    const registration = async (): Promise<string | null> => {
+      try {
+        const { stdout } = await run("reg", ["query", RUN_KEY, "/v", "Costingly"], { windowsHide: true });
+        return /^\s*Costingly\s+REG_SZ\s+(.*)$/m.exec(stdout)?.[1]?.trim() ?? null;
+      } catch {
+        return null;
+      }
+    };
+    const before = await registration();
+    try {
+      await page.getByTestId("nav-settings").click();
+      await page.locator("[data-testid='settings-screen'][data-state='ready']").waitFor({ timeout: 15_000 });
+      await page.getByTestId("start-at-sign-in").check();
+      await page.getByTestId("start-at-sign-in-confirmed").waitFor({ timeout: 15_000 });
+      const registered = await registration();
+      ok(
+        registered !== null && registered.toLowerCase().includes(EXE.toLowerCase()) && registered.includes("--hidden"),
+        `start at sign-in registers the packaged Costingly.exe, launching hidden (${registered?.slice(0, 80)}…)`,
+      );
+      await page.getByTestId("start-at-sign-in").uncheck();
+      await until(async () => (await registration()) === null, 15_000);
+      eq(await registration(), null, "and turning it off removes the registration");
+    } finally {
+      if (before === null) await run("reg", ["delete", RUN_KEY, "/v", "Costingly", "/f"], { windowsHide: true }).catch(() => {});
+      else await run("reg", ["add", RUN_KEY, "/v", "Costingly", "/d", before, "/f"], { windowsHide: true }).catch(() => {});
+    }
+
+    // =======================================================================
+    // 6. Quit stops the database
     // =======================================================================
 
     eq(await quit(app), 0, "Quit exits cleanly");
