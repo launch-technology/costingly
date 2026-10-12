@@ -89,8 +89,8 @@ await nav.waitFor({ timeout: 30_000 });
 eq(await page.getByTestId("setup-screen").count(), 0, "a set-up machine is not shown setup");
 eq(
   await nav.getByRole("button").allTextContents(),
-  ["Status", "Accounts", "Transactions", "Settings"],
-  "the sidebar lists the screens that exist: Status, Accounts, Transactions",
+  ["Status", "Accounts", "Transactions", "Settings", "Logs"],
+  "the sidebar lists the screens that exist: Status, Accounts, Transactions, Settings, Logs",
 );
 eq(await page.getByTestId("status-screen").count(), 1, "and opens on Status");
 eq(await page.locator("article[data-testid^='section-']").count(), 3, "the status screen has three sections");

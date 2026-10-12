@@ -15,6 +15,7 @@
  */
 
 import type { LinkTokenCreateRequest } from "plaid";
+import { log } from "../../../platform/runtime/log.js";
 import { describeError, type PlaidClient } from "../../data/plaid.client.js";
 import { saveItem } from "../../data/repositories/items.repository.js";
 import { upsertMany as upsertAccountRows } from "../../data/repositories/accounts.repository.js";
@@ -115,7 +116,7 @@ async function resolveInstitution(
     });
     return { institutionId, institutionName: institution.data.institution.name };
   } catch (error) {
-    console.warn(`[link] could not resolve institution name: ${describeError(error)}`);
+    log.warn(`[link] could not resolve institution name: ${describeError(error)}`);
     return { institutionId: null, institutionName: null };
   }
 }

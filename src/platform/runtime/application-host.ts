@@ -17,6 +17,7 @@
  */
 
 import type { Application } from "./application.js";
+import { log } from "./log.js";
 
 /** Maps a thrown value to a message and an exit code. */
 export interface ErrorReporter {
@@ -39,9 +40,9 @@ export interface LaunchOptions {
   reportError?: ErrorReporter;
 
   /**
-   * Where failures are written. stderr by default, and MUST stay stderr for an
-   * MCP server: stdout is the protocol channel and one stray line corrupts the
-   * session.
+   * Where failures are written. The log by default — which is stderr until an
+   * application configures a file, and MUST stay stderr for an MCP server:
+   * stdout is the protocol channel and one stray line corrupts the session.
    */
   write?: (line: string) => void;
 }
@@ -55,7 +56,7 @@ export class ApplicationHost {
    */
   static async launch(app: Application, options: LaunchOptions = {}): Promise<void> {
     const report = options.reportError ?? DEFAULT_REPORTER;
-    const write = options.write ?? ((line: string) => console.error(line));
+    const write = options.write ?? log.error;
 
     ApplicationHost.ignoreEpipe();
 

@@ -31,10 +31,13 @@
  *
  * NOTHING HERE THROWS. A database that will not start must not stop the app
  * from opening — the status screen is where the user finds out, and it cannot
- * say so from a process that exited. Failures are remembered and reported.
+ * say so from a process that exited. Failures are remembered and logged, and
+ * so is every start, stop and create that worked: the Logs screen is where
+ * someone reads what the database has been doing while nobody was looking.
  */
 
 import type { DatastoreState, Endpoint } from "../../../../platform/datastore/datastore.js";
+import { log } from "../../../../platform/runtime/log.js";
 
 /** What went wrong, as far as the evidence shows. */
 export type DatabaseFailure =
@@ -62,6 +65,12 @@ export interface DatabaseDependencies {
     size(): Promise<number>;
     /** What has been written since that point. */
     readSince(offset: number): Promise<string>;
+    /**
+     * Keep the database's log under its cap. Called only while the server is
+     * stopped — the file is about to be appended to by a program that is not
+     * running yet. Never throws.
+     */
+    trim(): Promise<void>;
   };
   /** Close this process's own connections to the database. */
   closeConnections(): Promise<void>;
@@ -73,7 +82,6 @@ export interface DatabaseDependencies {
   keysPresent(): boolean;
   /** A safe one-line-or-so description of any error, with secrets removed. */
   describeError(error: unknown): string;
-  report(line: string): void;
 }
 
 export class DatabaseService {
@@ -130,9 +138,10 @@ export class DatabaseService {
       try {
         await this.deps.create();
         this.failure = undefined;
+        log.info("the database was created and is running");
       } catch (error) {
         this.failure = await this.classifyCreate(error, mark);
-        this.deps.report(`the database was not created (${this.failure.kind}): ${this.failure.reason}`);
+        log.error(`the database was not created (${this.failure.kind}): ${this.failure.reason}`);
       }
     }).then(() => this.failure);
   }
@@ -152,6 +161,9 @@ export class DatabaseService {
       return;
     }
 
+    // The log is trimmed only while nothing is appending to it, and the mark
+    // is taken after: what this attempt writes is still judged on its own.
+    if (state === "stopped") await this.deps.log.trim();
     const mark = await this.logSize();
     try {
       await this.deps.datastore.start();
@@ -160,9 +172,11 @@ export class DatabaseService {
       return;
     }
 
+    let updated = false;
     if (this.deps.keysPresent()) {
       try {
         await this.deps.update();
+        updated = true;
       } catch (error) {
         this.fail({ kind: "update-failed", reason: this.deps.describeError(error) });
         return;
@@ -170,6 +184,10 @@ export class DatabaseService {
     }
 
     this.failure = undefined;
+    log.info(
+      (state === "stopped" ? "the database started" : "the database was already running") +
+        (updated ? ", and its tables are up to date" : ""),
+    );
   }
 
   private async down(): Promise<void> {
@@ -177,9 +195,12 @@ export class DatabaseService {
       // Ours first: a pooled connection that outlives the server hands a dead
       // socket to the next caller.
       await this.deps.closeConnections();
-      if ((await this.deps.datastore.status()) === "running") await this.deps.datastore.stop();
+      if ((await this.deps.datastore.status()) === "running") {
+        await this.deps.datastore.stop();
+        log.info("the database stopped");
+      }
     } catch (error) {
-      this.deps.report(`the database did not stop: ${this.deps.describeError(error)}`);
+      log.error(`the database did not stop: ${this.deps.describeError(error)}`);
     }
   }
 
@@ -222,7 +243,7 @@ export class DatabaseService {
 
   private fail(failure: DatabaseFailure): void {
     this.failure = failure;
-    this.deps.report(`the database is not usable (${failure.kind}): ${failure.reason}`);
+    log.error(`the database is not usable (${failure.kind}): ${failure.reason}`);
   }
 
   private logSize(): Promise<number> {
@@ -232,7 +253,7 @@ export class DatabaseService {
   /** Run after whatever is already running. An operation never rejects the queue. */
   private enqueue(operation: () => Promise<void>): Promise<void> {
     const run = this.queue.then(operation).catch((error: unknown) => {
-      this.deps.report(`a database operation failed unexpectedly: ${this.deps.describeError(error)}`);
+      log.error(`a database operation failed unexpectedly: ${this.deps.describeError(error)}`);
     });
     this.queue = run;
     return run;

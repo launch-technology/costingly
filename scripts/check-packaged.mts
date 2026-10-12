@@ -25,7 +25,7 @@
 
 import { randomBytes } from "node:crypto";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
@@ -162,6 +162,12 @@ try {
     const section = (await page.getByTestId("section-database").textContent()) ?? "";
     ok(/Schema version: \S+/.test(section), "with its tables created");
     ok(await databaseRunning(), "and the database program running is the packaged one");
+
+    // The app's own log, beside its settings file: the packaged app found its
+    // folder and wrote to it.
+    const appLog = join(DESKTOP, "costingly.log");
+    ok(existsSync(appLog), "the packaged app writes its log beside its settings file");
+    ok(/INFO  Costingly \S+ starting/.test(existsSync(appLog) ? readFileSync(appLog, "utf8") : ""), "with a line for the app starting");
 
     // =======================================================================
     // 3. Stop, Start, Restart

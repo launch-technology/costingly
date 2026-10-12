@@ -12,6 +12,9 @@
  *
  * Every object the app is made of is constructed in `compose()` and handed
  * what it depends on; nothing below reaches for a collaborator on its own.
+ * The one exception is the log (platform/runtime/log.ts), which every layer
+ * imports directly and `start()` points at the app's file: handing a logger
+ * to every constructor would say nothing about any of them.
  * So this file answers "what is the app made of, and what talks to what", and
  * the behaviour lives in the pieces:
  *
@@ -41,27 +44,30 @@
  * anything is composed, it can never stop a database the first copy is using.
  */
 
-import { app, shell } from "electron";
+import { app, clipboard, shell } from "electron";
 
 import type { Application } from "../../../platform/runtime/application.js";
+import { configureLog, log } from "../../../platform/runtime/log.js";
 import { ResourceScope } from "../../../platform/runtime/resource-scope.js";
 import * as domain from "./adapters/domain.js";
 import { AccountsController } from "./controllers/accounts.controller.js";
 import type { AllHandlers } from "./controllers/controller.js";
 import { DatabaseController, databaseSectionReader } from "./controllers/database.controller.js";
 import { LinkController } from "./controllers/link.controller.js";
+import { LogsController } from "./controllers/logs.controller.js";
 import { SettingsController } from "./controllers/settings.controller.js";
 import { SetupController } from "./controllers/setup.controller.js";
 import { StatusController } from "./controllers/status.controller.js";
 import { SyncController } from "./controllers/sync.controller.js";
 import { TransactionsController } from "./controllers/transactions.controller.js";
-import { desktopDir, desktopStatePath } from "./desktop-paths.js";
+import { desktopDir, desktopLogPath, desktopStatePath } from "./desktop-paths.js";
 import { explainDatabaseFailure } from "./presenters/database.presenter.js";
 import { presentSync } from "./presenters/sync.presenter.js";
 import { AccountsService } from "./services/accounts.service.js";
 import { CloseNoticeService } from "./services/close-notice.service.js";
 import { DatabaseService } from "./services/database.service.js";
 import { DesktopStateService } from "./services/desktop-state.service.js";
+import { ReportService } from "./services/report.service.js";
 import { SettingsService } from "./services/settings.service.js";
 import { SetupService } from "./services/setup.service.js";
 import { StartAtSignInService } from "./services/start-at-sign-in.service.js";
@@ -92,8 +98,16 @@ export class DesktopApplication implements Application {
     // — a second place on the machine for the uninstaller to know about.
     app.setPath("userData", desktopDir(domain.profile));
 
+    // The log, before anything that could fail: a start that goes wrong is
+    // the first thing anyone will want to read about. In the app's own folder,
+    // beside Electron's files, so opening the app still creates no profile.
+    configureLog({ path: desktopLogPath(domain.profile), maxBytes: domain.APP_LOG_MAX_BYTES, redact: domain.redact });
+    const hidden = startedHidden(process.argv);
+    log.info(`Costingly ${domain.appVersion()} starting${hidden ? " hidden, for sign-in" : ""}`);
+
     if (!app.requestSingleInstanceLock()) {
       this.secondCopy = true;
+      log.info("another copy of Costingly is already running; handing over to it");
       return;
     }
 
@@ -119,6 +133,7 @@ export class DesktopApplication implements Application {
   async stop(): Promise<void> {
     this.window?.allowClose();
     await this.scope.closeAll();
+    if (!this.secondCopy) log.info("Costingly stopped");
   }
 
   /**
@@ -129,12 +144,10 @@ export class DesktopApplication implements Application {
    * connections and then stops the server, after whatever it was already doing.
    */
   private async compose(): Promise<void> {
-    const log = (line: string): void => console.error(`[${this.name}] ${line}`);
-
     // --- the database, brought up while Electron is still getting ready ------
     // The two waits overlap, and the first status check the window makes then
     // finds the database already up instead of reporting a stop about to end.
-    const database = new DatabaseService(domain.databaseDependencies(log));
+    const database = new DatabaseService(domain.databaseDependencies());
     const databaseComingUp = database.bringUp();
     this.scope.onClose("database", () => database.stop());
 
@@ -205,11 +218,18 @@ export class DesktopApplication implements Application {
         new SettingsService({ ...domain.settingsDependencies(), startAtSignIn }),
         startAtSignIn,
       ).handlers(),
+      // The two logs, and the report. Copying is the clipboard's, which is
+      // Electron's, handed in like the browser is above.
+      ...new LogsController(
+        { app: domain.appLog, database: domain.databaseLog },
+        new ReportService({ ...domain.reportDependencies(), lastFailure: () => database.lastFailure() }),
+        (text) => clipboard.writeText(text),
+        domain.describeError,
+      ).handlers(),
     };
     registerHandlers(handlers, {
       isAppWindow: (sender) => this.window?.owns(sender) ?? false,
       describe: domain.describeError,
-      log,
     });
 
     // --- the tray, and the notice it shows once ------------------------------
@@ -243,6 +263,8 @@ export class DesktopApplication implements Application {
   }
 
   private requestQuit(): void {
+    if (this.resolveQuit !== undefined) log.info("quit requested");
     this.resolveQuit?.();
+    this.resolveQuit = undefined;
   }
 }

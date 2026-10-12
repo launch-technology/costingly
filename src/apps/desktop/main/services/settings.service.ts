@@ -12,6 +12,7 @@
  * served.
  */
 
+import { log } from "../../../../platform/runtime/log.js";
 import type { StartAtSignInService } from "./start-at-sign-in.service.js";
 
 export interface SettingsDependencies {
@@ -45,6 +46,7 @@ export class SettingsService {
       plaidClientId = this.deps.plaidClientId();
     } catch (error) {
       plaidKeysUnreadable = this.deps.describeError(error);
+      log.warn(`the saved Plaid keys could not be read: ${plaidKeysUnreadable}`);
     }
 
     return {

@@ -13,6 +13,7 @@ import {
   type McpServerInfo,
   type ToolRegistrar,
 } from "../../platform/mcp/mcp.application.js";
+import { log } from "../../platform/runtime/log.js";
 import { closeDb } from "../../domain/data/default-database.js";
 import { stopLinkServer } from "../../domain/services/banks/link-session.service.js";
 import { resumeDatabase } from "../../domain/services/database/database-health.service.js";
@@ -129,7 +130,7 @@ export class CostinglyMcpApplication extends McpApplication {
     // stop the server from coming up — check_costingly and restart_database
     // are how a broken database gets diagnosed.
     await resumeDatabase().catch((error: unknown) => {
-      console.error(`[costingly] the database did not start: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(`[costingly] the database did not start: ${error instanceof Error ? error.message : String(error)}`);
     });
   }
 

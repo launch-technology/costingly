@@ -27,7 +27,8 @@
  *
  * Under the CLI stdout was the user's screen. Under MCP it is the protocol
  * channel, and a single stray line corrupts the session. Diagnostics go to
- * stderr, which Claude Desktop captures into its per-server log; anything a
+ * the log (platform/runtime/log.ts: stderr, unless the application has given
+ * it a file), which Claude Desktop captures into its per-server log; anything a
  * *user* needs to know is recorded in `recentLinks` instead, because a link
  * completes in the browser long after the tool call that started the server has
  * returned, and there is no result left to put it in.
@@ -44,6 +45,7 @@ import type { Request, Response } from "express";
 import type { Server } from "node:http";
 
 import { publicDir } from "../../../platform/package.js";
+import { log } from "../../../platform/runtime/log.js";
 import { ports } from "../../project.js";
 import {
   createLinkToken,
@@ -95,9 +97,14 @@ export function takeRecentRepairs(): RepairedItem[] {
   return recentRepairs.splice(0, recentRepairs.length);
 }
 
-/** stderr, never stdout. See the header. */
-function log(message: string): void {
-  console.error(`[link] ${message}`);
+/** Something the page did. Never stdout — see the header. */
+function event(message: string): void {
+  log.info(`[link] ${message}`);
+}
+
+/** Something the page could not do. */
+function failure(message: string): void {
+  log.warn(`[link] ${message}`);
 }
 
 function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): express.Express {
@@ -125,7 +132,7 @@ function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): exp
       res.json({ link_token: await createRepairLinkToken(plaid, body.item_id) });
     } catch (error) {
       const message = describeError(error);
-      log(`repair_link_token failed: ${message}`);
+      failure(`repair_link_token failed: ${message}`);
       res.status(500).json({ error: message });
     }
   });
@@ -141,11 +148,11 @@ function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): exp
       }
       const { institutionName } = await markItemRepaired(body.item_id);
       recentRepairs.push({ itemId: body.item_id, institutionName });
-      log(`repaired ${institutionName ?? "(unknown institution)"} — item ${body.item_id}`);
+      event(`repaired ${institutionName ?? "(unknown institution)"} — item ${body.item_id}`);
       res.json({ itemId: body.item_id, institutionName });
     } catch (error) {
       const message = describeError(error);
-      log(`repair_complete failed: ${message}`);
+      failure(`repair_complete failed: ${message}`);
       res.status(500).json({ error: message });
     }
   });
@@ -156,7 +163,7 @@ function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): exp
       res.json({ link_token: linkToken });
     } catch (error) {
       const message = describeError(error);
-      log(`create_link_token failed: ${message}`);
+      failure(`create_link_token failed: ${message}`);
       res.status(500).json({ error: message });
     }
   });
@@ -173,7 +180,7 @@ function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): exp
 
       const item = await exchangePublicToken(plaid, publicToken);
       recentLinks.push(item);
-      log(
+      event(
         `linked ${item.institutionName ?? "(unknown institution)"} — ` +
           `item ${item.itemId}, ${item.accountCount} account(s)`,
       );
@@ -181,7 +188,7 @@ function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): exp
       res.json(item);
     } catch (error) {
       const message = describeError(error);
-      log(`exchange_public_token failed: ${message}`);
+      failure(`exchange_public_token failed: ${message}`);
       res.status(500).json({ error: message });
     }
   });
@@ -231,7 +238,7 @@ export async function startLinkServer(
     server = await listen(app, preferred);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
-    log(`port ${preferred} is in use; taking any free port instead`);
+    failure(`port ${preferred} is in use; taking any free port instead`);
     server = await listen(app, 0);
   }
 
@@ -242,7 +249,7 @@ export async function startLinkServer(
   // Do not hold the process open just because this timer exists.
   current.idleTimer.unref();
 
-  log(`listening on 127.0.0.1:${port}`);
+  event(`listening on 127.0.0.1:${port}`);
   return { url: `http://127.0.0.1:${port}`, port, started: true };
 }
 
@@ -254,7 +261,7 @@ function bumpIdle(): void {
 }
 
 function closeIdle(): void {
-  log("idle — shutting down the link server");
+  event("idle — shutting down the link server");
   void stopLinkServer();
 }
 

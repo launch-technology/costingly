@@ -15,6 +15,8 @@
  * no Electron. Never throws.
  */
 
+import { log } from "../../../../platform/runtime/log.js";
+
 export interface StartAtSignInDependencies {
   /** Is Costingly registered to start at sign-in? Asks Windows. */
   registered(): boolean;
@@ -40,6 +42,13 @@ export class StartAtSignInService {
 
   /** Ask for on or off, and report what Windows has afterwards. */
   set(on: boolean): StartAtSignInChange {
+    const change = this.change(on);
+    if (change.changed) log.info(`start at sign-in turned ${change.on ? "on" : "off"}`);
+    else log.warn(`start at sign-in could not be turned ${on ? "on" : "off"}: ${change.reason}`);
+    return change;
+  }
+
+  private change(on: boolean): StartAtSignInChange {
     try {
       this.deps.register(on);
       const now = this.isOn();

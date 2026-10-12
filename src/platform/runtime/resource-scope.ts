@@ -10,6 +10,8 @@
  * out, and a leaked listener keeps it alive forever.
  */
 
+import { log } from "./log.js";
+
 export interface Closeable {
   close(): Promise<void>;
 }
@@ -42,9 +44,8 @@ export class ResourceScope {
       try {
         await entry.close();
       } catch (error) {
-        console.error(
-          `[runtime] releasing ${entry.name} failed:`,
-          error instanceof Error ? error.message : error,
+        log.error(
+          `[runtime] releasing ${entry.name} failed: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }

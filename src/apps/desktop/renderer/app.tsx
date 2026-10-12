@@ -26,6 +26,7 @@ import { useState } from "react";
 import { Sidebar, type ScreenId } from "./components/sidebar.js";
 import { useSetupGate } from "./hooks/use-setup.js";
 import { AccountsScreen } from "./screens/accounts/accounts.screen.js";
+import { LogsScreen } from "./screens/logs/logs.screen.js";
 import { SettingsScreen } from "./screens/settings/settings.screen.js";
 import { SetupScreen } from "./screens/setup/setup.screen.js";
 import { StatusScreen } from "./screens/status/status.screen.js";
@@ -57,6 +58,7 @@ export function App() {
         {screen === "accounts" && <AccountsScreen />}
         {screen === "transactions" && <TransactionsScreen />}
         {screen === "settings" && <SettingsScreen />}
+        {screen === "logs" && <LogsScreen />}
       </main>
     </div>
   );

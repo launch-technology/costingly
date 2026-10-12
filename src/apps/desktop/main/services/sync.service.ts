@@ -28,6 +28,7 @@
  */
 
 import type { SyncSummary } from "../../../../domain/services/banks/sync.types.js";
+import { log } from "../../../../platform/runtime/log.js";
 
 /** What set a sync going. One value today; a schedule would be another. */
 export type SyncTrigger = "manual";
@@ -107,11 +108,26 @@ export class SyncService {
   }
 
   private async runToEnd(trigger: SyncTrigger): Promise<void> {
+    log.info(`sync started (${trigger})`);
     let ended: SyncState;
     try {
-      ended = { phase: "finished", trigger, summary: await this.deps.run() };
+      const summary = await this.deps.run();
+      for (const result of summary.results) {
+        const bank = result.institutionName ?? result.itemId;
+        if (result.ok) {
+          log.info(`sync: ${bank}: ${result.added} added, ${result.modified} modified, ${result.removed} removed`);
+        } else {
+          log.warn(`sync: ${bank}: failed: ${result.error ?? "no reason given"}`);
+        }
+      }
+      log.info(
+        `sync finished: ${summary.itemsSucceeded} of ${summary.itemsTotal} bank${summary.itemsTotal === 1 ? "" : "s"} synced in ${summary.durationMs} ms`,
+      );
+      ended = { phase: "finished", trigger, summary };
     } catch (error) {
-      ended = { phase: "failed", trigger, reason: this.deps.describeError(error) };
+      const reason = this.deps.describeError(error);
+      log.error(`sync failed: ${reason}`);
+      ended = { phase: "failed", trigger, reason };
     }
     this.change(ended);
   }

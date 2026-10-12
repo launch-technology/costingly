@@ -30,6 +30,7 @@ const ORDER = [
   "architecture",
   "profile",
   "config",
+  "log",
   "smoke",
   "desktop-status-presenter",
   "desktop-database-presenter",
@@ -37,6 +38,7 @@ const ORDER = [
   "desktop-sync-presenter",
   "desktop-transactions-presenter",
   "desktop-settings-presenter",
+  "desktop-report-presenter",
   "desktop-services",
   "picker",
   "confirm",
@@ -60,6 +62,7 @@ const ORDER = [
   "desktop-accounts",
   "desktop-transactions",
   "desktop-settings",
+  "desktop-logs",
 ];
 
 interface Outcome {

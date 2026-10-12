@@ -11,6 +11,7 @@
  */
 
 import type { Client, Pool } from "pg";
+import { log } from "../runtime/log.js";
 import { connectionStringFor } from "./credentials.js";
 import type { DbCredentials } from "./credentials.js";
 
@@ -89,7 +90,7 @@ export class ConnectionFactory {
     // surfaces as an unhandled 'error' event and takes the process down. pg
     // evicts the dead client itself.
     pool.on("error", (error: Error) => {
-      console.error("[db] idle client error (connection will be recycled):", error.message);
+      log.error(`[db] idle client error (connection will be recycled): ${error.message}`);
     });
 
     return pool;

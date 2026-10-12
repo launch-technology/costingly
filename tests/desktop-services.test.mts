@@ -11,7 +11,8 @@
  *   2. PlaidKeyVerifier       rejected vs unreachable; nothing left behind
  *   3. DatabaseService        tells failures apart from evidence; one thing at
  *                             a time; never throws
- *   4. DatabaseLog            the tail, only what is new, and nothing secret
+ *   4. LogFile                the tail, only what is new, nothing secret, and
+ *                             the trim that keeps a log under its cap
  *   5. CloseNoticeService     once
  *   6. DesktopStateService    forgiving on read
  *   7. The real wiring        the same service over the real domain, on a
@@ -25,13 +26,19 @@
  *  12. Unlinking              never during a sync, in either direction
  *  13. Settings               start at sign-in is what Windows has; the
  *                             facts, gathered
+ *  14. ReportService          every part gathered on its own; one failing
+ *                             costs only its part
+ *
+ * What the services LOG is checked alongside: the log module is pointed at a
+ * capture here, and the cases that matter — a failure, a sync's banks, keys
+ * rejected — assert on what was written and what was not.
  *
  * Runs on every platform: nothing here imports Electron, which the
  * architecture suite enforces.
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,9 +50,18 @@ delete process.env["PLAID_SECRET"];
 delete process.env["PLAID_ENV"];
 
 const { configStore } = await import("../src/index.js");
+const { configureLog } = await import("../src/platform/runtime/log.js");
 const { SetupService } = await import("../src/apps/desktop/main/services/setup.service.js");
 const { DatabaseService } = await import("../src/apps/desktop/main/services/database.service.js");
-const { DatabaseLog, createRedactor } = await import("../src/apps/desktop/main/adapters/database-log.js");
+const { LogFile, createRedactor } = await import("../src/apps/desktop/main/adapters/log-file.js");
+const { ReportService } = await import("../src/apps/desktop/main/services/report.service.js");
+
+/** Everything the services log, as `level message`, for the cases that check it. */
+const logged: string[] = [];
+configureLog((level, message) => void logged.push(`${level} ${message}`));
+/** What was logged after a point, warnings and errors only unless asked for all. */
+const loggedSince = (from: number, all = false): string[] =>
+  logged.slice(from).filter((line) => all || !line.startsWith("info "));
 const { databaseSectionReader } = await import("../src/apps/desktop/main/controllers/database.controller.js");
 const { CloseNoticeService } = await import("../src/apps/desktop/main/services/close-notice.service.js");
 const { DesktopStateService } = await import("../src/apps/desktop/main/services/desktop-state.service.js");
@@ -169,9 +185,17 @@ for (const status of ["stopped", "running"] as const) {
 }
 {
   const f = fake({ verdict: { accepted: false, kind: "rejected", reason: "INVALID_API_KEYS" } });
-  const result = await new SetupService(f.deps).submitKeys("id", "secret");
+  const since = logged.length;
+  const result = await new SetupService(f.deps).submitKeys("the-id-typed", "the-secret-typed");
   eq(result, { outcome: "rejected", reason: "INVALID_API_KEYS" }, "Plaid rejects: rejected, with Plaid's reason");
   eq(f.written.length, 0, "…AND NOTHING IS SAVED");
+  const line = loggedSince(since)[0] ?? "";
+  ok(line.startsWith("warn ") && line.includes("INVALID_API_KEYS"), "…the rejection is logged with the reason");
+  ok(!logged.slice(since).some((l) => l.includes("the-secret-typed")), "…AND THE SECRET IS NOT IN THE LOG");
+  ok(
+    !logged.slice(since).some((l) => l.includes("the-id-typed")),
+    "…NOR IS THE CLIENT ID AS TYPED — keys in each other's fields would put the secret there",
+  );
 }
 {
   const f = fake({ verdict: { accepted: false, kind: "unreachable", reason: "ENOTFOUND" } });
@@ -181,8 +205,11 @@ for (const status of ["stopped", "running"] as const) {
 }
 {
   const f = fake();
+  const since = logged.length;
   const result = await new SetupService(f.deps).submitKeys("  id  ", "  secret  ");
   eq(result, { outcome: "accepted" }, "Plaid accepts: accepted");
+  ok(loggedSince(since, true).some((l) => l.startsWith("info Plaid keys saved for client ID id")), "…and the save is logged, by client ID");
+  ok(!logged.slice(since).some((l) => l.includes("secret")), "…without the secret");
   eq(f.verified, [["id", "secret"]], "the keys are trimmed before Plaid sees them");
   eq(
     f.written,
@@ -392,7 +419,10 @@ interface World {
   /** Is anything answering on the port — ours or somebody else's. */
   serving: boolean;
   calls: string[];
-  reports: string[];
+  /** How often the database's log was asked to trim. */
+  trims: number;
+  /** Warnings and errors the service logged since it was built. */
+  reports(): string[];
 }
 
 function database(options: {
@@ -404,13 +434,17 @@ function database(options: {
   start?: (world: World) => Promise<void>;
   update?: (world: World) => Promise<void>;
   create?: (world: World) => Promise<void>;
+  /** What trimming the log does to it. By default, nothing. */
+  trim?: (world: World) => void;
 } = {}): { world: World; service: InstanceType<typeof DatabaseService> } {
+  const since = logged.length;
   const world: World = {
     state: options.state ?? "stopped",
     log: options.log ?? "",
     serving: options.serving ?? false,
     calls: [],
-    reports: [],
+    trims: 0,
+    reports: () => loggedSince(since),
   };
 
   const deps: DatabaseDependencies = {
@@ -441,6 +475,10 @@ function database(options: {
     log: {
       size: async () => world.log.length,
       readSince: async (offset) => world.log.slice(offset),
+      trim: async () => {
+        world.trims++;
+        options.trim?.(world);
+      },
     },
     closeConnections: async () => void world.calls.push("close"),
     keysPresent: () => options.keysPresent ?? true,
@@ -448,7 +486,6 @@ function database(options: {
     // this for every reason it keeps, and never the error itself.
     describeError: (error) =>
       (error instanceof Error ? error.message : String(error)).replace("hunter2", "[hidden]"),
-    report: (line) => void world.reports.push(line),
   };
 
   return { world, service: new DatabaseService(deps) };
@@ -481,6 +518,31 @@ const failToStart = async (): Promise<void> => {
   await service.bringUp();
   eq(world.calls, ["start", "update"], "a database left running by a crash is simply used: start is asked and is a no-op underneath");
   eq(service.lastFailure(), undefined, "and it is not a failure");
+}
+
+// --- the database's log is kept under its cap, while nothing is writing it -----
+{
+  const { world, service } = database({ state: "stopped" });
+  await service.bringUp();
+  eq(world.trims, 1, "A START FROM STOPPED TRIMS THE DATABASE LOG FIRST");
+  eq(world.reports(), [], "and a start that worked logs no warning");
+}
+{
+  const { world, service } = database({ state: "running" });
+  await service.bringUp();
+  eq(world.trims, 0, "a database already running is NOT trimmed — its program holds the file");
+}
+{
+  // Last week's port conflict is in the log; the trim keeps that tail. If the
+  // mark were taken before the trim, the shorter file would read as all new,
+  // and today's different failure would be called a port conflict.
+  const { service } = database({
+    log: "something older\ncould not bind to port 54320\n",
+    trim: (world) => void (world.log = "could not bind to port 54320\n"),
+    start: failToStart,
+  });
+  await service.bringUp();
+  eq(service.lastFailure()?.kind, "will-not-start", "THE LOG MARK IS TAKEN AFTER THE TRIM: an old bind failure the trim kept is not today's evidence");
 }
 
 // --- telling a failed start apart ---------------------------------------------
@@ -534,7 +596,9 @@ const failToStart = async (): Promise<void> => {
   ok((failure?.reason ?? "").includes("Could not start the local database"), "with the reason it was given");
   ok(!(failure?.reason ?? "").includes("hunter2"), "THE REASON WENT THROUGH THE REDACTING DESCRIBER, NOT THE RAW ERROR");
   eq(world.calls, ["start"], "and the update was not attempted on a server that is down");
-  eq(world.reports.length, 1, "the failure is logged once");
+  eq(world.reports().length, 1, "the failure is logged once");
+  ok(world.reports()[0]?.startsWith("error the database is not usable (will-not-start)") === true, "as an error, with its kind");
+  ok(!world.reports()[0]?.includes("hunter2"), "AND THE LOG LINE WENT THROUGH THE REDACTING DESCRIBER TOO");
 }
 {
   const { world, service } = database({
@@ -617,7 +681,7 @@ const failToStart = async (): Promise<void> => {
   await service.restart();
   ok(true, "a datastore that cannot even be asked: bring up, stop and restart all resolve — the app still opens, and still quits");
   eq(service.lastFailure()?.kind, "will-not-start", "and what is remembered says why");
-  ok(world.reports.length >= 2, "with each failure logged");
+  ok(world.reports().length >= 2, "with each failure logged");
 }
 
 // --- creating ------------------------------------------------------------------
@@ -718,7 +782,7 @@ const failToStart = async (): Promise<void> => {
 }
 
 // ===========================================================================
-// 4. DatabaseLog, and what it will not show
+// 4. LogFile, and what it will not show
 // ===========================================================================
 
 {
@@ -728,7 +792,7 @@ const failToStart = async (): Promise<void> => {
 
   const DB_PASSWORD = "p4ssw0rd-generated-value";
   const redact = createRedactor(() => [DB_PASSWORD, "plaid-secret-value", undefined, "abc"]);
-  const log = new DatabaseLog({ path: () => path, displayPath: (p) => `shown:${p}`, redact });
+  const log = new LogFile({ name: "test", path: () => path, displayPath: (p) => `shown:${p}`, redact });
 
   // --- no log yet ---
   eq(await log.size(), 0, "no log file: size is zero");
@@ -749,6 +813,36 @@ const failToStart = async (): Promise<void> => {
   await writeFile(path, "only\nthree\nlines\n");
   const short = await log.excerpt();
   eq(short.state === "lines" ? short.lines : null, ["only", "three", "lines"], "a short log is returned whole");
+
+  // --- the Logs screen asks for more ---
+  await writeFile(path, Array.from({ length: 600 }, (_, i) => `entry ${i + 1}`).join("\n") + "\n");
+  const view = await log.excerpt(500);
+  eq(view.state === "lines" ? view.lines.length : null, 500, "asked for 500 lines, 500 come back");
+  eq(view.state === "lines" ? [view.lines[0], view.lines[499]] : null, ["entry 101", "entry 600"], "the LAST five hundred, whole");
+
+  // --- the trim ---
+  const CAP = 20_000;
+  await log.trim(CAP);
+  eq((await stat(path)).size < CAP, true, "a file under the cap: trim changes nothing");
+  eq(await log.excerpt(1), { state: "lines", lines: ["entry 600"], path: `shown:${path}` }, "and its last line is still there");
+
+  const long = Array.from({ length: 3000 }, (_, i) => `row ${String(i + 1).padStart(5, "0")}`).join("\n") + "\n";
+  await writeFile(path, long);
+  ok(long.length > CAP, `a file over the cap (${long.length} bytes)…`);
+  await log.trim(CAP);
+  const trimmedSize = (await stat(path)).size;
+  ok(trimmedSize <= CAP, `…IS TRIMMED UNDER THE CAP (${trimmedSize} bytes)`);
+  ok(trimmedSize > CAP / 2, "to a size with headroom, not to nothing");
+  const kept = (await readFile(path, "utf8")).split("\n");
+  eq(kept[kept.length - 2], "row 03000", "the newest line is kept");
+  ok(/^row \d{5}$/.test(kept[0] ?? ""), `the oldest kept line is a whole line (${kept[0]})`);
+
+  await rm(path, { force: true });
+  await log.trim(CAP);
+  eq(await log.excerpt(), { state: "empty", path: `shown:${path}` }, "trimming a log that does not exist is a no-op, not an error");
+
+  // Back to the short log the next cases build on.
+  await writeFile(path, "only\nthree\nlines\n");
 
   // --- only what is new ---
   const mark = await log.size();
@@ -1016,6 +1110,42 @@ await rm(HOME, { recursive: true, force: true });
     eq(latest.phase === "finished" ? latest.summary.added : null, 0, "sync: and the newer result replaces the older");
   }
 
+  // --- what a run leaves in the log: one line per bank, and the totals ----------
+  {
+    const { service, finish } = syncService();
+    const since = logged.length;
+    service.start();
+    finish({
+      ...summary(3),
+      itemsTotal: 2,
+      itemsSucceeded: 1,
+      itemsFailed: 1,
+      results: [
+        { itemId: "i1", institutionName: "Test Bank", ok: true, added: 3, modified: 1, removed: 0, accounts: 2, pages: 1, initialBackfill: false, updateStatus: null },
+        { itemId: "i2", institutionName: null, ok: false, added: 0, modified: 0, removed: 0, accounts: 0, pages: 0, initialBackfill: false, updateStatus: null, error: "ITEM_LOGIN_REQUIRED" },
+      ],
+    });
+    await settle();
+    eq(
+      loggedSince(since, true),
+      [
+        "info sync started (manual)",
+        "info sync: Test Bank: 3 added, 1 modified, 0 removed",
+        "warn sync: i2: failed: ITEM_LOGIN_REQUIRED",
+        "info sync finished: 1 of 2 banks synced in 1000 ms",
+      ],
+      "sync: A RUN IS LOGGED — its start, one line per bank with the outcome, and the totals",
+    );
+  }
+  {
+    const { service, fail } = syncService();
+    const since = logged.length;
+    service.start();
+    fail(new Error("the database is not running"));
+    await settle();
+    eq(loggedSince(since), ["error sync failed: the database is not running"], "sync: a run that could not run at all is logged as an error");
+  }
+
   // --- a sync that cannot run at all ----------------------------------------
   {
     const { service, announced, fail } = syncService();
@@ -1218,12 +1348,14 @@ await rm(HOME, { recursive: true, force: true });
   {
     const { service, asked } = unlinkService();
     eq(await service.preview("b1"), { outcome: "found", bank }, "unlink: the preview is the bank and what it holds");
+    const since = logged.length;
     eq(
       await service.unlink("b1", { revokeAtPlaid: true }),
       { outcome: "unlinked", institutionName: "Test Bank", revokedAtPlaid: true },
       "unlink: the domain's outcome is passed straight back",
     );
     eq(asked, [{ bankId: "b1", revokeAtPlaid: true }], "unlink: with the bank and the choice exactly as given");
+    eq(loggedSince(since, true), ["info unlinked Test Bank and ended its connection at Plaid"], "unlink: AND LOGGED, naming the bank and what happened at Plaid");
   }
   {
     const { service, asked, described } = unlinkService({ state: async () => "stopped" });
@@ -1249,7 +1381,9 @@ await rm(HOME, { recursive: true, force: true });
         throw new Error("could not read the row");
       },
     });
+    const since = logged.length;
     eq(await service.unlink("b1", { revokeAtPlaid: true }), { outcome: "failed", reason: "could not delete the row" }, "unlink: an unlink that throws is described, never thrown");
+    eq(loggedSince(since), ["error unlink failed: could not delete the row"], "unlink: and logged as an error");
     eq(await service.preview("b1"), { outcome: "failed", reason: "could not read the row" }, "unlink: and so is a preview that throws");
   }
 
@@ -1304,11 +1438,19 @@ await rm(HOME, { recursive: true, force: true });
   }
   {
     const { service } = windows("refuses");
+    const since = logged.length;
     eq(
       service.set(true),
       { changed: false, on: false, reason: "Access is denied." },
       "sign-in: WINDOWS REFUSING is reported with the reason, and the state is what Windows still has",
     );
+    eq(loggedSince(since), ["warn start at sign-in could not be turned on: Access is denied."], "sign-in: and logged with the reason");
+  }
+  {
+    const { service } = windows();
+    const since = logged.length;
+    service.set(true);
+    eq(loggedSince(since, true), ["info start at sign-in turned on"], "sign-in: a change that took is logged");
   }
   {
     const { service } = windows("ignores");
@@ -1351,6 +1493,113 @@ await rm(HOME, { recursive: true, force: true });
     eq(reading.plaidClientId, null, "settings: keys that cannot be read show as none");
     eq(reading.plaidKeysUnreadable, "config.json is not valid JSON", "settings: with the reason, for the presenter to word");
     eq([reading.version, reading.startAtSignIn], ["1.6.4", true], "settings: AND THE REST OF THE PLATE IS STILL SERVED");
+  }
+}
+
+// ===========================================================================
+// 14. ReportService — every part gathered on its own
+// ===========================================================================
+{
+  type ReportDependencies = import("../src/apps/desktop/main/services/report.service.js").ReportDependencies;
+  type DatabaseHealth = import("../src/domain/services/database/database-health.service.js").DatabaseHealth;
+
+  const health = (connected: boolean): DatabaseHealth => ({
+    profile: { path: "~/costingly/Data", chosenBy: "platform default", exists: true },
+    cluster: {
+      path: "~/costingly/Data/pg18",
+      exists: true,
+      state: connected ? "running" : "stopped",
+      listenAddress: "127.0.0.1:54320",
+      startedAt: connected ? "2026-10-10T08:00:00.000Z" : null,
+      uptimeSeconds: connected ? 90 : null,
+    },
+    connection: connected ? { ok: true, elapsedMs: 4 } : { ok: false, error: "ECONNREFUSED" },
+    migrationsApplied: connected ? ["001_init"] : null,
+  });
+
+  const report = (overrides: Partial<ReportDependencies> = {}) =>
+    new ReportService({
+      version: () => "1.6.4",
+      profile: async () => ({
+        path: "~/costingly/Data",
+        chosenBy: "platform default",
+        exists: true,
+        createdAt: "2026-10-01",
+        config: { exists: true, mode: 0o600 },
+        clusterExists: true,
+        values: [],
+      }),
+      plaid: async () => ({ configured: true, reachable: true }),
+      database: { health: async () => health(true), state: async () => "running" },
+      lastFailure: () => undefined,
+      banks: async () => [],
+      appLog: { excerpt: async () => ({ state: "lines", lines: ["app line"], path: "app.log" }) },
+      databaseLog: { excerpt: async () => ({ state: "empty", path: "pg18.log" }) },
+      describeError: (error) => (error instanceof Error ? error.message : String(error)),
+      now: () => new Date("2026-10-10T09:00:00"),
+      ...overrides,
+    });
+
+  {
+    const assembled = await report().assemble();
+    eq(
+      [assembled.profile.ok, assembled.database.ok, assembled.plaid.ok, assembled.banks.ok],
+      [true, true, true, true],
+      "report: on a working machine every part is present",
+    );
+    eq(assembled.database.ok && assembled.database.value.checked, true, "report: the database was checked");
+    eq([assembled.appLog.state, assembled.databaseLog.state], ["lines", "empty"], "report: both log tails are carried, whatever state they are in");
+    eq(assembled.version, "1.6.4", "report: with the version");
+  }
+  {
+    const assembled = await report({
+      banks: async () => {
+        throw new Error("relation items does not exist");
+      },
+    }).assemble();
+    eq(assembled.banks, { ok: false, reason: "relation items does not exist" }, "report: A PART THAT FAILS BECOMES ITS REASON");
+    eq([assembled.profile.ok, assembled.database.ok, assembled.plaid.ok], [true, true, true], "report: and costs nothing else");
+  }
+  {
+    let healthAsked = 0;
+    const assembled = await report({
+      database: {
+        health: async () => {
+          healthAsked++;
+          return health(false);
+        },
+        state: async () => "stopped",
+      },
+      lastFailure: () => ({ kind: "port-in-use", reason: "could not bind", port: 54320 }),
+    }).assemble();
+    eq(healthAsked, 0, "report: a start known to have failed, with the server down: THE HEALTH CHECK IS NOT RUN");
+    eq(
+      assembled.database.ok && !assembled.database.value.checked ? assembled.database.value.failure.kind : null,
+      "port-in-use",
+      "report: the remembered failure is reported instead",
+    );
+    eq(assembled.banks, { ok: false, reason: "the database is not running" }, "report: and the banks are not asked for");
+  }
+  {
+    const assembled = await report({ database: { health: async () => health(false), state: async () => "running" } }).assemble();
+    eq(assembled.banks, { ok: false, reason: "the database did not answer" }, "report: a database that did not answer the health check is not asked for banks either");
+  }
+  {
+    const assembled = await report({
+      database: {
+        health: async () => {
+          throw new Error("pg_ctl: not found");
+        },
+        state: async () => "running",
+      },
+      plaid: async () => {
+        throw new Error("boom");
+      },
+    }).assemble();
+    eq(assembled.database, { ok: false, reason: "pg_ctl: not found" }, "report: a health check that throws is its reason");
+    eq(assembled.banks, { ok: false, reason: "the database could not be checked" }, "report: so the banks say why they were not read");
+    eq(assembled.plaid, { ok: false, reason: "boom" }, "report: and Plaid failing is independent of both");
+    eq(assembled.profile.ok, true, "report: NOTHING THROWS, and what could be read was");
   }
 }
 
