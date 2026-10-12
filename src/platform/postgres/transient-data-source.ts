@@ -13,6 +13,7 @@
  */
 
 import type { Client } from "pg";
+import { log } from "../runtime/log.js";
 import { toResult } from "./to-result.js";
 import type { DataSource } from "./types/data-source.js";
 import type { DbResult } from "./types/db-result.js";
@@ -57,9 +58,8 @@ export class TransientDataSource implements DataSource {
         try {
           await client.query("ROLLBACK");
         } catch (rollbackError) {
-          console.error(
-            "[db] ROLLBACK failed:",
-            rollbackError instanceof Error ? rollbackError.message : rollbackError,
+          log.error(
+            `[db] ROLLBACK failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
           );
         }
         throw error;

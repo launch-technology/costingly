@@ -113,7 +113,7 @@ let { app, page } = await open();
 
 eq(
   await page.getByRole("navigation", { name: "Screens" }).getByRole("button").allInnerTexts(),
-  ["Status", "Accounts", "Transactions", "Settings"],
+  ["Status", "Accounts", "Transactions", "Settings", "Logs"],
   "the sidebar lists Status, then Accounts, then Transactions",
 );
 await expectVisible(checks, page.getByTestId("status-screen"), "a set-up machine still opens on Status");

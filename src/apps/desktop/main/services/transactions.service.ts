@@ -23,6 +23,7 @@ import type {
   TransactionsFound,
 } from "../../../../domain/services/transactions/transaction-search.service.js";
 import type { DatastoreState } from "../../../../platform/datastore/datastore.js";
+import { log } from "../../../../platform/runtime/log.js";
 
 export interface TransactionsDependencies {
   /** Whether the database server is up. Reads a pid file; never starts anything. */
@@ -49,7 +50,9 @@ export class TransactionsService {
       const [found, accounts] = await Promise.all([this.deps.find(filter), this.deps.listAccounts()]);
       return { state: "ready", found, accounts };
     } catch (error) {
-      return { state: "failed", reason: this.deps.describeError(error) };
+      const reason = this.deps.describeError(error);
+      log.error(`transactions could not be read: ${reason}`);
+      return { state: "failed", reason };
     }
   }
 }

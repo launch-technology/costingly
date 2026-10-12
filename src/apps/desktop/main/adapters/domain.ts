@@ -47,18 +47,31 @@ import {
 } from "../../../../domain/services/transactions/transaction-search.service.js";
 import { checkPlaid, checkProfile } from "../../../../domain/services/status.service.js";
 import type { StatusChecks } from "../controllers/status.controller.js";
+import { desktopLogPath } from "../desktop-paths.js";
 import type { AccountsDependencies } from "../services/accounts.service.js";
 import type { DatabaseDependencies } from "../services/database.service.js";
+import type { ReportDependencies } from "../services/report.service.js";
 import type { SettingsDependencies } from "../services/settings.service.js";
 import type { SetupDependencies } from "../services/setup.service.js";
 import type { SyncDependencies } from "../services/sync.service.js";
 import type { TransactionsDependencies } from "../services/transactions.service.js";
 import type { UnlinkDependencies } from "../services/unlink.service.js";
-import { DatabaseLog, createRedactor } from "./database-log.js";
+import { LogFile, createRedactor } from "./log-file.js";
 import { PlaidKeyVerifier } from "./plaid-key-verifier.js";
 
 /** This profile: where it is, and how its paths are shown. */
 export const profile = platform;
+
+/** costingly's own version, from package.json — not Electron's. */
+export const appVersion = packageVersion;
+
+/**
+ * How large either log may grow. One file each, trimmed in place; there is no
+ * rotation and no history past this. Enough for weeks of ordinary use, and
+ * small enough to read and copy without thinking about it.
+ */
+export const APP_LOG_MAX_BYTES = 5 * 1024 * 1024;
+export const DATABASE_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * Remove this profile's secrets from text about to be shown.
@@ -82,8 +95,17 @@ export function describeError(error: unknown): string {
 }
 
 /** The database's own log, redacted on the way out. */
-export const databaseLog = new DatabaseLog({
+export const databaseLog = new LogFile({
+  name: "database",
   path: () => server.logPath(),
+  displayPath: (path) => platform.displayPath(path),
+  redact,
+});
+
+/** The app's own log — what platform/runtime/log.ts writes — read the same way. */
+export const appLog = new LogFile({
+  name: "app",
+  path: () => desktopLogPath(platform),
   displayPath: (path) => platform.displayPath(path),
   redact,
 });
@@ -116,7 +138,7 @@ export function keyCheck(clientId: string, secret: string): Promise<string> {
   return createLinkToken(PlaidClient.withKeys(clientId, secret));
 }
 
-export function databaseDependencies(report: (line: string) => void): DatabaseDependencies {
+export function databaseDependencies(): DatabaseDependencies {
   return {
     datastore: server,
     // One domain operation does both: it creates what is missing and brings
@@ -124,11 +146,36 @@ export function databaseDependencies(report: (line: string) => void): DatabaseDe
     // database service's distinction, made by when it calls.
     update: install,
     create: install,
-    log: databaseLog,
+    log: {
+      size: () => databaseLog.size(),
+      readSince: (offset) => databaseLog.readSince(offset),
+      trim: () => databaseLog.trim(DATABASE_LOG_MAX_BYTES),
+    },
     closeConnections: closeDb,
     keysPresent,
     describeError,
-    report,
+  };
+}
+
+/**
+ * What the copied report is made from: the same checks the Status screen's
+ * sections run, the bank listing the Accounts screen is drawn from, and the two
+ * logs. Each is gathered on its own, so one that fails costs only its part.
+ */
+export function reportDependencies(): Omit<ReportDependencies, "lastFailure"> {
+  return {
+    version: packageVersion,
+    profile: checkProfile,
+    plaid: () => checkPlaid(plaid),
+    database: {
+      health: checkDatabase,
+      state: () => server.status(),
+    },
+    banks: () => listWithAccounts(adminDataSource()),
+    appLog,
+    databaseLog,
+    describeError,
+    now: () => new Date(),
   };
 }
 

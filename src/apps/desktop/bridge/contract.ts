@@ -99,6 +99,24 @@ export type LogExcerpt =
   | { state: "empty"; path: string }
   | { state: "unreadable"; path: string };
 
+/** The two logs the Logs screen shows: the app's own, and the database's. */
+export type LogName = "app" | "database";
+
+/** A log was copied — these lines, exactly — or was not. */
+export type CopyLogResult = { outcome: "copied"; view: LogExcerpt } | { outcome: "failed"; problem: Problem };
+
+/**
+ * The report, as the Logs screen's Report tab shows it: how the app stands,
+ * and the recent lines of both logs, as one piece of plain text with nothing
+ * secret in it. What is shown is what Copy puts on the clipboard.
+ */
+export interface ReportView {
+  text: string;
+}
+
+/** The report was copied — this text, exactly — or was not. */
+export type CopyReportResult = { outcome: "copied"; view: ReportView } | { outcome: "failed"; problem: Problem };
+
 export type DatabaseResult = { outcome: "ready" } | { outcome: "failed"; problem: Problem };
 
 /** One account, as the Accounts screen shows it. Every field is ready to draw. */
@@ -371,6 +389,15 @@ export interface DesktopContract {
   "settings.read": { args: []; result: SettingsView };
   /** Register, or unregister, Costingly to start at Windows sign-in. Changing the keys is `setup.submitKeys`. */
   "settings.setStartAtSignIn": { args: [on: boolean]; result: StartAtSignInResult };
+
+  /** The most recent lines of a log, as the Logs screen shows them. More than `database.logExcerpt` gives. */
+  "logs.read": { args: [which: LogName]; result: LogExcerpt };
+  /** Put a log's recent lines on the clipboard, and answer with the lines that were copied. */
+  "logs.copy": { args: [which: LogName]; result: CopyLogResult };
+  /** The report, put together now. Assembling it asks Plaid, so it can take several seconds. */
+  "logs.readReport": { args: []; result: ReportView };
+  /** Put the report on the clipboard, put together now, and answer with the text that was copied. */
+  "logs.copyReport": { args: []; result: CopyReportResult };
 }
 
 export type Call = keyof DesktopContract;

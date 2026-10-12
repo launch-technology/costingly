@@ -18,6 +18,7 @@
 
 import type { BankToUnlink, UnlinkOutcome } from "../../../../domain/services/banks/unlink.service.js";
 import type { DatastoreState } from "../../../../platform/datastore/datastore.js";
+import { log } from "../../../../platform/runtime/log.js";
 
 export interface UnlinkDependencies {
   /** Whether the database server is up. Reads a pid file; never starts anything. */
@@ -57,12 +58,43 @@ export class UnlinkService {
   }
 
   async unlink(bankId: string, options: { revokeAtPlaid: boolean }): Promise<UnlinkAttempt> {
+    let result: UnlinkAttempt;
     try {
-      if ((await this.deps.state()) !== "running") return { outcome: "database-stopped" };
-      const attempt = await this.deps.exclusively(() => this.deps.unlink(bankId, options));
-      return attempt.ran ? attempt.value : { outcome: "busy" };
+      if ((await this.deps.state()) !== "running") {
+        result = { outcome: "database-stopped" };
+      } else {
+        const attempt = await this.deps.exclusively(() => this.deps.unlink(bankId, options));
+        result = attempt.ran ? attempt.value : { outcome: "busy" };
+      }
     } catch (error) {
-      return { outcome: "failed", reason: this.deps.describeError(error) };
+      result = { outcome: "failed", reason: this.deps.describeError(error) };
+    }
+    this.record(result);
+    return result;
+  }
+
+  private record(result: UnlinkAttempt): void {
+    switch (result.outcome) {
+      case "unlinked": {
+        const bank = result.institutionName ?? "a bank";
+        log.info(`unlinked ${bank}${result.revokedAtPlaid ? " and ended its connection at Plaid" : "; its connection at Plaid was kept"}`);
+        return;
+      }
+      case "plaid-failed":
+        log.warn(`unlink of ${result.institutionName ?? "a bank"} stopped: Plaid did not end the connection, nothing was deleted: ${result.reason}`);
+        return;
+      case "not-found":
+        log.warn("unlink: no bank with that id");
+        return;
+      case "busy":
+        log.info("unlink refused: a sync is running");
+        return;
+      case "database-stopped":
+        log.warn("unlink refused: the database is not running");
+        return;
+      case "failed":
+        log.error(`unlink failed: ${result.reason}`);
+        return;
     }
   }
 }

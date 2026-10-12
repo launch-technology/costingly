@@ -18,6 +18,7 @@
 
 import type { ConfigFile, StoredConfig } from "../../../../domain/config.js";
 import type { DatastoreState } from "../../../../platform/datastore/datastore.js";
+import { log } from "../../../../platform/runtime/log.js";
 import type { DatabaseResult, KeysResult, Problem, SetupState } from "../../bridge/contract.js";
 
 /** What became of a pair of keys offered to Plaid. */
@@ -90,7 +91,18 @@ export class SetupService {
     }
 
     const verdict = await this.deps.keys.verify(id, key);
-    if (!verdict.accepted) return { outcome: verdict.kind, reason: verdict.reason };
+    if (!verdict.accepted) {
+      // The reason is Plaid's wording or the network's. Nothing that was typed
+      // is logged, the client ID included: a pair Plaid has not accepted may
+      // be the two keys in each other's fields, and the redactor only knows
+      // the secrets that are saved.
+      log.warn(
+        verdict.kind === "rejected"
+          ? `Plaid rejected the keys offered: ${verdict.reason}`
+          : `the keys could not be checked, Plaid was not reached: ${verdict.reason}`,
+      );
+      return { outcome: verdict.kind, reason: verdict.reason };
+    }
 
     try {
       await this.deps.config.write({
@@ -104,12 +116,15 @@ export class SetupService {
     } catch (error) {
       // Plaid said yes and the disk said no. Not "rejected" — retyping the keys
       // will not help — so it is reported as the other kind of failure, in words.
+      const reason = this.deps.describeError(error);
+      log.error(`Plaid accepted the keys for client ID ${id}, but they could not be saved: ${reason}`);
       return {
         outcome: "unreachable",
-        reason: `Plaid accepted the keys, but they could not be saved: ${this.deps.describeError(error)}`,
+        reason: `Plaid accepted the keys, but they could not be saved: ${reason}`,
       };
     }
 
+    log.info(`Plaid keys saved for client ID ${id}; they are in use from now on`);
     return { outcome: "accepted" };
   }
 

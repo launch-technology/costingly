@@ -15,6 +15,7 @@ import type {
 } from "plaid";
 
 import type { Batch, Source } from "../../../platform/pipeline/source.js";
+import { log } from "../../../platform/runtime/log.js";
 import { db } from "../../data/default-database.js";
 import { listSyncableItems, type SyncableItem } from "../../data/repositories/items.repository.js";
 import { isMutationDuringPagination, type PlaidClient } from "../../data/plaid.client.js";
@@ -127,7 +128,7 @@ export class PlaidSource implements Source<SyncableItem, ItemChanges> {
         };
       } catch (error) {
         if (isMutationDuringPagination(error) && attempt < MAX_PAGINATION_RESTARTS) {
-          console.warn(
+          log.warn(
             `[sync] transactions mutated mid-pagination; discarding ${
               added.length + modified.length + removed.length
             } buffered change(s) and restarting from the stored cursor ` +

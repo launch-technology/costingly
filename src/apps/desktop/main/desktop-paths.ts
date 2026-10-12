@@ -34,3 +34,8 @@ export function desktopDir(profile: PlatformConfig): string {
 export function desktopStatePath(profile: PlatformConfig): string {
   return join(desktopDir(profile), "settings.json");
 }
+
+/** The app's own log. Beside its settings, not in the profile, for the same reason. */
+export function desktopLogPath(profile: PlatformConfig): string {
+  return join(desktopDir(profile), "costingly.log");
+}

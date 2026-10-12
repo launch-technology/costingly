@@ -234,6 +234,24 @@ none(
   `only ${DESKTOP_HOME} imports ${DESKTOP_PACKAGES.join(" / ")}`,
 );
 
+// --- one way to log ----------------------------------------------------------
+//
+// platform/runtime/log.ts is how anything below a terminal writes a
+// diagnostic: stderr until an application gives it a file, then the file. A
+// console call anywhere else is a line that never reaches the desktop app's
+// log, and under the MCP server a stray console.log corrupts the protocol
+// channel. The CLI is the one interface whose screen IS the console, and it
+// is being retired; it keeps its own.
+const LOG_MODULE = "platform/runtime/log.ts";
+const CONSOLE_FREE = ["domain/", "platform/", "apps/mcp/", "apps/desktop/main/", "apps/desktop/bridge/"];
+none(
+  files
+    .filter((f) => f.path !== LOG_MODULE && CONSOLE_FREE.some((prefix) => f.path.startsWith(prefix)))
+    .filter((f) => /\bconsole\.(log|error|warn|info|debug|trace)\s*\(/.test(f.text))
+    .map((f) => f.path),
+  "nothing outside the CLI and the log module calls console",
+);
+
 // --- the renderer is browser code -------------------------------------------
 //
 // It runs sandboxed in Chromium with no node and no domain, and reaches the

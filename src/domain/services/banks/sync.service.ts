@@ -16,6 +16,7 @@
  */
 
 import { Pipeline } from "../../../platform/pipeline/pipeline.js";
+import { log } from "../../../platform/runtime/log.js";
 import { db } from "../../data/default-database.js";
 import { setItemStatus, type SyncableItem } from "../../data/repositories/items.repository.js";
 import { describeError, isItemLoginRequired, type PlaidClient } from "../../data/plaid.client.js";
@@ -55,9 +56,8 @@ export async function syncAllItems(plaid: PlaidClient): Promise<SyncSummary> {
         try {
           await markLoginRequired(item, error);
         } catch (statusError) {
-          console.error(
-            `[sync] failed to mark item ${item.itemId} as login_required:`,
-            describeError(statusError),
+          log.error(
+            `[sync] failed to mark item ${item.itemId} as login_required: ${describeError(statusError)}`,
           );
         }
       },

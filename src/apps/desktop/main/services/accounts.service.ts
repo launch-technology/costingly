@@ -16,6 +16,7 @@
 
 import type { ItemAccountListing } from "../../../../domain/data/repositories/items.repository.js";
 import type { DatastoreState } from "../../../../platform/datastore/datastore.js";
+import { log } from "../../../../platform/runtime/log.js";
 
 export interface AccountsDependencies {
   /** Whether the database server is up. Reads a pid file; never starts anything. */
@@ -39,7 +40,9 @@ export class AccountsService {
       if ((await this.deps.state()) !== "running") return { state: "database-stopped" };
       return { state: "ready", rows: await this.deps.list() };
     } catch (error) {
-      return { state: "failed", reason: this.deps.describeError(error) };
+      const reason = this.deps.describeError(error);
+      log.error(`the accounts could not be read: ${reason}`);
+      return { state: "failed", reason };
     }
   }
 }

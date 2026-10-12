@@ -22,6 +22,7 @@
 
 import { ipcMain, type WebContents } from "electron";
 
+import { log } from "../../../../platform/runtime/log.js";
 import type { AllHandlers } from "../controllers/controller.js";
 
 export interface IpcRouterOptions {
@@ -29,7 +30,6 @@ export interface IpcRouterOptions {
   isAppWindow(sender: WebContents): boolean;
   /** A safe one-line description of any error. */
   describe(error: unknown): string;
-  log(line: string): void;
 }
 
 export function registerHandlers(handlers: AllHandlers, options: IpcRouterOptions): void {
@@ -39,7 +39,7 @@ export function registerHandlers(handlers: AllHandlers, options: IpcRouterOption
     ipcMain.handle(call, async (event, ...args: unknown[]) => {
       // The top page of the window only: a frame inside it is somebody else's.
       if (event.senderFrame !== event.sender.mainFrame || !options.isAppWindow(event.sender)) {
-        options.log(`${call} refused: it did not come from the app's window`);
+        log.warn(`${call} refused: it did not come from the app's window`);
         throw new Error("That is not available from here.");
       }
 
@@ -47,7 +47,7 @@ export function registerHandlers(handlers: AllHandlers, options: IpcRouterOption
         return await answer(...args);
       } catch (error) {
         const reason = options.describe(error);
-        options.log(`${call} failed: ${reason}`);
+        log.error(`${call} failed: ${reason}`);
         throw new Error(reason);
       }
     });

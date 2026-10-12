@@ -11,6 +11,7 @@
  */
 
 import type { Pool } from "pg";
+import { log } from "../runtime/log.js";
 import { toResult } from "./to-result.js";
 import type { DataSource } from "./types/data-source.js";
 import type { DbResult } from "./types/db-result.js";
@@ -73,9 +74,8 @@ export class PooledDataSource implements DataSource {
         // Never let a failed rollback replace the error that caused it: the
         // original is the one worth reading, and a dead connection is the
         // usual reason both happened.
-        console.error(
-          "[db] ROLLBACK failed:",
-          rollbackError instanceof Error ? rollbackError.message : rollbackError,
+        log.error(
+          `[db] ROLLBACK failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
         );
       }
       throw error;
