@@ -22,7 +22,7 @@
 
 import { app } from "electron";
 
-import type { StartAtSignInDependencies } from "../services/start-at-sign-in.service.js";
+import type { StartAtSignInDependencies } from "../features/settings/start-at-sign-in.service.js";
 
 /** The registry value's name. installer/installer.nsh deletes this exact name on uninstall. */
 export const REGISTRATION_NAME = "Costingly";

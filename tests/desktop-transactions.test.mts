@@ -48,7 +48,7 @@ const { install } = await import("../src/domain/services/install.service.js");
 const { saveItem } = await import("../src/domain/data/repositories/items.repository.js");
 const { upsertMany: saveAccounts } = await import("../src/domain/data/repositories/accounts.repository.js");
 const { upsertMany: saveTransactions } = await import("../src/domain/data/repositories/transactions.repository.js");
-const { formatDay, formatMoney } = await import("../src/apps/desktop/main/presenters/format.js");
+const { formatDay, formatMoney } = await import("../src/apps/desktop/main/shared/format.js");
 
 const checks = createChecks(10);
 const { eq, ok } = checks;

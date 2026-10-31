@@ -1,7 +1,7 @@
 /**
  * The desktop app's services and adapters, without a window.
  *
- * Everything under `src/apps/desktop/main/{services,adapters}` is handed what
+ * Everything under `src/apps/desktop/main/{features,shared}` is handed what
  * it depends on, so each piece can be given a collaborator that misbehaves on
  * demand: a Plaid that never answers, an install that fails, a datastore that
  * cannot be asked. Those are exactly the cases a real profile cannot be made
@@ -51,10 +51,10 @@ delete process.env["PLAID_ENV"];
 
 const { configStore } = await import("../src/index.js");
 const { configureLog } = await import("../src/platform/runtime/log.js");
-const { SetupService } = await import("../src/apps/desktop/main/services/setup.service.js");
-const { DatabaseService } = await import("../src/apps/desktop/main/services/database.service.js");
-const { LogFile, createRedactor } = await import("../src/apps/desktop/main/adapters/log-file.js");
-const { ReportService } = await import("../src/apps/desktop/main/services/report.service.js");
+const { SetupService } = await import("../src/apps/desktop/main/features/setup/setup.service.js");
+const { DatabaseService } = await import("../src/apps/desktop/main/features/database/database.service.js");
+const { LogFile, createRedactor } = await import("../src/apps/desktop/main/shared/log-file.js");
+const { ReportService } = await import("../src/apps/desktop/main/features/logs/report.service.js");
 
 /** Everything the services log, as `level message`, for the cases that check it. */
 const logged: string[] = [];
@@ -62,19 +62,20 @@ configureLog((level, message) => void logged.push(`${level} ${message}`));
 /** What was logged after a point, warnings and errors only unless asked for all. */
 const loggedSince = (from: number, all = false): string[] =>
   logged.slice(from).filter((line) => all || !line.startsWith("info "));
-const { databaseSectionReader } = await import("../src/apps/desktop/main/controllers/database.controller.js");
-const { CloseNoticeService } = await import("../src/apps/desktop/main/services/close-notice.service.js");
-const { DesktopStateService } = await import("../src/apps/desktop/main/services/desktop-state.service.js");
+const { databaseSectionReader } = await import("../src/apps/desktop/main/features/database/database.controller.js");
+const { CloseNoticeService } = await import("../src/apps/desktop/main/shared/close-notice.service.js");
+const { DesktopStateService } = await import("../src/apps/desktop/main/shared/desktop-state.service.js");
 const { PlaidKeyVerifier, classifyKeyFailure } = await import(
-  "../src/apps/desktop/main/adapters/plaid-key-verifier.js"
+  "../src/apps/desktop/main/features/setup/plaid-key-verifier.adapter.js"
 );
-const domain = await import("../src/apps/desktop/main/adapters/domain.js");
+const { keyCheck, setupDependencies } = await import("../src/apps/desktop/main/features/setup/setup.adapter.js");
+const { linkPage } = await import("../src/apps/desktop/main/features/accounts/accounts.adapter.js");
 const { PlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { createLinkToken } = await import("../src/domain/services/banks/link.service.js");
 
-type SetupDependencies = import("../src/apps/desktop/main/services/setup.service.js").SetupDependencies;
-type KeyVerdict = import("../src/apps/desktop/main/services/setup.service.js").KeyVerdict;
-type DatabaseDependencies = import("../src/apps/desktop/main/services/database.service.js").DatabaseDependencies;
+type SetupDependencies = import("../src/apps/desktop/main/features/setup/setup.service.js").SetupDependencies;
+type KeyVerdict = import("../src/apps/desktop/main/features/setup/setup.service.js").KeyVerdict;
+type DatabaseDependencies = import("../src/apps/desktop/main/features/database/database.service.js").DatabaseDependencies;
 type Problem = import("../src/apps/desktop/bridge/contract.js").Problem;
 type StoredConfig = import("../src/domain/config.js").StoredConfig;
 type DatastoreState = import("../src/platform/datastore/datastore.js").DatastoreState;
@@ -373,7 +374,7 @@ eq(classifyKeyFailure("plain string").kind, "unreachable", "a non-Error throw is
       "real sandbox keys are accepted by a check built in sandbox mode",
     );
 
-    const productVerdict = await new PlaidKeyVerifier({ check: domain.keyCheck }).verify(
+    const productVerdict = await new PlaidKeyVerifier({ check: keyCheck }).verify(
       sandbox.plaidClientId,
       sandbox.plaidSecret,
     );
@@ -385,7 +386,7 @@ eq(classifyKeyFailure("plain string").kind, "unreachable", "a non-Error throw is
     // The whole of setup's keys step, for real: sandbox check, real config.
     await rm(HOME, { recursive: true, force: true });
     const setup = new SetupService({
-      ...domain.setupDependencies(),
+      ...setupDependencies(),
       keys: sandboxVerifier,
       createDatabase: async () => undefined,
     });
@@ -929,7 +930,7 @@ const failToStart = async (): Promise<void> => {
 // ===========================================================================
 
 await rm(HOME, { recursive: true, force: true });
-const real = new SetupService({ ...domain.setupDependencies(), createDatabase: async () => undefined });
+const real = new SetupService({ ...setupDependencies(), createDatabase: async () => undefined });
 
 const nothing = await real.state();
 eq(nothing.keysPresent, false, "real profile, nothing installed: no keys");
@@ -959,7 +960,7 @@ await rm(HOME, { recursive: true, force: true });
 // 8. AccountsService — never asks a stopped database
 // ===========================================================================
 {
-  const { AccountsService } = await import("../src/apps/desktop/main/services/accounts.service.js");
+  const { AccountsService } = await import("../src/apps/desktop/main/features/accounts/accounts.service.js");
 
   let listed = 0;
   const stopped = new AccountsService({
@@ -1007,20 +1008,20 @@ await rm(HOME, { recursive: true, force: true });
 // should do to whoever runs it; that the page is really served, on this
 // machine only, and really stops, is.
 {
-  const { url } = await domain.linkPage.start();
+  const { url } = await linkPage.start();
   ok(/^http:\/\/127\.0\.0\.1:\d+$/.test(url), `link page: served on this machine only (${url})`);
   const page = await fetch(url);
   eq(page.status, 200, "link page: it answers");
   ok((await page.text()).includes("cdn.plaid.com"), "link page: with the page that loads Plaid's form");
-  eq((await domain.linkPage.start()).url, url, "link page: asking again while it is up gives the same address");
+  eq((await linkPage.start()).url, url, "link page: asking again while it is up gives the same address");
 
-  eq(await domain.linkPage.stop(), true, "link page: stop stops it");
+  eq(await linkPage.stop(), true, "link page: stop stops it");
   const after = await fetch(url).then(
     () => "still answering",
     () => "gone",
   );
   eq(after, "gone", "link page: AND NOTHING IS LEFT LISTENING");
-  eq(await domain.linkPage.stop(), false, "link page: stopping again does nothing");
+  eq(await linkPage.stop(), false, "link page: stopping again does nothing");
   await rm(HOME, { recursive: true, force: true });
 }
 
@@ -1028,8 +1029,8 @@ await rm(HOME, { recursive: true, force: true });
 // 10. SyncService — started, not awaited; one at a time; remembers the last
 // ===========================================================================
 {
-  const { SyncService } = await import("../src/apps/desktop/main/services/sync.service.js");
-  type SyncState = import("../src/apps/desktop/main/services/sync.service.js").SyncState;
+  const { SyncService } = await import("../src/apps/desktop/main/features/sync/sync.service.js");
+  type SyncState = import("../src/apps/desktop/main/features/sync/sync.service.js").SyncState;
   type SyncSummary = import("../src/domain/services/banks/sync.types.js").SyncSummary;
 
   const summary = (added: number): SyncSummary => ({
@@ -1163,7 +1164,7 @@ await rm(HOME, { recursive: true, force: true });
 
   // --- a listener that throws ------------------------------------------------
   {
-    const { SyncService: Service } = await import("../src/apps/desktop/main/services/sync.service.js");
+    const { SyncService: Service } = await import("../src/apps/desktop/main/features/sync/sync.service.js");
     const service = new Service({
       run: async () => summary(1),
       describeError: String,
@@ -1194,8 +1195,8 @@ await rm(HOME, { recursive: true, force: true });
 // 11. TransactionsService — never asks a stopped database, never throws
 // ===========================================================================
 {
-  const { TransactionsService } = await import("../src/apps/desktop/main/services/transactions.service.js");
-  type TransactionsDependencies = import("../src/apps/desktop/main/services/transactions.service.js").TransactionsDependencies;
+  const { TransactionsService } = await import("../src/apps/desktop/main/features/transactions/transactions.service.js");
+  type TransactionsDependencies = import("../src/apps/desktop/main/features/transactions/transactions.service.js").TransactionsDependencies;
   type TransactionFilter = import("../src/domain/services/transactions/transaction-search.service.js").TransactionFilter;
 
   const filter: TransactionFilter = { accountId: "a1", from: "2026-01-01", to: null, text: "coffee", limit: 100 };
@@ -1257,9 +1258,9 @@ await rm(HOME, { recursive: true, force: true });
 // 12. Unlinking — never during a sync, in either direction; never throws
 // ===========================================================================
 {
-  const { SyncService } = await import("../src/apps/desktop/main/services/sync.service.js");
-  const { UnlinkService } = await import("../src/apps/desktop/main/services/unlink.service.js");
-  type UnlinkDependencies = import("../src/apps/desktop/main/services/unlink.service.js").UnlinkDependencies;
+  const { SyncService } = await import("../src/apps/desktop/main/features/sync/sync.service.js");
+  const { UnlinkService } = await import("../src/apps/desktop/main/features/accounts/unlink.service.js");
+  type UnlinkDependencies = import("../src/apps/desktop/main/features/accounts/unlink.service.js").UnlinkDependencies;
   type SyncSummary = import("../src/domain/services/banks/sync.types.js").SyncSummary;
 
   const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
@@ -1404,8 +1405,8 @@ await rm(HOME, { recursive: true, force: true });
 // 13. Settings — start at sign-in is what Windows has; the facts, gathered
 // ===========================================================================
 {
-  const { StartAtSignInService } = await import("../src/apps/desktop/main/services/start-at-sign-in.service.js");
-  const { SettingsService } = await import("../src/apps/desktop/main/services/settings.service.js");
+  const { StartAtSignInService } = await import("../src/apps/desktop/main/features/settings/start-at-sign-in.service.js");
+  const { SettingsService } = await import("../src/apps/desktop/main/features/settings/settings.service.js");
 
   /** A Windows that remembers a registration, and can be made to refuse. */
   function windows(behaviour: "keeps" | "refuses" | "ignores" = "keeps") {
@@ -1500,7 +1501,7 @@ await rm(HOME, { recursive: true, force: true });
 // 14. ReportService — every part gathered on its own
 // ===========================================================================
 {
-  type ReportDependencies = import("../src/apps/desktop/main/services/report.service.js").ReportDependencies;
+  type ReportDependencies = import("../src/apps/desktop/main/features/logs/report.service.js").ReportDependencies;
   type DatabaseHealth = import("../src/domain/services/database/database-health.service.js").DatabaseHealth;
 
   const health = (connected: boolean): DatabaseHealth => ({

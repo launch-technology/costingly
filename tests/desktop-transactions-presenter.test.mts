@@ -18,8 +18,8 @@ import type {
   TransactionsFound,
 } from "../src/domain/services/transactions/transaction-search.service.js";
 import type { TransactionsView } from "../src/apps/desktop/bridge/contract.js";
-import { formatDay, formatMoney } from "../src/apps/desktop/main/presenters/format.js";
-import { categoryWords, presentTransactions } from "../src/apps/desktop/main/presenters/transactions.presenter.js";
+import { formatDay, formatMoney } from "../src/apps/desktop/main/shared/format.js";
+import { categoryWords, presentTransactions } from "../src/apps/desktop/main/features/transactions/transactions.presenter.js";
 
 const out: string[] = [];
 let fail = 0;
