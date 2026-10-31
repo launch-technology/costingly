@@ -15,7 +15,7 @@
 
 import type { ItemSyncResult, SyncSummary } from "../src/domain/services/banks/sync.types.js";
 import type { SyncView } from "../src/apps/desktop/bridge/contract.js";
-import { presentSync } from "../src/apps/desktop/main/presenters/sync.presenter.js";
+import { presentSync } from "../src/apps/desktop/main/features/sync/sync.presenter.js";
 
 const out: string[] = [];
 let fail = 0;

@@ -18,10 +18,12 @@
  * So this file answers "what is the app made of, and what talks to what", and
  * the behaviour lives in the pieces:
  *
- *   controllers/   answer the window's calls, one class per feature
- *   services/      what the app does; no Electron
- *   adapters/      the real domain, fitted to what the services ask for
- *   presenters/    domain reports, worded for a screen
+ *   features/      one folder per thing the app does, with its controller
+ *                  (answers the window's calls), service (what the app does;
+ *                  no Electron), presenter (domain reports, worded for a
+ *                  screen) and adapter (the real domain, fitted to what the
+ *                  service asks for) side by side
+ *   shared/        what more than one feature uses
  *   shell/         the Electron objects: window, tray, the IPC router
  *
  * A new feature is a controller added to the list in `compose()` and its
@@ -49,31 +51,47 @@ import { app, clipboard, shell } from "electron";
 import type { Application } from "../../../platform/runtime/application.js";
 import { configureLog, log } from "../../../platform/runtime/log.js";
 import { ResourceScope } from "../../../platform/runtime/resource-scope.js";
-import * as domain from "./adapters/domain.js";
-import { AccountsController } from "./controllers/accounts.controller.js";
-import type { AllHandlers } from "./controllers/controller.js";
-import { DatabaseController, databaseSectionReader } from "./controllers/database.controller.js";
-import { LinkController } from "./controllers/link.controller.js";
-import { LogsController } from "./controllers/logs.controller.js";
-import { SettingsController } from "./controllers/settings.controller.js";
-import { SetupController } from "./controllers/setup.controller.js";
-import { StatusController } from "./controllers/status.controller.js";
-import { SyncController } from "./controllers/sync.controller.js";
-import { TransactionsController } from "./controllers/transactions.controller.js";
 import { desktopDir, desktopLogPath, desktopStatePath } from "./desktop-paths.js";
-import { explainDatabaseFailure } from "./presenters/database.presenter.js";
-import { presentSync } from "./presenters/sync.presenter.js";
-import { AccountsService } from "./services/accounts.service.js";
-import { CloseNoticeService } from "./services/close-notice.service.js";
-import { DatabaseService } from "./services/database.service.js";
-import { DesktopStateService } from "./services/desktop-state.service.js";
-import { ReportService } from "./services/report.service.js";
-import { SettingsService } from "./services/settings.service.js";
-import { SetupService } from "./services/setup.service.js";
-import { StartAtSignInService } from "./services/start-at-sign-in.service.js";
-import { SyncService } from "./services/sync.service.js";
-import { TransactionsService } from "./services/transactions.service.js";
-import { UnlinkService } from "./services/unlink.service.js";
+import { accountsDependencies, linkPage, unlinkDependencies } from "./features/accounts/accounts.adapter.js";
+import { AccountsController } from "./features/accounts/accounts.controller.js";
+import { AccountsService } from "./features/accounts/accounts.service.js";
+import { LinkController } from "./features/accounts/link.controller.js";
+import { UnlinkService } from "./features/accounts/unlink.service.js";
+import { databaseDependencies, databaseSources } from "./features/database/database.adapter.js";
+import { DatabaseController, databaseSectionReader } from "./features/database/database.controller.js";
+import { explainDatabaseFailure } from "./features/database/database.presenter.js";
+import { DatabaseService } from "./features/database/database.service.js";
+import { reportDependencies } from "./features/logs/logs.adapter.js";
+import { LogsController } from "./features/logs/logs.controller.js";
+import { ReportService } from "./features/logs/report.service.js";
+import { settingsDependencies } from "./features/settings/settings.adapter.js";
+import { SettingsController } from "./features/settings/settings.controller.js";
+import { SettingsService } from "./features/settings/settings.service.js";
+import { StartAtSignInService } from "./features/settings/start-at-sign-in.service.js";
+import { setupDependencies } from "./features/setup/setup.adapter.js";
+import { SetupController } from "./features/setup/setup.controller.js";
+import { SetupService } from "./features/setup/setup.service.js";
+import { statusChecks } from "./features/status/status.adapter.js";
+import { StatusController } from "./features/status/status.controller.js";
+import { syncDependencies } from "./features/sync/sync.adapter.js";
+import { SyncController } from "./features/sync/sync.controller.js";
+import { presentSync } from "./features/sync/sync.presenter.js";
+import { SyncService } from "./features/sync/sync.service.js";
+import { transactionsDependencies, transactionsPageSize } from "./features/transactions/transactions.adapter.js";
+import { TransactionsController } from "./features/transactions/transactions.controller.js";
+import { TransactionsService } from "./features/transactions/transactions.service.js";
+import { CloseNoticeService } from "./shared/close-notice.service.js";
+import type { AllHandlers } from "./shared/controller.js";
+import { DesktopStateService } from "./shared/desktop-state.service.js";
+import {
+  APP_LOG_MAX_BYTES,
+  appLog,
+  appVersion,
+  databaseLog,
+  describeError,
+  profile,
+  redact,
+} from "./shared/domain.adapter.js";
 import { registerHandlers } from "./shell/ipc-router.js";
 import { MainWindow } from "./shell/main-window.js";
 import { placeholderIcon } from "./shell/placeholder-icon.js";
@@ -96,14 +114,14 @@ export class DesktopApplication implements Application {
     // Before anything else, and before `ready`: Electron decides where its
     // cache and session live from this, and the default is %APPDATA%\costingly
     // — a second place on the machine for the uninstaller to know about.
-    app.setPath("userData", desktopDir(domain.profile));
+    app.setPath("userData", desktopDir(profile));
 
     // The log, before anything that could fail: a start that goes wrong is
     // the first thing anyone will want to read about. In the app's own folder,
     // beside Electron's files, so opening the app still creates no profile.
-    configureLog({ path: desktopLogPath(domain.profile), maxBytes: domain.APP_LOG_MAX_BYTES, redact: domain.redact });
+    configureLog({ path: desktopLogPath(profile), maxBytes: APP_LOG_MAX_BYTES, redact });
     const hidden = startedHidden(process.argv);
-    log.info(`Costingly ${domain.appVersion()} starting${hidden ? " hidden, for sign-in" : ""}`);
+    log.info(`Costingly ${appVersion()} starting${hidden ? " hidden, for sign-in" : ""}`);
 
     if (!app.requestSingleInstanceLock()) {
       this.secondCopy = true;
@@ -147,17 +165,17 @@ export class DesktopApplication implements Application {
     // --- the database, brought up while Electron is still getting ready ------
     // The two waits overlap, and the first status check the window makes then
     // finds the database already up instead of reporting a stop about to end.
-    const database = new DatabaseService(domain.databaseDependencies());
+    const database = new DatabaseService(databaseDependencies());
     const databaseComingUp = database.bringUp();
     this.scope.onClose("database", () => database.stop());
 
     await app.whenReady();
 
     // --- what the window can ask for ----------------------------------------
-    const databaseSection = databaseSectionReader(domain.databaseSources, database);
+    const databaseSection = databaseSectionReader(databaseSources, database);
 
     const setup = new SetupService({
-      ...domain.setupDependencies(),
+      ...setupDependencies(),
       // Setup creates the database through the same service, and explains a
       // failure in the same words, as the status screen's own button.
       createDatabase: async () => {
@@ -173,7 +191,7 @@ export class DesktopApplication implements Application {
     // this is so Quit never leaves it listening. Registered after the database,
     // so released before it: the page stops while there is still a database
     // for anything it was saving.
-    this.scope.onClose("link page", async () => void (await domain.linkPage.stop()));
+    this.scope.onClose("link page", async () => void (await linkPage.stop()));
 
     // --- the sync, in the background -------------------------------------------
     // Started by the Sync button today; anything else that starts one later —
@@ -183,7 +201,7 @@ export class DesktopApplication implements Application {
     // query can start the database again, and the run's progress is committed
     // bank by bank, so nothing is lost and nothing is left running.
     const sync = new SyncService({
-      ...domain.syncDependencies(),
+      ...syncDependencies(),
       now: () => new Date(),
       onChange: (state) => this.window?.emit("sync.changed", presentSync(state)),
     });
@@ -193,43 +211,43 @@ export class DesktopApplication implements Application {
     // it, and the service decides what to say about it.
     const startAtSignIn = new StartAtSignInService({
       ...startAtSignInRegistration(),
-      describeError: domain.describeError,
+      describeError,
     });
 
     const handlers: AllHandlers = {
-      ...new StatusController(domain.statusChecks(), databaseSection).handlers(),
-      ...new DatabaseController(database, databaseSection, domain.databaseLog).handlers(),
+      ...new StatusController(statusChecks(), databaseSection).handlers(),
+      ...new DatabaseController(database, databaseSection, databaseLog).handlers(),
       ...new SetupController(setup, (url) => shell.openExternal(url)).handlers(),
       ...new AccountsController(
-        new AccountsService(domain.accountsDependencies()),
+        new AccountsService(accountsDependencies()),
         // An unlink takes exclusive use from the sync: the two never overlap.
-        new UnlinkService({ ...domain.unlinkDependencies(), exclusively: (work) => sync.runExclusive(work) }),
+        new UnlinkService({ ...unlinkDependencies(), exclusively: (work) => sync.runExclusive(work) }),
       ).handlers(),
       ...new LinkController(
-        async () => shell.openExternal((await domain.linkPage.start()).url),
-        async (bankId) => shell.openExternal(await domain.linkPage.startForReconnect(bankId)),
+        async () => shell.openExternal((await linkPage.start()).url),
+        async (bankId) => shell.openExternal(await linkPage.startForReconnect(bankId)),
       ).handlers(),
       ...new SyncController(sync).handlers(),
       ...new TransactionsController(
-        new TransactionsService(domain.transactionsDependencies()),
-        domain.transactionsPageSize,
+        new TransactionsService(transactionsDependencies()),
+        transactionsPageSize,
       ).handlers(),
       ...new SettingsController(
-        new SettingsService({ ...domain.settingsDependencies(), startAtSignIn }),
+        new SettingsService({ ...settingsDependencies(), startAtSignIn }),
         startAtSignIn,
       ).handlers(),
       // The two logs, and the report. Copying is the clipboard's, which is
       // Electron's, handed in like the browser is above.
       ...new LogsController(
-        { app: domain.appLog, database: domain.databaseLog },
-        new ReportService({ ...domain.reportDependencies(), lastFailure: () => database.lastFailure() }),
+        { app: appLog, database: databaseLog },
+        new ReportService({ ...reportDependencies(), lastFailure: () => database.lastFailure() }),
         (text) => clipboard.writeText(text),
-        domain.describeError,
+        describeError,
       ).handlers(),
     };
     registerHandlers(handlers, {
       isAppWindow: (sender) => this.window?.owns(sender) ?? false,
-      describe: domain.describeError,
+      describe: describeError,
     });
 
     // --- the tray, and the notice it shows once ------------------------------
@@ -241,7 +259,7 @@ export class DesktopApplication implements Application {
     this.scope.onClose("tray", async () => tray.destroy());
 
     const closeNotice = new CloseNoticeService(
-      new DesktopStateService(desktopStatePath(domain.profile)),
+      new DesktopStateService(desktopStatePath(profile)),
       () =>
         tray.notify(
           "Costingly is still running",

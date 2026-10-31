@@ -20,11 +20,11 @@
 
 import type { DatabaseHealth } from "../src/domain/services/database/database-health.service.js";
 import type { DatabaseSectionView, Problem } from "../src/apps/desktop/bridge/contract.js";
-import type { DatabaseFailure } from "../src/apps/desktop/main/services/database.service.js";
+import type { DatabaseFailure } from "../src/apps/desktop/main/features/database/database.service.js";
 import {
   explainDatabaseFailure,
   presentDatabaseSection,
-} from "../src/apps/desktop/main/presenters/database.presenter.js";
+} from "../src/apps/desktop/main/features/database/database.presenter.js";
 
 const out: string[] = [];
 let fail = 0;

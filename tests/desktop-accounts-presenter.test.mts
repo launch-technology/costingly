@@ -20,7 +20,7 @@ import {
   presentAccounts,
   presentUnlinkPreview,
   presentUnlinkResult,
-} from "../src/apps/desktop/main/presenters/accounts.presenter.js";
+} from "../src/apps/desktop/main/features/accounts/accounts.presenter.js";
 
 const out: string[] = [];
 let fail = 0;

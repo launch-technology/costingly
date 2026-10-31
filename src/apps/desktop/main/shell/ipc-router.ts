@@ -23,7 +23,7 @@
 import { ipcMain, type WebContents } from "electron";
 
 import { log } from "../../../../platform/runtime/log.js";
-import type { AllHandlers } from "../controllers/controller.js";
+import type { AllHandlers } from "../shared/controller.js";
 
 export interface IpcRouterOptions {
   /** Is this page the app's own window? Asked for every call, when it arrives. */

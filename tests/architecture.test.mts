@@ -291,17 +291,17 @@ none(
 
 // --- the desktop main process: layers behind the window ---------------------
 //
-//   controllers/   answer the window's calls
-//   services/      what the app does
-//   presenters/    domain reports, worded for a screen
-//   adapters/      the real domain, fitted to what the services ask for
-//   shell/         the Electron objects
+//   features/      one folder per thing the app does. Inside it, the role is
+//                  the file's suffix: x.controller.ts answers the window's
+//                  calls, x.service.ts is what the app does, x.presenter.ts
+//                  words a domain report for a screen, and x.adapter.ts fits
+//                  the real domain to what the service asks for.
+//   shared/        what more than one feature uses; same suffixes
+//   shell/         the Electron edge: window, tray, the IPC router
 //
-// Three properties keep those layers meaning something.
+// Four properties keep that layout meaning something.
 const DESKTOP_MAIN = "apps/desktop/main/";
-const BEHIND_THE_SHELL = ["controllers/", "services/", "presenters/", "adapters/"].map(
-  (folder) => `${DESKTOP_MAIN}${folder}`,
-);
+const BEHIND_THE_SHELL = ["features/", "shared/"].map((folder) => `${DESKTOP_MAIN}${folder}`);
 const behindTheShell = files.filter((f) => BEHIND_THE_SHELL.some((p) => f.path.startsWith(p)));
 
 // Electron stays at the edges: the shell and the composition root. Everything
@@ -309,7 +309,7 @@ const behindTheShell = files.filter((f) => BEHIND_THE_SHELL.some((p) => f.path.s
 // plain node with no window.
 none(
   behindTheShell.filter((f) => f.imports.some((i) => i === "electron" || i.startsWith("electron/"))).map((f) => f.path),
-  "desktop controllers, services, presenters and adapters never import electron",
+  "desktop features and shared code never import electron",
 );
 
 // The window sits ON TOP of the main process, never the other way round.
@@ -322,16 +322,27 @@ none(
 );
 
 // Controllers, services and presenters are written against interfaces of their
-// own. They may name the domain's TYPES; its code is wired in by adapters/ and
-// nowhere else — one place to read what the desktop app depends on underneath.
+// own. They may name the domain's TYPES; its code is wired in by the
+// *.adapter.ts files and nowhere else — so what the desktop app depends on
+// underneath is read from those files alone.
 const domainCode: string[] = [];
-for (const file of behindTheShell.filter((f) => !f.path.startsWith(`${DESKTOP_MAIN}adapters/`))) {
+for (const file of behindTheShell.filter((f) => !f.path.endsWith(".adapter.ts"))) {
   for (const match of file.text.matchAll(/^import\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gm)) {
     const target = targetOf(file, match[1] ?? "");
     if (target !== null && target.startsWith("domain/")) domainCode.push(`${file.path} -> ${target}`);
   }
 }
-none(domainCode, "only desktop adapters import domain code; the layers above import its types");
+none(domainCode, "only *.adapter.ts files import domain code; everything else imports its types");
+
+// The shell is Electron's side of the app. A feature that reached into it
+// would be a feature that needs a window to run; instead the composition root
+// hands each one the few Electron-only things it needs as functions.
+none(
+  behindTheShell
+    .filter((f) => f.imports.some((i) => (targetOf(f, i) ?? "").startsWith(`${DESKTOP_MAIN}shell/`)))
+    .map((f) => f.path),
+  "features and shared code never import the shell; the composition root hands them what they need",
+);
 
 // The placeholder icon's drawing is read by the installer build as well as by
 // the app, and the build runs in plain node. One import here — Electron above

@@ -6,7 +6,7 @@
  * and report the switch as Windows has it.
  */
 
-import { presentSettings, presentStartAtSignIn } from "../src/apps/desktop/main/presenters/settings.presenter.js";
+import { presentSettings, presentStartAtSignIn } from "../src/apps/desktop/main/features/settings/settings.presenter.js";
 
 const out: string[] = [];
 let fail = 0;

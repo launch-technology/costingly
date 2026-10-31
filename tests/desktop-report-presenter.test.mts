@@ -1,14 +1,14 @@
 /**
  * The copied report's wording — a table.
  *
- * The facts come from services/report.service.ts; this checks that each is
+ * The facts come from features/logs/report.service.ts; this checks that each is
  * said, that a part that could not be read is said as such, and above all
  * what is NOT said: no account name, number or balance, no key, no password,
  * no command.
  */
 
-import { copyFailed, presentReport } from "../src/apps/desktop/main/presenters/report.presenter.js";
-import type { Report } from "../src/apps/desktop/main/services/report.service.js";
+import { copyFailed, presentReport } from "../src/apps/desktop/main/features/logs/report.presenter.js";
+import type { Report } from "../src/apps/desktop/main/features/logs/report.service.js";
 
 const out: string[] = [];
 let fail = 0;

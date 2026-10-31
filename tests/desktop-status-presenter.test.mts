@@ -22,7 +22,7 @@ import {
   couldNotCheck,
   presentPlaid,
   presentProfile,
-} from "../src/apps/desktop/main/presenters/status.presenter.js";
+} from "../src/apps/desktop/main/features/status/status.presenter.js";
 
 const out: string[] = [];
 let fail = 0;
