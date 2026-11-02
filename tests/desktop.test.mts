@@ -89,11 +89,11 @@ await nav.waitFor({ timeout: 30_000 });
 eq(await page.getByTestId("setup-screen").count(), 0, "a set-up machine is not shown setup");
 eq(
   await nav.getByRole("button").allTextContents(),
-  ["Status", "Accounts", "Transactions", "Settings", "Logs"],
-  "the sidebar lists the screens that exist: Status, Accounts, Transactions, Settings, Logs",
+  ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
+  "the sidebar lists the screens that exist: Status, Accounts, Transactions, Settings, Logs, Connect",
 );
 eq(await page.getByTestId("status-screen").count(), 1, "and opens on Status");
-eq(await page.locator("article[data-testid^='section-']").count(), 3, "the status screen has three sections");
+eq(await page.locator("article[data-testid^='section-']").count(), 4, "the status screen has four sections");
 
 await expectHeadline(checks, page, "profile", /^Set up$/, "profile: Set up");
 await expectHeadline(checks, page, "database", /^Running$/, "database: Running — THE APP STARTED IT ON LAUNCH");
@@ -116,7 +116,7 @@ ok(!/costingly\s+\w+|Claude Desktop/.test(plaid), "the Plaid section says nothin
 
 ok(
   await until(async () => (await page.getByTestId("status-screen").getAttribute("data-checking")) === "false"),
-  "all three checks finish",
+  "all four checks finish",
 );
 eq(await page.getByRole("button", { name: "Refresh" }).isEnabled(), true, "and Refresh is available again");
 

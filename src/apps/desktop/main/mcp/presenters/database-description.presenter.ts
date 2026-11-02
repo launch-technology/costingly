@@ -1,13 +1,13 @@
 /**
  * Rendering the schema document as the text a model reads.
  *
- * Sits beside the tool rather than in data/: how a schema is *described* to a
- * model is a protocol decision, and the same document could be rendered
+ * Sits beside the tool rather than in the domain: how a schema is *described*
+ * to a model is a protocol decision, and the same document could be rendered
  * differently for a different surface. The repository builds the facts; this
  * decides how they read.
  */
 
-import type { DatabaseDoc } from "../../../domain/data/repositories/schema.repository.js";
+import type { DatabaseDoc } from "../../../../../domain/data/repositories/schema.repository.js";
 
 /**
  * Render the document as text.

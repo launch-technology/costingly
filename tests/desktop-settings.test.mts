@@ -124,7 +124,7 @@ try {
   let { app, page } = await open();
   eq(
     await page.getByRole("navigation", { name: "Screens" }).getByRole("button").allInnerTexts(),
-    ["Status", "Accounts", "Transactions", "Settings", "Logs"],
+    ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
     "the sidebar lists Settings below Transactions",
   );
   await goToSettings(page);

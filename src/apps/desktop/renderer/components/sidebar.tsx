@@ -6,7 +6,7 @@
  * is exactly the kind of UI the stories promise not to ship.
  */
 
-export type ScreenId = "status" | "accounts" | "transactions" | "settings" | "logs";
+export type ScreenId = "status" | "accounts" | "transactions" | "settings" | "logs" | "connect";
 
 const SCREENS: ReadonlyArray<{ id: ScreenId; label: string }> = [
   { id: "status", label: "Status" },
@@ -14,6 +14,7 @@ const SCREENS: ReadonlyArray<{ id: ScreenId; label: string }> = [
   { id: "transactions", label: "Transactions" },
   { id: "settings", label: "Settings" },
   { id: "logs", label: "Logs" },
+  { id: "connect", label: "Connect" },
 ];
 
 export interface SidebarProps {

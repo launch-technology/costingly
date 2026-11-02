@@ -14,7 +14,7 @@
  * has to read to decide what to do next.
  */
 
-import type { Blocker, CostinglyStatus } from "../../../domain/services/status.service.js";
+import type { Blocker, CostinglyStatus } from "../../../../../domain/services/status.service.js";
 
 export function formatCheck(status: CostinglyStatus, blockers: Blocker[]): string {
     const lines: string[] = [];

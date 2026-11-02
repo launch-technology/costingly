@@ -23,8 +23,13 @@
  *                  no Electron), presenter (domain reports, worded for a
  *                  screen) and adapter (the real domain, fitted to what the
  *                  service asks for) side by side
+ *   mcp/           the model's front door, a peer of features/: the tools a
+ *                  local MCP client may call, their presenters, and the route
+ *                  that speaks MCP over HTTP
  *   shared/        what more than one feature uses
- *   shell/         the Electron objects: window, tray, the IPC router
+ *   shell/         the edges: the Electron objects (window, tray), and the
+ *                  two transports requests arrive by, the IPC router and the
+ *                  local web server
  *
  * A new feature is a controller added to the list in `compose()` and its
  * calls added to the contract. The compiler refuses a contract call that no
@@ -57,6 +62,10 @@ import { AccountsController } from "./features/accounts/accounts.controller.js";
 import { AccountsService } from "./features/accounts/accounts.service.js";
 import { LinkController } from "./features/accounts/link.controller.js";
 import { UnlinkService } from "./features/accounts/unlink.service.js";
+import { localServerDependencies } from "./features/connect/connect.adapter.js";
+import { ConnectController } from "./features/connect/connect.controller.js";
+import { presentMcpSection } from "./features/connect/connect.presenter.js";
+import { LocalServerService } from "./features/connect/local-server.service.js";
 import { databaseDependencies, databaseSources } from "./features/database/database.adapter.js";
 import { DatabaseController, databaseSectionReader } from "./features/database/database.controller.js";
 import { explainDatabaseFailure } from "./features/database/database.presenter.js";
@@ -80,6 +89,12 @@ import { SyncService } from "./features/sync/sync.service.js";
 import { transactionsDependencies, transactionsPageSize } from "./features/transactions/transactions.adapter.js";
 import { TransactionsController } from "./features/transactions/transactions.controller.js";
 import { TransactionsService } from "./features/transactions/transactions.service.js";
+import { mcpRoute } from "./mcp/mcp-route.js";
+import { checkCostinglyDependencies, describeDatabaseDependencies, queryDependencies } from "./mcp/mcp.adapter.js";
+import { serverInfo } from "./mcp/server-info.js";
+import { CheckCostinglyTool } from "./mcp/tools/check-costingly.tool.js";
+import { DescribeDatabaseTool } from "./mcp/tools/describe-database.tool.js";
+import { QueryTool } from "./mcp/tools/query.tool.js";
 import { CloseNoticeService } from "./shared/close-notice.service.js";
 import type { AllHandlers } from "./shared/controller.js";
 import { DesktopStateService } from "./shared/desktop-state.service.js";
@@ -93,6 +108,7 @@ import {
   redact,
 } from "./shared/domain.adapter.js";
 import { registerHandlers } from "./shell/ipc-router.js";
+import { LocalHttpServer } from "./shell/local-http-server.js";
 import { MainWindow } from "./shell/main-window.js";
 import { placeholderIcon } from "./shell/placeholder-icon.js";
 import { startAtSignInRegistration, startedHidden } from "./shell/start-at-sign-in.js";
@@ -171,6 +187,41 @@ export class DesktopApplication implements Application {
 
     await app.whenReady();
 
+    // --- the local server: where a model reaches the app ---------------------
+    // One web server on this machine only, up from here until Quit, whether
+    // or not setup is finished and without waiting for the database: a client
+    // that asks too early is told what is missing. Its one route today is
+    // /mcp, behind the token; the bank-link page joins it in a later story.
+    // Registered after the database, so on Quit it stops answering before the
+    // database stops.
+    const tools = [
+      new CheckCostinglyTool(checkCostinglyDependencies()),
+      new DescribeDatabaseTool(describeDatabaseDependencies()),
+      new QueryTool(queryDependencies()),
+    ];
+    const http = new LocalHttpServer({
+      routes: [
+        {
+          path: "/mcp",
+          access: "token",
+          handler: mcpRoute({
+            info: serverInfo(appVersion()),
+            tools,
+            observe: (tool, outcome) =>
+              log.info(`mcp: ${tool} ${outcome === "ok" ? "answered" : outcome === "error" ? "answered with an error" : "threw"}`),
+          }),
+        },
+      ],
+      onRefused: ({ reason, path }) => log.warn(`the local server refused a request to ${path}: ${reason}`),
+    });
+    const localServer = new LocalServerService({
+      ...localServerDependencies(),
+      listen: (port, token) => http.start(port, token),
+      close: () => http.stop(),
+    });
+    await localServer.start();
+    this.scope.onClose("local server", () => localServer.stop());
+
     // --- what the window can ask for ----------------------------------------
     const databaseSection = databaseSectionReader(databaseSources, database);
 
@@ -215,7 +266,7 @@ export class DesktopApplication implements Application {
     });
 
     const handlers: AllHandlers = {
-      ...new StatusController(statusChecks(), databaseSection).handlers(),
+      ...new StatusController(statusChecks(), databaseSection, async () => presentMcpSection(localServer.state())).handlers(),
       ...new DatabaseController(database, databaseSection, databaseLog).handlers(),
       ...new SetupController(setup, (url) => shell.openExternal(url)).handlers(),
       ...new AccountsController(
@@ -244,6 +295,9 @@ export class DesktopApplication implements Application {
         (text) => clipboard.writeText(text),
         describeError,
       ).handlers(),
+      // The Connect screen: the endpoint's address and token. The token is
+      // copied here and shown only when asked for.
+      ...new ConnectController(localServer, (text) => clipboard.writeText(text), describeError).handlers(),
     };
     registerHandlers(handlers, {
       isAppWindow: (sender) => this.window?.owns(sender) ?? false,

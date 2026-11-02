@@ -21,7 +21,8 @@ import { describeConfig, getSecretIfSet } from "../../../../domain/config.js";
 import { describeError as describeDomainError } from "../../../../domain/data/plaid.client.js";
 import { configStore, platform, server } from "../../../../domain/project.js";
 import { packageVersion } from "../../../../platform/package.js";
-import { desktopLogPath } from "../desktop-paths.js";
+import { desktopConnectionPath, desktopLogPath } from "../desktop-paths.js";
+import { ConnectionFile } from "./connection-file.js";
 import { LogFile, createRedactor } from "./log-file.js";
 
 /** This profile: where it is, and how its paths are shown. */
@@ -38,11 +39,15 @@ export const appVersion = packageVersion;
 export const APP_LOG_MAX_BYTES = 5 * 1024 * 1024;
 export const DATABASE_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
+/** Where a local MCP client reaches the app: the endpoint's port and token, remembered between runs. */
+export const connectionFile = new ConnectionFile(desktopConnectionPath(platform));
+
 /**
  * Remove this profile's secrets from text about to be shown.
  *
  * Asked for the secrets every time it runs: the database's passwords do not
- * exist until setup creates them, which is after the app has started.
+ * exist until setup creates them, which is after the app has started, and the
+ * endpoint's token is read or made when the endpoint starts.
  */
 export const redact = createRedactor(() => {
   const logins = configStore.readDatabaseLogins();
@@ -51,6 +56,7 @@ export const redact = createRedactor(() => {
     getSecretIfSet("encryptionKey"),
     logins?.superuser.password,
     logins?.app.password,
+    connectionFile.knownToken(),
   ];
 });
 

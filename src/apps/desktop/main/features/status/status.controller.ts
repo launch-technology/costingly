@@ -12,7 +12,7 @@
  */
 
 import type { PlaidStatus, ProfileStatus } from "../../../../../domain/services/status.service.js";
-import type { SectionView } from "../../../bridge/contract.js";
+import type { McpSectionView, SectionView } from "../../../bridge/contract.js";
 import type { Controller, HandlersFor } from "../../shared/controller.js";
 import type { DatabaseSectionReader } from "../database/database.controller.js";
 import { couldNotCheck, presentPlaid, presentProfile } from "./status.presenter.js";
@@ -23,11 +23,16 @@ export interface StatusChecks {
   plaid(): Promise<PlaidStatus>;
 }
 
+/** Reads the MCP endpoint section as it is right now. Never throws. */
+export type McpSectionReader = () => Promise<McpSectionView>;
+
 export class StatusController implements Controller<"status"> {
   constructor(
     private readonly checks: StatusChecks,
     /** The Database section, which is more than a check — see database.controller.ts. */
     private readonly databaseSection: DatabaseSectionReader,
+    /** The MCP endpoint section: the app's own server, asked rather than checked. */
+    private readonly mcpSection: McpSectionReader,
   ) {}
 
   handlers(): HandlersFor<"status"> {
@@ -35,6 +40,13 @@ export class StatusController implements Controller<"status"> {
       "status.profile": () => section(async () => presentProfile(await this.checks.profile())),
       "status.database": () => this.databaseSection(),
       "status.plaid": () => section(async () => presentPlaid(await this.checks.plaid())),
+      "status.mcp": async () => {
+        try {
+          return await this.mcpSection();
+        } catch (error) {
+          return { ...couldNotCheck(error), canRetry: false };
+        }
+      },
     };
   }
 }
