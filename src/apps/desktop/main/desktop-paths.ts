@@ -39,3 +39,12 @@ export function desktopStatePath(profile: PlatformConfig): string {
 export function desktopLogPath(profile: PlatformConfig): string {
   return join(desktopDir(profile), "costingly.log");
 }
+
+/**
+ * Where a local MCP client reaches the app: the endpoint's last port and its
+ * token (shared/connection-file.ts). Beside the app's other files, not in the
+ * profile: the endpoint runs before setup, and must create nothing of costingly's.
+ */
+export function desktopConnectionPath(profile: PlatformConfig): string {
+  return join(desktopDir(profile), "mcp.json");
+}

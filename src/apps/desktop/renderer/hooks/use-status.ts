@@ -1,10 +1,10 @@
 /**
- * The status screen's behaviour: three sections, each checked on its own.
+ * The status screen's behaviour: four sections, each checked on its own.
  *
  * Independence is the whole design. Each section asks the main process for
  * its own check and takes its own answer when it arrives, so a slow Plaid
- * round trip never blanks the profile and database sections beside it, and a
- * check that fails leaves the other two readable.
+ * round trip never blanks the sections beside it, and a check that fails
+ * leaves the others readable.
  *
  * Re-checks on mount, on `refresh()`, and whenever the window is shown or
  * brought to the front — and at no other time. There is no polling: status is
@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DatabaseSectionView, SectionView } from "../../bridge/contract.js";
+import type { DatabaseSectionView, McpSectionView, SectionView } from "../../bridge/contract.js";
 import { call, on } from "../api/client.js";
 
 export type SectionState<V extends SectionView = SectionView> =
@@ -29,6 +29,7 @@ export interface StatusSections {
   profile: SectionState;
   database: SectionState<DatabaseSectionView>;
   plaid: SectionState;
+  mcp: SectionState<McpSectionView>;
 }
 
 function allChecking(): StatusSections {
@@ -36,6 +37,7 @@ function allChecking(): StatusSections {
     profile: { phase: "checking" },
     database: { phase: "checking" },
     plaid: { phase: "checking" },
+    mcp: { phase: "checking" },
   };
 }
 
@@ -55,6 +57,8 @@ export interface Status {
   refresh(): void;
   /** Put the Database section in place without re-checking the others. */
   setDatabase(view: DatabaseSectionView): void;
+  /** Start the MCP endpoint again after a failure, then re-read its section alone. */
+  retryMcp(): void;
 }
 
 export function useStatus(): Status {
@@ -85,10 +89,28 @@ export function useStatus(): Status {
       (view) => settle({ plaid: { phase: "done", view } }),
       (error: unknown) => settle({ plaid: { phase: "done", view: couldNotCheck(error) } }),
     );
+    call("status.mcp").then(
+      (view) => settle({ mcp: { phase: "done", view } }),
+      (error: unknown) => settle({ mcp: { phase: "done", view: { ...couldNotCheck(error), canRetry: false } } }),
+    );
   }, []);
 
   const setDatabase = useCallback((view: DatabaseSectionView) => {
     setSections((previous) => ({ ...previous, database: { phase: "done", view } }));
+  }, []);
+
+  const retryMcp = useCallback(() => {
+    const setMcp = (mcp: SectionState<McpSectionView>): void => setSections((previous) => ({ ...previous, mcp }));
+    setMcp({ phase: "checking" });
+    // The retry answers with the Connect view; the section is then re-read in
+    // its own words, so one call's wording never has to stand in for another's.
+    call("connect.retry")
+      .catch(() => undefined)
+      .then(() => call("status.mcp"))
+      .then(
+        (view) => setMcp({ phase: "done", view }),
+        (error: unknown) => setMcp({ phase: "done", view: { ...couldNotCheck(error), canRetry: false } }),
+      );
   }, []);
 
   useEffect(() => {
@@ -101,5 +123,6 @@ export function useStatus(): Status {
     checking: Object.values(sections).some((section) => section.phase === "checking"),
     refresh,
     setDatabase,
+    retryMcp,
   };
 }

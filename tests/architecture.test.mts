@@ -296,12 +296,15 @@ none(
 //                  calls, x.service.ts is what the app does, x.presenter.ts
 //                  words a domain report for a screen, and x.adapter.ts fits
 //                  the real domain to what the service asks for.
+//   mcp/           the model's front door, a peer of features/: the tools a
+//                  local MCP client may call, their presenters, and the route;
+//                  mcp.adapter.ts is its one adapter
 //   shared/        what more than one feature uses; same suffixes
-//   shell/         the Electron edge: window, tray, the IPC router
+//   shell/         the edges: window, tray, the IPC router, the local web server
 //
 // Four properties keep that layout meaning something.
 const DESKTOP_MAIN = "apps/desktop/main/";
-const BEHIND_THE_SHELL = ["features/", "shared/"].map((folder) => `${DESKTOP_MAIN}${folder}`);
+const BEHIND_THE_SHELL = ["features/", "mcp/", "shared/"].map((folder) => `${DESKTOP_MAIN}${folder}`);
 const behindTheShell = files.filter((f) => BEHIND_THE_SHELL.some((p) => f.path.startsWith(p)));
 
 // Electron stays at the edges: the shell and the composition root. Everything

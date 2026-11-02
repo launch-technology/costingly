@@ -22,6 +22,7 @@
 
 import { Alert } from "../../components/alert.js";
 import { Button } from "../../components/button.js";
+import { Confirmation } from "../../components/confirmation.js";
 import { LogExcerptView } from "../../components/log-excerpt.js";
 import { useLogs, type LogsTab } from "../../hooks/use-logs.js";
 
@@ -80,14 +81,7 @@ export function LogsScreen() {
         </div>
       </div>
 
-      {logs.outcome?.kind === "copied" && (
-        <p
-          data-testid="logs-copied"
-          className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
-        >
-          {logs.outcome.what}
-        </p>
-      )}
+      {logs.outcome?.kind === "copied" && <Confirmation data-testid="logs-copied">{logs.outcome.what}</Confirmation>}
       {logs.outcome?.kind === "failed" && (
         <Alert data-testid="logs-copy-problem" title={logs.outcome.problem.cause}>
           <p className="mt-1">{logs.outcome.problem.nextStep}</p>

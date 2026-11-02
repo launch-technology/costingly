@@ -228,7 +228,36 @@ try {
     }
 
     // =======================================================================
-    // 6. Quit stops the database
+    // 6. The MCP endpoint answers a local client with the packaged app's token
+    // =======================================================================
+    // MCP's HTTP transport brings packages of its own. Connecting the way any
+    // local client would proves they made it into the package.
+
+    const connection = JSON.parse(readFileSync(join(DESKTOP, "mcp.json"), "utf8")) as { port?: number; token?: string };
+    ok(
+      typeof connection.port === "number" && typeof connection.token === "string",
+      "the packaged app wrote its endpoint's port and token beside its settings",
+    );
+    if (typeof connection.port === "number" && typeof connection.token === "string") {
+      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+      const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+      const client = new Client({ name: "check-packaged", version: "0" });
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${connection.port}/mcp`), {
+          requestInit: { headers: { Authorization: `Bearer ${connection.token}` } },
+        }),
+      );
+      const { tools } = await client.listTools();
+      eq(
+        tools.map((t) => t.name).sort(),
+        ["check_costingly", "describe_database", "query"],
+        "A LOCAL MCP CLIENT CONNECTS TO THE PACKAGED APP and is offered the three read tools",
+      );
+      await client.close();
+    }
+
+    // =======================================================================
+    // 7. Quit stops the database
     // =======================================================================
 
     eq(await quit(app), 0, "Quit exits cleanly");

@@ -17,6 +17,7 @@ import { useState } from "react";
 
 import type { Problem } from "../../../bridge/contract.js";
 import { Alert } from "../../components/alert.js";
+import { Confirmation } from "../../components/confirmation.js";
 import { Button } from "../../components/button.js";
 import { KeysForm } from "../../components/keys-form.js";
 import { useKeysForm } from "../../hooks/use-keys-form.js";
@@ -84,14 +85,7 @@ function PlaidKeys({ clientId, problem, onSaved }: { clientId: string | null; pr
         </p>
       )}
 
-      {saved && (
-        <p
-          data-testid="settings-keys-saved"
-          className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
-        >
-          Keys saved. Nothing needs restarting.
-        </p>
-      )}
+      {saved && <Confirmation data-testid="settings-keys-saved">Keys saved. Nothing needs restarting.</Confirmation>}
 
       <KeysForm
         // A fresh attempt is a fresh answer: "Keys saved" must not sit beside

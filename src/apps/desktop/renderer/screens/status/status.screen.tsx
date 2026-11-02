@@ -1,20 +1,21 @@
 /**
- * The status screen: three sections and a Refresh button.
+ * The status screen: four sections and a Refresh button.
  *
  * Drawing only. What the sections say, when they are re-checked and how a
  * failed check is shown are all hooks/use-status.ts. The Database section has
- * controls of its own and lives in database-section.tsx; the other two are
- * plain.
+ * controls of its own and lives in database-section.tsx, and the MCP endpoint
+ * section has Try again in mcp-section.tsx; the other two are plain.
  */
 
 import type { SectionId } from "../../../bridge/contract.js";
 import { Button } from "../../components/button.js";
 import { useStatus, type SectionState } from "../../hooks/use-status.js";
 import { DatabaseSection } from "./database-section.js";
+import { McpSection } from "./mcp-section.js";
 import { StatusSection } from "./status-section.js";
 
 export function StatusScreen() {
-  const { sections, checking, refresh, setDatabase } = useStatus();
+  const { sections, checking, refresh, setDatabase, retryMcp } = useStatus();
 
   return (
     <section data-testid="status-screen" data-checking={checking ? "true" : "false"}>
@@ -29,6 +30,7 @@ export function StatusScreen() {
         <PlainSection id="profile" title="Profile" state={sections.profile} />
         <DatabaseSection state={sections.database} onChanged={setDatabase} />
         <PlainSection id="plaid" title="Plaid keys" state={sections.plaid} />
+        <McpSection state={sections.mcp} onRetry={retryMcp} />
       </div>
     </section>
   );

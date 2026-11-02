@@ -28,6 +28,9 @@
  *                             facts, gathered
  *  14. ReportService          every part gathered on its own; one failing
  *                             costs only its part
+ *  15. LocalServerService     the token is kept, the port is stable and a
+ *                             move is reported, nothing throws
+ *  16. ConnectionFile         forgiving on read; port and token kept apart
  *
  * What the services LOG is checked alongside: the log module is pointed at a
  * capture here, and the cases that matter — a failure, a sync's banks, keys
@@ -1602,6 +1605,145 @@ await rm(HOME, { recursive: true, force: true });
     eq(assembled.plaid, { ok: false, reason: "boom" }, "report: and Plaid failing is independent of both");
     eq(assembled.profile.ok, true, "report: NOTHING THROWS, and what could be read was");
   }
+}
+
+// ===========================================================================
+// 15. LocalServerService — the token is kept, the port is stable, nothing throws
+// ===========================================================================
+{
+  const { LocalServerService } = await import("../src/apps/desktop/main/features/connect/local-server.service.js");
+  type Connection = import("../src/apps/desktop/main/shared/connection-file.js").Connection;
+
+  /** A connection file in memory, an allocator with a list of free ports, and a server that listens or will not. */
+  function world(options: { recorded?: Connection; free?: number[]; listenFails?: boolean; saveFails?: boolean } = {}) {
+    let file: Connection = { ...options.recorded };
+    const free = [...(options.free ?? [54400])];
+    const listening: Array<{ port: number; token: string }> = [];
+    let closed = 0;
+    let made = 0;
+    const service = new LocalServerService({
+      connection: {
+        load: async () => ({ ...file }),
+        save: async (changes) => {
+          if (options.saveFails) throw new Error("EACCES: permission denied, open 'mcp.json'");
+          file = { ...file, ...changes };
+        },
+      },
+      allocatePort: async () => {
+        const port = free.shift();
+        if (port === undefined) throw new Error('Could not find a free port for "mcp" on 127.0.0.1. Tried 54400 through 54419.');
+        file = { ...file, port };
+        return port;
+      },
+      newToken: () => `made-token-${String(++made).padStart(4, "0")}`,
+      listen: async (port, token) => {
+        if (options.listenFails) throw new Error("listen EACCES: permission denied 127.0.0.1");
+        listening.push({ port, token });
+      },
+      close: async () => void closed++,
+      describeError: (error) => (error instanceof Error ? error.message : String(error)),
+    });
+    return { service, file: () => file, free, listening, closed: () => closed };
+  }
+
+  {
+    const since = logged.length;
+    const w = world();
+    eq(w.service.state(), { state: "stopped" }, "local server: stopped before anything starts");
+    eq(w.service.token(), undefined, "local server: and no token yet");
+    eq(await w.service.start(), { state: "running", port: 54400 }, "A FIRST START: running on the default port, nothing moved");
+    eq(w.file(), { token: "made-token-0001", port: 54400 }, "the token was made and saved, and the port recorded");
+    eq(w.listening, [{ port: 54400, token: "made-token-0001" }], "the server was told the port and the token");
+    eq(w.service.token(), "made-token-0001", "and the service can say the token");
+    eq(await w.service.start(), { state: "running", port: 54400 }, "a second start changes nothing");
+    eq(w.listening.length, 1, "and listens again for nothing");
+    ok(!logged.slice(since).some((l) => l.includes("made-token")), "NOTHING LOGGED CONTAINS THE TOKEN");
+    ok(loggedSince(since, true).some((l) => /listening on port 54400/.test(l)), "the start is logged, with the port");
+  }
+  {
+    const w = world({ recorded: { port: 54400, token: "keep-me-please" }, free: [54400] });
+    eq(await w.service.start(), { state: "running", port: 54400 }, "A TOKEN ALREADY SAVED IS KEPT: same port, no move");
+    eq(w.service.token(), "keep-me-please", "and it is the saved one, not a new one");
+  }
+  {
+    const since = logged.length;
+    const w = world({ recorded: { port: 54400, token: "keep-me-please" }, free: [54401] });
+    eq(await w.service.start(), { state: "running", port: 54401, movedFrom: 54400 }, "THE RECORDED PORT TAKEN: the next one, and the move is reported");
+    eq(w.file().port, 54401, "the new port is recorded for next time");
+    ok(loggedSince(since).some((l) => l.startsWith("warn ") && /moved from port 54400 to 54401/.test(l)), "and the move is a warning in the log");
+  }
+  {
+    const w = world({ free: [] });
+    const failed = await w.service.start();
+    eq(failed.state, "failed", "NO FREE PORT: failed, not thrown");
+    ok(failed.state === "failed" && failed.kind === "no-port" && /54400 through 54419/.test(failed.reason), "saying no port was free, with the range tried");
+    eq(w.listening.length, 0, "nothing listened");
+    w.free.push(54403);
+    eq(await w.service.retry(), { state: "running", port: 54403 }, "RETRY after a port frees up: running");
+  }
+  {
+    const w = world({ listenFails: true });
+    const failed = await w.service.start();
+    ok(failed.state === "failed" && failed.kind === "listen" && failed.port === 54400 && /permission denied/.test(failed.reason), "A SERVER THAT WILL NOT LISTEN: failed with the port it tried and the reason");
+  }
+  {
+    const w = world({ saveFails: true });
+    const failed = await w.service.start();
+    ok(failed.state === "failed" && failed.kind === "token" && /could not be read or saved/.test(failed.reason), "A TOKEN THAT CANNOT BE SAVED: failed before any port was tried");
+    eq(w.listening.length, 0, "and nothing listened");
+  }
+  {
+    const w = world();
+    await w.service.start();
+    await w.service.stop();
+    eq([w.closed(), w.service.state()], [1, { state: "stopped", port: 54400 }], "STOP closes the server once and remembers the port");
+    await w.service.stop();
+    eq(w.closed(), 1, "stopping again closes nothing");
+    // The real allocator hands the recorded port back if it is free; this
+    // fake only has a list, so give it the port again.
+    w.free.push(54400);
+    eq(await w.service.start(), { state: "running", port: 54400 }, "and a start after a stop is a plain start");
+  }
+}
+
+// ===========================================================================
+// 16. ConnectionFile — forgiving on read; port and token kept apart
+// ===========================================================================
+{
+  const { ConnectionFile } = await import("../src/apps/desktop/main/shared/connection-file.js");
+  const dir = join(HOME, "connection");
+  const path = join(dir, "nested", "mcp.json");
+  const file = new ConnectionFile(path);
+
+  eq(await file.load(), {}, "connection file: no file is nothing remembered");
+  eq(existsSync(dir), false, "and reading created nothing");
+  eq(file.knownToken(), undefined, "no token is known");
+
+  await file.save({ token: "first-token" });
+  ok(existsSync(path), "a save creates the folder and the file");
+  eq(await file.load(), { token: "first-token" }, "and the token reads back");
+  eq(file.knownToken(), "first-token", "AND IS KNOWN IN MEMORY, for the redactor");
+
+  await file.save({ port: 54400 });
+  eq(await file.load(), { port: 54400, token: "first-token" }, "RECORDING A PORT KEEPS THE TOKEN");
+
+  const store = file.portStore("mcp");
+  eq(await store.read(), { mcp: 54400 }, "as the allocator's memory: the port under the service's name");
+  await store.write({ mcp: 54401, other: 1 });
+  eq(await file.load(), { port: 54401, token: "first-token" }, "the allocator recording a new port keeps the token too, and only this service's port is kept");
+  await store.write({ other: 2 });
+  eq((await file.load()).port, 54401, "a write without this service's port changes nothing");
+
+  await writeFile(path, "{ not json", "utf8");
+  eq(await file.load(), {}, "A MALFORMED FILE IS NOTHING REMEMBERED, not an error");
+  await writeFile(path, JSON.stringify({ port: "54400", token: "" }), "utf8");
+  eq(await file.load(), {}, "a port that is not a number and an empty token are ignored");
+  await writeFile(path, JSON.stringify({ port: 70000, token: "t" }), "utf8");
+  eq(await file.load(), { token: "t" }, "a port outside the range is ignored; the token stands");
+  const fresh = new ConnectionFile(path);
+  eq(fresh.knownToken(), undefined, "a new instance knows nothing until it reads");
+  await fresh.load();
+  eq(fresh.knownToken(), "t", "and knows the token once it has");
 }
 
 console.log(out.join("\n"));

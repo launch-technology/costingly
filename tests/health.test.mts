@@ -29,7 +29,7 @@ const { install } = await import("../src/domain/services/install.service.js");
 const { checkDatabase, restartDatabase, resumeDatabase } = await import("../src/domain/services/database/database-health.service.js");
 const { blockersIn, costinglyStatus } = await import("../src/domain/services/status.service.js");
 const { plaid } = await import("../src/domain/data/default-plaid.js");
-const { formatCheck } = await import("../src/apps/mcp/tools/check-costingly.utils.js");
+const { formatCheck } = await import("../src/apps/desktop/main/mcp/presenters/check-costingly.presenter.js");
 
 /** What check_costingly would show right now. */
 const render = async (): Promise<string> => {

@@ -31,6 +31,7 @@ const ORDER = [
   "profile",
   "config",
   "log",
+  "local-http-server",
   "smoke",
   "desktop-status-presenter",
   "desktop-database-presenter",
@@ -39,6 +40,7 @@ const ORDER = [
   "desktop-transactions-presenter",
   "desktop-settings-presenter",
   "desktop-report-presenter",
+  "desktop-connect-presenter",
   "desktop-services",
   "picker",
   "confirm",
@@ -51,6 +53,7 @@ const ORDER = [
   "status",
   "readonly",
   "mcp",
+  "mcp-endpoint",
   "init-flow",
   "uninstall",
   "concurrency",
@@ -63,6 +66,7 @@ const ORDER = [
   "desktop-transactions",
   "desktop-settings",
   "desktop-logs",
+  "desktop-connect",
 ];
 
 interface Outcome {

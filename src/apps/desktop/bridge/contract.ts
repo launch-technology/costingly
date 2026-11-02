@@ -31,8 +31,8 @@ export interface SectionView {
   details: string[];
 }
 
-/** The three status sections, in the order the screen shows them. */
-export type SectionId = "profile" | "database" | "plaid";
+/** The four status sections, in the order the screen shows them. */
+export type SectionId = "profile" | "database" | "plaid" | "mcp";
 
 /**
  * What first-run setup still has to do on this machine.
@@ -213,6 +213,36 @@ export interface SettingsView {
  */
 export type StartAtSignInResult = { outcome: "set"; on: boolean } | { outcome: "failed"; on: boolean; problem: Problem };
 
+/**
+ * The status screen's MCP endpoint section: a section, plus what is wrong
+ * when the endpoint is not running and whether Try again applies.
+ */
+export interface McpSectionView extends SectionView {
+  problem?: Problem;
+  canRetry: boolean;
+}
+
+/**
+ * The Connect screen: where a local MCP client reaches the app.
+ *
+ * THE TOKEN IS NEVER HERE. It comes back only from `connect.showToken`, when
+ * the user asks to see it, and copying it happens in the main process.
+ */
+export interface ConnectView {
+  state: "running" | "stopped" | "failed";
+  /** "http://127.0.0.1:54400/mcp": the address the endpoint has, or would have. Empty when no port is known yet. */
+  address: string;
+  /** Set when the address differs from the last run's. Clients configured by hand need the new one. */
+  movedFrom?: string;
+  problem?: Problem;
+  canRetry: boolean;
+}
+
+export type ShowTokenResult = { outcome: "shown"; token: string } | { outcome: "failed"; problem: Problem };
+
+/** Something was, or was not, put on the clipboard. */
+export type CopyOutcome = { outcome: "copied" } | { outcome: "failed"; problem: Problem };
+
 /** What the latest sync did for one bank, in one line. */
 export interface BankSyncResult {
   bankId: string;
@@ -325,6 +355,7 @@ export interface DesktopContract {
   "status.profile": { args: []; result: SectionView };
   "status.database": { args: []; result: DatabaseSectionView };
   "status.plaid": { args: []; result: SectionView };
+  "status.mcp": { args: []; result: McpSectionView };
 
   /**
    * Each action runs to completion and answers with the Database section as it
@@ -398,6 +429,15 @@ export interface DesktopContract {
   "logs.readReport": { args: []; result: ReportView };
   /** Put the report on the clipboard, put together now, and answer with the text that was copied. */
   "logs.copyReport": { args: []; result: CopyReportResult };
+
+  "connect.read": { args: []; result: ConnectView };
+  /** Start the endpoint again after a failure, and answer with how it stands. */
+  "connect.retry": { args: []; result: ConnectView };
+  /** The token, for the Connect screen's Show button. The only call that carries it. */
+  "connect.showToken": { args: []; result: ShowTokenResult };
+  "connect.copyAddress": { args: []; result: CopyOutcome };
+  /** Put the token on the clipboard without it passing through the window. */
+  "connect.copyToken": { args: []; result: CopyOutcome };
 }
 
 export type Call = keyof DesktopContract;

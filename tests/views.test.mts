@@ -28,7 +28,7 @@ process.env["COSTINGLY_HOME"] = HOME;
 const { db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");
 const { describeDatabase } = await import("../src/domain/data/repositories/schema.repository.js");
-const { renderDatabaseDoc } = await import("../src/apps/mcp/tools/describe-database.utils.js");
+const { renderDatabaseDoc } = await import("../src/apps/desktop/main/mcp/presenters/database-description.presenter.js");
 
 const out: string[] = [];
 let fail = 0;
