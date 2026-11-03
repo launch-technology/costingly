@@ -24,8 +24,10 @@
  *                  screen) and adapter (the real domain, fitted to what the
  *                  service asks for) side by side
  *   mcp/           the model's front door, a peer of features/: the tools a
- *                  local MCP client may call, their presenters, and the route
- *                  that speaks MCP over HTTP
+ *                  local MCP client may call, their presenters, and the
+ *                  handler that speaks MCP over HTTP
+ *   routes/        every URL the app serves, one file per URL with the path
+ *                  mirrored on disk, and index.ts the table
  *   shared/        what more than one feature uses
  *   shell/         the edges: the Electron objects (window, tray), and the
  *                  two transports requests arrive by, the IPC router and the
@@ -57,14 +59,14 @@ import type { Application } from "../../../platform/runtime/application.js";
 import { configureLog, log } from "../../../platform/runtime/log.js";
 import { ResourceScope } from "../../../platform/runtime/resource-scope.js";
 import { desktopDir, desktopLogPath, desktopStatePath } from "./desktop-paths.js";
-import { accountsDependencies, linkPage, unlinkDependencies } from "./features/accounts/accounts.adapter.js";
+import { accountsDependencies, isLinkedBank, unlinkDependencies } from "./features/accounts/accounts.adapter.js";
 import { AccountsController } from "./features/accounts/accounts.controller.js";
 import { AccountsService } from "./features/accounts/accounts.service.js";
 import { LinkController } from "./features/accounts/link.controller.js";
 import { UnlinkService } from "./features/accounts/unlink.service.js";
 import { localServerDependencies } from "./features/connect/connect.adapter.js";
 import { ConnectController } from "./features/connect/connect.controller.js";
-import { presentMcpSection } from "./features/connect/connect.presenter.js";
+import { pageAddressOf, presentMcpSection, reconnectAddressOf } from "./features/connect/connect.presenter.js";
 import { LocalServerService } from "./features/connect/local-server.service.js";
 import { databaseDependencies, databaseSources } from "./features/database/database.adapter.js";
 import { DatabaseController, databaseSectionReader } from "./features/database/database.controller.js";
@@ -89,12 +91,28 @@ import { SyncService } from "./features/sync/sync.service.js";
 import { transactionsDependencies, transactionsPageSize } from "./features/transactions/transactions.adapter.js";
 import { TransactionsController } from "./features/transactions/transactions.controller.js";
 import { TransactionsService } from "./features/transactions/transactions.service.js";
-import { mcpRoute } from "./mcp/mcp-route.js";
-import { checkCostinglyDependencies, describeDatabaseDependencies, queryDependencies } from "./mcp/mcp.adapter.js";
+import {
+  checkCostinglyDependencies,
+  datastoreState,
+  describeDatabaseDependencies,
+  listBanks,
+  queryDependencies,
+  recentLinks,
+} from "./mcp/mcp.adapter.js";
 import { serverInfo } from "./mcp/server-info.js";
 import { CheckCostinglyTool } from "./mcp/tools/check-costingly.tool.js";
 import { DescribeDatabaseTool } from "./mcp/tools/describe-database.tool.js";
+import { LinkBankTool } from "./mcp/tools/link-bank.tool.js";
 import { QueryTool } from "./mcp/tools/query.tool.js";
+import { RelinkBankTool } from "./mcp/tools/relink-bank.tool.js";
+import { RestartDatabaseTool } from "./mcp/tools/restart-database.tool.js";
+import { SetupCostinglyTool } from "./mcp/tools/setup-costingly.tool.js";
+import { SyncStatusTool } from "./mcp/tools/sync-status.tool.js";
+import { SyncTool } from "./mcp/tools/sync.tool.js";
+import type { Tool } from "./mcp/tools/tool.js";
+import { UnlinkBankTool } from "./mcp/tools/unlink-bank.tool.js";
+import { routes } from "./routes/index.js";
+import { linkRouteDependencies } from "./routes/link.adapter.js";
 import { CloseNoticeService } from "./shared/close-notice.service.js";
 import type { AllHandlers } from "./shared/controller.js";
 import { DesktopStateService } from "./shared/desktop-state.service.js";
@@ -104,6 +122,7 @@ import {
   appVersion,
   databaseLog,
   describeError,
+  keysPresent,
   profile,
   redact,
 } from "./shared/domain.adapter.js";
@@ -187,76 +206,103 @@ export class DesktopApplication implements Application {
 
     await app.whenReady();
 
-    // --- the local server: where a model reaches the app ---------------------
-    // One web server on this machine only, up from here until Quit, whether
-    // or not setup is finished and without waiting for the database: a client
-    // that asks too early is told what is missing. Its one route today is
-    // /mcp, behind the token; the bank-link page joins it in a later story.
-    // Registered after the database, so on Quit it stops answering before the
-    // database stops.
-    const tools = [
-      new CheckCostinglyTool(checkCostinglyDependencies()),
-      new DescribeDatabaseTool(describeDatabaseDependencies()),
-      new QueryTool(queryDependencies()),
-    ];
-    const http = new LocalHttpServer({
-      routes: [
-        {
-          path: "/mcp",
-          access: "token",
-          handler: mcpRoute({
-            info: serverInfo(appVersion()),
-            tools,
-            observe: (tool, outcome) =>
-              log.info(`mcp: ${tool} ${outcome === "ok" ? "answered" : outcome === "error" ? "answered with an error" : "threw"}`),
-          }),
-        },
-      ],
-      onRefused: ({ reason, path }) => log.warn(`the local server refused a request to ${path}: ${reason}`),
-    });
-    const localServer = new LocalServerService({
-      ...localServerDependencies(),
-      listen: (port, token) => http.start(port, token),
-      close: () => http.stop(),
-    });
-    await localServer.start();
-    this.scope.onClose("local server", () => localServer.stop());
-
-    // --- what the window can ask for ----------------------------------------
+    // --- the services the window and a model share -----------------------------
     const databaseSection = databaseSectionReader(databaseSources, database);
 
-    const setup = new SetupService({
-      ...setupDependencies(),
-      // Setup creates the database through the same service, and explains a
-      // failure in the same words, as the status screen's own button.
-      createDatabase: async () => {
-        const failure = await database.create();
-        return failure === undefined ? undefined : explainDatabaseFailure(failure).problem;
-      },
-    });
+    // Setup and the setup_costingly tool create the database through the same
+    // service, and explain a failure in the same words, as the status screen's
+    // own button.
+    const createDatabase = async () => {
+      const failure = await database.create();
+      return failure === undefined ? undefined : explainDatabaseFailure(failure).problem;
+    };
+    const setup = new SetupService({ ...setupDependencies(), createDatabase });
 
-    const icon = placeholderIcon();
-
-    // --- linking a bank, in the user's browser --------------------------------
-    // The local link page is started when asked for and stops itself when idle;
-    // this is so Quit never leaves it listening. Registered after the database,
-    // so released before it: the page stops while there is still a database
-    // for anything it was saving.
-    this.scope.onClose("link page", async () => void (await linkPage.stop()));
-
-    // --- the sync, in the background -------------------------------------------
-    // Started by the Sync button today; anything else that starts one later —
-    // a schedule — calls the same `start()`, and the window hears about it the
-    // same way. Quit does not wait for a run in flight: it silences the service
-    // and lets the database stop, which fails whatever the run does next. No
-    // query can start the database again, and the run's progress is committed
-    // bank by bank, so nothing is lost and nothing is left running.
+    // The sync, in the background. Started by the Sync button or by a model's
+    // sync tool; anything else that starts one later — a schedule — calls the
+    // same `start()`, and the window hears about it the same way. Quit does not
+    // wait for a run in flight: it silences the service and lets the database
+    // stop, which fails whatever the run does next. No query can start the
+    // database again, and the run's progress is committed bank by bank, so
+    // nothing is lost and nothing is left running.
     const sync = new SyncService({
       ...syncDependencies(),
       now: () => new Date(),
       onChange: (state) => this.window?.emit("sync.changed", presentSync(state)),
     });
     this.scope.onClose("sync", async () => sync.stop());
+
+    // An unlink takes exclusive use from the sync, and unlinks queue behind
+    // each other: the two never overlap, whoever asked for either.
+    const unlinking = new UnlinkService({ ...unlinkDependencies(), exclusively: (work) => sync.runExclusive(work) });
+
+    // --- the local server: where a model and a browser reach the app ----------
+    // One web server on this machine only, up from here until Quit, whether
+    // or not setup is finished and without waiting for the database: a client
+    // that asks too early is told what is missing. Its routes are the table in
+    // routes/index.ts: /mcp behind the token, the bank-link page and its calls
+    // open. Registered after the database, so on Quit it stops answering
+    // before the database stops.
+    const now = (): Date => new Date();
+    // The page's addresses need the local server's port, known once it has
+    // started and asked each time, so a server that moved ports is followed.
+    const port = (): number | undefined => localServer.state().port;
+    const currentPort = (): number => {
+      const current = port();
+      if (current === undefined) throw new Error("The app's local server is not running. Press Try again on the Status screen.");
+      return current;
+    };
+    const tools: Tool[] = [
+      new CheckCostinglyTool(checkCostinglyDependencies()),
+      new DescribeDatabaseTool(describeDatabaseDependencies()),
+      new QueryTool(queryDependencies()),
+      // Eight seconds: under the ten MCP Inspector allows a call by default.
+      new SyncTool({ state: datastoreState, sync, now, waitMs: 8_000 }),
+      new SyncStatusTool({ sync, now }),
+      new LinkBankTool({
+        keysPresent,
+        state: datastoreState,
+        pageAddress: () => {
+          const current = port();
+          return current === undefined ? undefined : pageAddressOf(current);
+        },
+        takeRecentLinks: recentLinks.takeRecentLinks,
+      }),
+      new RelinkBankTool({
+        keysPresent,
+        state: datastoreState,
+        listBanks,
+        reconnectAddress: (bankId) => {
+          const current = port();
+          return current === undefined ? undefined : reconnectAddressOf(current, bankId);
+        },
+        takeRecentRepairs: recentLinks.takeRecentRepairs,
+      }),
+      new UnlinkBankTool({ unlink: unlinking, listBanks }),
+      new SetupCostinglyTool({ createDatabase, keysPresent }),
+      new RestartDatabaseTool({ restart: () => database.restart(), section: databaseSection }),
+    ];
+    const http = new LocalHttpServer({
+      routes: routes({
+        mcp: {
+          info: serverInfo(appVersion()),
+          tools,
+          observe: (tool, outcome) =>
+            log.info(`mcp: ${tool} ${outcome === "ok" ? "answered" : outcome === "error" ? "answered with an error" : "threw"}`),
+        },
+        link: linkRouteDependencies(),
+      }),
+      onRefused: ({ reason, path }) => log.warn(`the local server refused a request to ${path}: ${reason}`),
+    });
+    const localServer: LocalServerService = new LocalServerService({
+      ...localServerDependencies(),
+      listen: (listenPort, token) => http.start(listenPort, token),
+      close: () => http.stop(),
+    });
+    await localServer.start();
+    this.scope.onClose("local server", () => localServer.stop());
+
+    const icon = placeholderIcon();
 
     // Starting at sign-in is a Windows registration; Electron reads and writes
     // it, and the service decides what to say about it.
@@ -269,14 +315,15 @@ export class DesktopApplication implements Application {
       ...new StatusController(statusChecks(), databaseSection, async () => presentMcpSection(localServer.state())).handlers(),
       ...new DatabaseController(database, databaseSection, databaseLog).handlers(),
       ...new SetupController(setup, (url) => shell.openExternal(url)).handlers(),
-      ...new AccountsController(
-        new AccountsService(accountsDependencies()),
-        // An unlink takes exclusive use from the sync: the two never overlap.
-        new UnlinkService({ ...unlinkDependencies(), exclusively: (work) => sync.runExclusive(work) }),
-      ).handlers(),
+      ...new AccountsController(new AccountsService(accountsDependencies()), unlinking).handlers(),
+      // Linking a bank happens in the user's browser, on the page the app
+      // itself serves at /pages/link. Nothing is started or stopped for it.
       ...new LinkController(
-        async () => shell.openExternal((await linkPage.start()).url),
-        async (bankId) => shell.openExternal(await linkPage.startForReconnect(bankId)),
+        async () => shell.openExternal(pageAddressOf(currentPort())),
+        async (bankId) => {
+          if (!(await isLinkedBank(bankId))) throw new Error("That bank is not one of your linked banks.");
+          await shell.openExternal(reconnectAddressOf(currentPort(), bankId));
+        },
       ).handlers(),
       ...new SyncController(sync).handlers(),
       ...new TransactionsController(

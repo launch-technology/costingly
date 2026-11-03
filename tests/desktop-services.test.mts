@@ -18,8 +18,9 @@
  *   7. The real wiring        the same service over the real domain, on a
  *                             throwaway profile — asking must create nothing
  *   8. AccountsService        never asks a stopped database
- *   9. The local link page    what "Link a bank" opens in the browser: served
- *                             on this machine only, and really stops
+ *   9. The link page          what "Link a bank" opens in the browser: served
+ *                             by the app's one server, on this machine only,
+ *                             without a token, and gone when it stops
  *  10. SyncService            a sync is started, not awaited; one at a time;
  *                             the last result is remembered
  *  11. TransactionsService    never asks a stopped database, never throws
@@ -31,6 +32,10 @@
  *  15. LocalServerService     the token is kept, the port is stable and a
  *                             move is reported, nothing throws
  *  16. ConnectionFile         forgiving on read; port and token kept apart
+ *  17. Waiting for a sync     whenSettled answers for the run it was asked
+ *                             about, and a model's trigger is recorded
+ *  18. Unlinks in single file one after another, whoever asks
+ *  19. The action tools       each over fakes: what it says in every state
  *
  * What the services LOG is checked alongside: the log module is pointed at a
  * capture here, and the cases that matter — a failure, a sync's banks, keys
@@ -42,6 +47,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,7 +78,10 @@ const { PlaidKeyVerifier, classifyKeyFailure } = await import(
   "../src/apps/desktop/main/features/setup/plaid-key-verifier.adapter.js"
 );
 const { keyCheck, setupDependencies } = await import("../src/apps/desktop/main/features/setup/setup.adapter.js");
-const { linkPage } = await import("../src/apps/desktop/main/features/accounts/accounts.adapter.js");
+const { LocalHttpServer } = await import("../src/apps/desktop/main/shell/local-http-server.js");
+const { routes } = await import("../src/apps/desktop/main/routes/index.js");
+const { linkRouteDependencies } = await import("../src/apps/desktop/main/routes/link.adapter.js");
+const { serverInfo } = await import("../src/apps/desktop/main/mcp/server-info.js");
 const { PlaidClient } = await import("../src/domain/data/plaid.client.js");
 const { createLinkToken } = await import("../src/domain/services/banks/link.service.js");
 
@@ -93,6 +102,19 @@ function eq(a: unknown, b: unknown, what: string): void {
   }
 }
 const ok = (c: boolean, what: string): void => eq(c, true, what);
+
+/** A port nothing is listening on right now. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      probe.close(() => resolve(port));
+    });
+  });
+}
 
 await rm(HOME, { recursive: true, force: true });
 
@@ -1004,27 +1026,45 @@ await rm(HOME, { recursive: true, force: true });
 }
 
 // ===========================================================================
-// 9. The local link page — what "Link a bank" opens in the browser
+// 9. The link page — what "Link a bank" opens in the browser
 // ===========================================================================
-// The app starts the same page server the CLI and the MCP server use, and
-// hands its address to the browser. Opening a browser is not something a test
-// should do to whoever runs it; that the page is really served, on this
-// machine only, and really stops, is.
+// The page and the four calls behind it are routes on the app's one server,
+// built from the same table the composition root uses. Opening a browser is
+// not something a test should do to whoever runs it; that the page is really
+// served, on this machine only, that it needs no token (a page cannot send
+// one), and that it is gone when the server stops, is.
 {
-  const { url } = await linkPage.start();
-  ok(/^http:\/\/127\.0\.0\.1:\d+$/.test(url), `link page: served on this machine only (${url})`);
-  const page = await fetch(url);
-  eq(page.status, 200, "link page: it answers");
-  ok((await page.text()).includes("cdn.plaid.com"), "link page: with the page that loads Plaid's form");
-  eq((await linkPage.start()).url, url, "link page: asking again while it is up gives the same address");
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  const refusals: string[] = [];
+  const http = new LocalHttpServer({
+    routes: routes({ mcp: { info: serverInfo("0-test"), tools: [], observe: () => {} }, link: linkRouteDependencies() }),
+    onRefused: ({ reason }) => void refusals.push(reason),
+  });
+  await http.start(port, "a-token-the-page-never-sends");
 
-  eq(await linkPage.stop(), true, "link page: stop stops it");
-  const after = await fetch(url).then(
+  const page = await fetch(`${base}/pages/link`);
+  eq(page.status, 200, "link page: served at /pages/link WITHOUT A TOKEN");
+  ok((await page.text()).includes("cdn.plaid.com"), "link page: with the page that loads Plaid's form");
+  eq((await fetch(`${base}/pages/link`, { method: "POST" })).status, 405, "link page: the page takes GET only");
+
+  const post = (path: string, body: string) =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body });
+  const missing = await post("/api/link/exchange", "{}");
+  eq([missing.status, await missing.json()], [400, { error: "public_token is required" }], "link api: a call missing its field is refused the way the page expects");
+  const noKeys = await post("/api/link/token", "{}");
+  const answer = (await noKeys.json()) as { error?: string };
+  eq(noKeys.status, 500, "link api: without Plaid keys, creating a link token fails");
+  ok(typeof answer.error === "string" && answer.error.length > 0 && !/\n\s+at /.test(answer.error), "link api: with a one-line reason and no stack trace");
+  eq((await fetch(`${base}/api/link/token`)).status, 405, "link api: GET is refused — the calls are POST only");
+  eq(refusals.length, 2, "and both refusals were reported");
+
+  await http.stop();
+  const after = await fetch(`${base}/pages/link`).then(
     () => "still answering",
     () => "gone",
   );
-  eq(after, "gone", "link page: AND NOTHING IS LEFT LISTENING");
-  eq(await linkPage.stop(), false, "link page: stopping again does nothing");
+  eq(after, "gone", "link page: AND NOTHING IS LEFT LISTENING once the server stops");
   await rm(HOME, { recursive: true, force: true });
 }
 
@@ -1744,6 +1784,258 @@ await rm(HOME, { recursive: true, force: true });
   eq(fresh.knownToken(), undefined, "a new instance knows nothing until it reads");
   await fresh.load();
   eq(fresh.knownToken(), "t", "and knows the token once it has");
+}
+
+// ===========================================================================
+// 17. Waiting for a sync — whenSettled answers for the run it was asked about
+// ===========================================================================
+{
+  const { SyncService } = await import("../src/apps/desktop/main/features/sync/sync.service.js");
+  type SyncSummary = import("../src/domain/services/banks/sync.types.js").SyncSummary;
+  const summary = (added: number): SyncSummary => ({
+    ok: true, startedAt: "", finishedAt: "", durationMs: 1, itemsTotal: 1, itemsSucceeded: 1, itemsFailed: 0, added, modified: 0, removed: 0, results: [],
+  });
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
+
+  function controlled() {
+    let finish: (value: SyncSummary) => void = () => {};
+    const triggers: string[] = [];
+    const service = new SyncService({
+      run: () => new Promise<SyncSummary>((resolve) => (finish = resolve)),
+      describeError: String,
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+      onChange: (state) => void triggers.push(state.phase === "running" ? state.trigger : state.phase),
+    });
+    return { service, finish: (value: SyncSummary) => finish(value), triggers };
+  }
+
+  {
+    const { service } = controlled();
+    eq((await service.whenSettled()).phase, "idle", "whenSettled: with no run in progress, answered at once with the state as it is");
+  }
+  {
+    const { service, finish, triggers } = controlled();
+    service.start("mcp");
+    eq(triggers, ["mcp"], "A MODEL'S TRIGGER IS RECORDED AND ANNOUNCED like the button's");
+    const first = service.whenSettled();
+    const second = service.whenSettled();
+    finish(summary(5));
+    const [a, b] = await Promise.all([first, second]);
+    eq([a.phase === "finished" ? a.summary.added : null, b.phase === "finished" ? b.summary.added : null], [5, 5], "TWO WAITERS ON ONE RUN ARE BOTH ANSWERED WITH THAT RUN'S END");
+  }
+  {
+    const { service, finish } = controlled();
+    service.start("manual");
+    const onA = service.whenSettled();
+    finish(summary(1));
+    await settle();
+    service.start("mcp");
+    const onB = service.whenSettled();
+    finish(summary(2));
+    const [a, b] = await Promise.all([onA, onB]);
+    eq([a.phase === "finished" ? a.summary.added : null, b.phase === "finished" ? b.summary.added : null], [1, 2], "A WAITER ON RUN A IS NEVER ANSWERED BY RUN B");
+  }
+  {
+    const { service } = controlled();
+    service.start("mcp");
+    const waiting = service.whenSettled();
+    service.stop();
+    eq((await waiting).phase, "running", "on Quit, a waiter is answered with what there is rather than left hanging");
+  }
+}
+
+// ===========================================================================
+// 18. Unlinks in single file — one after another, whoever asks
+// ===========================================================================
+{
+  const { UnlinkService } = await import("../src/apps/desktop/main/features/accounts/unlink.service.js");
+  type UnlinkOutcome = import("../src/domain/services/banks/unlink.service.js").UnlinkOutcome;
+
+  let release: () => void = () => {};
+  const order: string[] = [];
+  let present = true;
+  const service = new UnlinkService({
+    state: async () => "running",
+    describe: async (id) => (present ? { itemId: id, institutionName: "Bank", atPlaid: false, accounts: 1, transactions: 2 } : null),
+    unlink: async (id): Promise<UnlinkOutcome> => {
+      order.push(`start ${id}`);
+      await new Promise<void>((resolve) => (release = resolve));
+      order.push(`end ${id}`);
+      if (!present) return { outcome: "not-found" };
+      present = false;
+      return { outcome: "unlinked", institutionName: "Bank", revokedAtPlaid: false };
+    },
+    exclusively: async (work) => ({ ran: true, value: await work() }),
+    describeError: String,
+  });
+
+  const first = service.unlink("b", { revokeAtPlaid: true });
+  const second = service.unlink("b", { revokeAtPlaid: true });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  eq(order, ["start b"], "TWO UNLINKS AT ONCE: the second has not started while the first runs");
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  eq(order, ["start b", "end b", "start b"], "it starts when the first ends");
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  eq([a.outcome, b.outcome], ["unlinked", "not-found"], "and finds what the first left — nothing is deleted twice");
+}
+
+// ===========================================================================
+// 19. The action tools — each over fakes: what it says in every state
+// ===========================================================================
+{
+  const { SyncTool } = await import("../src/apps/desktop/main/mcp/tools/sync.tool.js");
+  const { SyncStatusTool } = await import("../src/apps/desktop/main/mcp/tools/sync-status.tool.js");
+  const { LinkBankTool } = await import("../src/apps/desktop/main/mcp/tools/link-bank.tool.js");
+  const { RelinkBankTool } = await import("../src/apps/desktop/main/mcp/tools/relink-bank.tool.js");
+  const { UnlinkBankTool } = await import("../src/apps/desktop/main/mcp/tools/unlink-bank.tool.js");
+  const { SetupCostinglyTool } = await import("../src/apps/desktop/main/mcp/tools/setup-costingly.tool.js");
+  const { RestartDatabaseTool } = await import("../src/apps/desktop/main/mcp/tools/restart-database.tool.js");
+  type Tool = import("../src/apps/desktop/main/mcp/tools/tool.js").Tool;
+  type SyncState = import("../src/apps/desktop/main/features/sync/sync.service.js").SyncState;
+  type SyncSummary = import("../src/domain/services/banks/sync.types.js").SyncSummary;
+
+  /** Register a tool against a capturing host and call its handler as the SDK would. */
+  async function invoke(tool: Tool, args?: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+    let handler: ((...a: unknown[]) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>) | undefined;
+    tool.register({
+      registerTool: ((_name: string, _config: unknown, cb: unknown) => {
+        handler = cb as typeof handler;
+        return {} as never;
+      }) as never,
+    });
+    if (handler === undefined) throw new Error("the tool registered nothing");
+    const result = args === undefined ? await handler({}) : await handler(args, {});
+    return { text: result.content[0]?.text ?? "", isError: result.isError === true };
+  }
+  const summary: SyncSummary = {
+    ok: true, startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:01.000Z", durationMs: 1000, itemsTotal: 1, itemsSucceeded: 1, itemsFailed: 0, added: 2, modified: 0, removed: 0,
+    results: [{ itemId: "i", institutionName: "Ally", ok: true, added: 2, modified: 0, removed: 0, accounts: 1, pages: 1, initialBackfill: false, updateStatus: null } as SyncSummary["results"][number]],
+  };
+  const at = new Date("2026-01-01T00:00:10.000Z");
+  const running: SyncState = { phase: "running", trigger: "manual", startedAt: new Date("2026-01-01T00:00:00.000Z") };
+  const finished: SyncState = { phase: "finished", trigger: "mcp", summary };
+
+  // --- sync ---
+  {
+    const fakeSync = (state: SyncState, afterStart: SyncState, settled: Promise<SyncState>) => ({
+      start: () => afterStart,
+      state: () => state,
+      whenSettled: () => settled,
+    });
+    const stopped = new SyncTool({ state: async () => "stopped", sync: fakeSync({ phase: "idle" }, running, Promise.resolve(finished)), now: () => at, waitMs: 50 });
+    const s = await invoke(stopped);
+    ok(s.isError && /not running/.test(s.text) && /restart_database/.test(s.text), "sync: the database stopped — explained, naming restart_database, and no sync started");
+
+    const already = await invoke(new SyncTool({ state: async () => "running", sync: fakeSync(running, running, new Promise(() => {})), now: () => at, waitMs: 50 }));
+    ok(!already.isError && /already running/.test(already.text) && /10 seconds ago/.test(already.text), "sync: ONE ALREADY RUNNING — says so with when it started, starts nothing");
+
+    const quick = await invoke(new SyncTool({ state: async () => "running", sync: fakeSync({ phase: "idle" }, running, Promise.resolve(finished)), now: () => at, waitMs: 50 }));
+    ok(!quick.isError && /Ally: \+2 added/.test(quick.text), "sync: a run that finishes inside the wait is reported");
+
+    const slow = await invoke(new SyncTool({ state: async () => "running", sync: fakeSync({ phase: "idle" }, running, new Promise(() => {})), now: () => at, waitMs: 20 }));
+    ok(!slow.isError && /has not finished yet/.test(slow.text) && /sync_status/.test(slow.text), "sync: A RUN THAT OUTLASTS THE WAIT — still running, naming sync_status");
+
+    const failed = await invoke(new SyncTool({ state: async () => "running", sync: fakeSync({ phase: "idle" }, running, Promise.resolve({ phase: "failed", trigger: "mcp", reason: "boom" })), now: () => at, waitMs: 50 }));
+    ok(failed.isError && /could not run: boom/.test(failed.text), "sync: a run that fails is an error with the reason");
+
+    const refusedStart = await invoke(new SyncTool({ state: async () => "running", sync: fakeSync({ phase: "idle" }, { phase: "idle" }, Promise.resolve({ phase: "idle" })), now: () => at, waitMs: 50 }));
+    ok(refusedStart.isError && /being unlinked/.test(refusedStart.text), "sync: a start the service refused (an unlink is running) is explained");
+
+    const allFailed = await invoke(new SyncTool({ state: async () => "running", sync: fakeSync({ phase: "idle" }, running, Promise.resolve({ phase: "finished", trigger: "mcp", summary: { ...summary, itemsSucceeded: 0, itemsFailed: 1, results: [{ ...summary.results[0]!, ok: false, error: "ITEM_LOGIN_REQUIRED" }] } })), now: () => at, waitMs: 50 }));
+    ok(allFailed.isError && /INCOMPLETE/.test(allFailed.text) && /relink_bank/.test(allFailed.text), "sync: every bank failing is an error result, and an expired login names relink_bank");
+  }
+
+  // --- sync_status ---
+  {
+    const status = (state: SyncState) => invoke(new SyncStatusTool({ sync: { state: () => state }, now: () => at }));
+    ok(/No sync has run/.test((await status({ phase: "idle" })).text), "sync_status: idle — nothing yet");
+    ok(/running/.test((await status(running)).text) && /from the app/.test((await status(running)).text), "sync_status: running, and who started it");
+    ok(/through this endpoint/.test((await status(finished)).text) && /Ally: \+2 added/.test((await status(finished)).text), "sync_status: the latest run, with its report");
+  }
+
+  // --- link_bank / relink_bank ---
+  {
+    const link = (over: Partial<ConstructorParameters<typeof LinkBankTool>[0]>) =>
+      invoke(new LinkBankTool({ keysPresent: () => true, state: async () => "running", pageAddress: () => "http://127.0.0.1:54400/pages/link", takeRecentLinks: () => [], ...over }));
+    const noKeys = await link({ keysPresent: () => false });
+    ok(noKeys.isError && /Settings screen/.test(noKeys.text), "link_bank: no keys — the Settings screen, never Claude Desktop");
+    const down = await link({ state: async () => "stopped" });
+    ok(down.isError && /not running/.test(down.text), "link_bank: the database stopped — explained");
+    const noServer = await link({ pageAddress: () => undefined });
+    ok(noServer.isError && /local web server is not running/.test(noServer.text), "link_bank: the app's server down — explained, pointing at the Status screen");
+    const fine = await link({ takeRecentLinks: () => [{ itemId: "x", institutionName: "Ally", accountCount: 2, institutionId: null } as never] });
+    ok(!fine.isError && /http:\/\/127\.0\.0\.1:54400\/pages\/link/.test(fine.text) && /Ally — 2 account\(s\)/.test(fine.text), "link_bank: the address, and the banks connected since last asked");
+
+    const relink = (over: Partial<ConstructorParameters<typeof RelinkBankTool>[0]>, id = "i1") =>
+      invoke(
+        new RelinkBankTool({
+          keysPresent: () => true,
+          state: async () => "running",
+          listBanks: async () => [{ itemId: "i1", institutionName: "Ally", status: "login_required" }],
+          reconnectAddress: (bankId) => `http://127.0.0.1:54400/pages/link?repair=${bankId}`,
+          takeRecentRepairs: () => [],
+          ...over,
+        }),
+        { item_id: id },
+      );
+    const unknown = await relink({}, "nope");
+    ok(unknown.isError && /No bank has item_id "nope"/.test(unknown.text) && /i1\s+Ally\s+\[login_required\]/.test(unknown.text), "relink_bank: an unknown id lists the known banks with their status");
+    const known = await relink({});
+    ok(!known.isError && /\?repair=i1/.test(known.text) && /sign in to Ally again/.test(known.text), "relink_bank: a known id gets the reconnect address, naming the bank");
+  }
+
+  // --- unlink_bank ---
+  {
+    const bank = { itemId: "b", institutionName: "Doomed", atPlaid: true, accounts: 1, transactions: 2 };
+    const unlinkTool = (over: Partial<ConstructorParameters<typeof UnlinkBankTool>[0]["unlink"]>, attempt?: unknown) =>
+      new UnlinkBankTool({
+        unlink: {
+          preview: async () => ({ outcome: "found", bank }),
+          unlink: async () => (attempt ?? { outcome: "unlinked", institutionName: "Doomed", revokedAtPlaid: true }) as never,
+          ...over,
+        },
+        listBanks: async () => [{ itemId: "b", institutionName: "Doomed", status: "active" }],
+      });
+    const tool = unlinkTool({});
+    const preview = await invoke(tool, { item_id: "b" });
+    ok(!preview.isError && /NOTHING HAS BEEN DELETED YET/.test(preview.text) && /2 transaction\(s\)/.test(preview.text), "unlink_bank: the first call previews");
+    const token = /confirmation_token:\s*(\S+)/.exec(preview.text)?.[1] ?? "";
+    const bad = await invoke(tool, { item_id: "b", confirmation_token: "nope" });
+    ok(bad.isError && /not valid/.test(bad.text), "unlink_bank: a wrong token deletes nothing");
+    const done = await invoke(tool, { item_id: "b", confirmation_token: token });
+    ok(!done.isError && /Disconnected Doomed/.test(done.text) && /also ended at Plaid/.test(done.text), "unlink_bank: the right token deletes and reports");
+    const replay = await invoke(tool, { item_id: "b", confirmation_token: token });
+    ok(replay.isError, "unlink_bank: a token works once");
+
+    const busy = await invoke(unlinkTool({ preview: async () => ({ outcome: "busy" }) }), { item_id: "b" });
+    ok(busy.isError && /sync is running/.test(busy.text), "unlink_bank: refused during a sync");
+    const down = await invoke(unlinkTool({ preview: async () => ({ outcome: "database-stopped" }) }), { item_id: "b" });
+    ok(down.isError && /not running/.test(down.text), "unlink_bank: the database stopped — explained");
+    const missing = await invoke(unlinkTool({ preview: async () => ({ outcome: "not-found" }) }), { item_id: "zzz" });
+    ok(missing.isError && /No bank has item_id "zzz"/.test(missing.text) && /Doomed/.test(missing.text), "unlink_bank: an unknown id lists the known banks");
+    const plaidTool = unlinkTool({}, { outcome: "plaid-failed", institutionName: "Doomed", reason: "no keys" });
+    const t2 = /confirmation_token:\s*(\S+)/.exec((await invoke(plaidTool, { item_id: "b" })).text)?.[1] ?? "";
+    const refused = await invoke(plaidTool, { item_id: "b", confirmation_token: t2 });
+    ok(refused.isError && /NOT disconnected/.test(refused.text) && /Nothing was deleted/.test(refused.text), "unlink_bank: Plaid refusing deletes nothing and says so");
+  }
+
+  // --- setup_costingly / restart_database ---
+  {
+    const setupOk = await invoke(new SetupCostinglyTool({ createDatabase: async () => undefined, keysPresent: () => false }));
+    ok(!setupOk.isError && /set up and running/.test(setupOk.text) && /Settings screen/.test(setupOk.text), "setup_costingly: set up, and keys still to enter on the Settings screen");
+    const setupWithKeys = await invoke(new SetupCostinglyTool({ createDatabase: async () => undefined, keysPresent: () => true }));
+    ok(/already in place/.test(setupWithKeys.text), "setup_costingly: with keys, says so");
+    const setupFailed = await invoke(new SetupCostinglyTool({ createDatabase: async () => ({ cause: "The database could not be created. disk full", nextStep: "Try again." }), keysPresent: () => false }));
+    ok(setupFailed.isError && /Setup failed\. The database could not be created\. disk full/.test(setupFailed.text) && /Try again\./.test(setupFailed.text), "setup_costingly: a failure in the Status screen's words, with its next step");
+
+    let restarted = 0;
+    const restartOk = await invoke(new RestartDatabaseTool({ restart: async () => void restarted++, section: async () => ({ tone: "good", headline: "Running", details: ["Schema version: 3"], actions: [] }) }));
+    ok(restarted === 1 && !restartOk.isError && /Restarted the database\. Running\. Schema version: 3/.test(restartOk.text), "restart_database: restarts through the service and answers from the section");
+    const restartBad = await invoke(new RestartDatabaseTool({ restart: async () => {}, section: async () => ({ tone: "bad", headline: "Could not start", details: [], problem: { cause: "Port in use.", nextStep: "Close that program." }, actions: ["start"] }) }));
+    ok(restartBad.isError && /not usable\. Port in use\./.test(restartBad.text) && /Close that program\./.test(restartBad.text), "restart_database: a failure in the Status screen's words");
+  }
 }
 
 console.log(out.join("\n"));

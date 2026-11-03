@@ -16,10 +16,16 @@
  *   IT REMEMBERS THE LAST RUN. One result, the latest, until the next run
  *   replaces it. A window that was closed for the whole sync opens to find it.
  *
- * WHO STARTED IT IS RECORDED, AND DOES NOT MATTER TO ANYTHING ELSE. Today the
- * only trigger is the Sync button. A scheduled sync is a second caller of
- * `start()`, with a second trigger name — nothing about running, remembering
- * or announcing a sync depends on which it was.
+ * WHO STARTED IT IS RECORDED, AND DOES NOT MATTER TO ANYTHING ELSE. The Sync
+ * button and a model's `sync` tool are two callers of `start()` with two
+ * trigger names; a scheduled sync would be a third. Nothing about running,
+ * remembering or announcing a sync depends on which it was, and a run one of
+ * them started is the run all of them see.
+ *
+ * ANYONE MAY WAIT FOR THE RUN TO END. `whenSettled()` is the same announcement
+ * the window gets through `onChange`, offered as something a caller can await
+ * — a tool call that would like to answer with the result if it comes soon.
+ * One promise per run: a waiter on one run is never answered by a later one.
  *
  * Never throws and never rejects. A sync that cannot run at all is a state
  * (`failed`), like every other way it can end.
@@ -30,8 +36,8 @@
 import type { SyncSummary } from "../../../../../domain/services/banks/sync.types.js";
 import { log } from "../../../../../platform/runtime/log.js";
 
-/** What set a sync going. One value today; a schedule would be another. */
-export type SyncTrigger = "manual";
+/** What set a sync going: the button, or a model through the endpoint. */
+export type SyncTrigger = "manual" | "mcp";
 
 export type SyncState =
   | { phase: "idle" }
@@ -56,6 +62,8 @@ export class SyncService {
   private stopped = false;
   /** How many pieces of work currently hold exclusive use. Above zero, no sync starts. */
   private exclusive = 0;
+  /** The current run's end, for whoever is waiting on it. Undefined between runs. */
+  private settled: { promise: Promise<SyncState>; resolve: (state: SyncState) => void } | undefined;
 
   constructor(private readonly deps: SyncDependencies) {}
 
@@ -70,9 +78,22 @@ export class SyncService {
   start(trigger: SyncTrigger = "manual"): SyncState {
     if (this.stopped || this.current.phase === "running" || this.exclusive > 0) return this.current;
 
+    let resolve: (state: SyncState) => void = () => {};
+    const promise = new Promise<SyncState>((done) => {
+      resolve = done;
+    });
+    this.settled = { promise, resolve };
     this.change({ phase: "running", trigger, startedAt: this.deps.now() });
     void this.runToEnd(trigger);
     return this.current;
+  }
+
+  /**
+   * The state the current run ends in, once it does. Resolved at once with the
+   * state as it is when no run is in progress.
+   */
+  whenSettled(): Promise<SyncState> {
+    return this.settled?.promise ?? Promise.resolve(this.current);
   }
 
   /**
@@ -105,6 +126,9 @@ export class SyncService {
    */
   stop(): void {
     this.stopped = true;
+    // A waiter is answered with what there is, rather than left hanging.
+    this.settled?.resolve(this.current);
+    this.settled = undefined;
   }
 
   private async runToEnd(trigger: SyncTrigger): Promise<void> {
@@ -139,6 +163,10 @@ export class SyncService {
       this.deps.onChange(state);
     } catch {
       // A listener that throws must not turn into a sync that failed.
+    }
+    if (state.phase === "finished" || state.phase === "failed") {
+      this.settled?.resolve(state);
+      this.settled = undefined;
     }
   }
 }

@@ -12,11 +12,22 @@ import type { ConnectView, McpSectionView, Problem } from "../../../bridge/contr
 import type { LocalServerState } from "./local-server.service.js";
 
 const HOST = "127.0.0.1";
-const PATH = "/mcp";
+const MCP_PATH = "/mcp";
+const LINK_PAGE_PATH = "/pages/link";
 
-/** What a client is given: "http://127.0.0.1:54400/mcp". */
+/** What an MCP client is given: "http://127.0.0.1:54400/mcp". */
 export function addressOf(port: number): string {
-  return `http://${HOST}:${port}${PATH}`;
+  return `http://${HOST}:${port}${MCP_PATH}`;
+}
+
+/** Where a browser is sent to link a bank: "http://127.0.0.1:54400/pages/link". */
+export function pageAddressOf(port: number): string {
+  return `http://${HOST}:${port}${LINK_PAGE_PATH}`;
+}
+
+/** The same page in reconnect mode for one bank. The id is checked by the caller first. */
+export function reconnectAddressOf(port: number, bankId: string): string {
+  return `${pageAddressOf(port)}?repair=${encodeURIComponent(bankId)}`;
 }
 
 export function presentMcpSection(state: LocalServerState): McpSectionView {

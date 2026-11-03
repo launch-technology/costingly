@@ -4,7 +4,8 @@
  *
  *   1. An open route answers anyone on this machine; a token route answers
  *      the right token and nobody else
- *   2. Refuse by default: an unlisted path is 404 whatever is presented
+ *   2. Refuse by default: an unlisted path is 404 whatever is presented, and
+ *      a route that declares a method refuses every other with 405
  *   3. This machine only: a request naming another host is refused, and a
  *      token route refuses a request that came from a web page
  *   4. The body: too large is refused, and so is one that is not JSON
@@ -95,6 +96,8 @@ const server = new LocalHttpServer({
   routes: [
     { path: "/open", access: "open", handler: (_req, res) => void res.type("text").send("open") },
     { path: "/secret", access: "token", handler: (req, res) => void res.json({ got: (req.body as unknown) ?? null }) },
+    // A route that takes one method, as every real route does.
+    { path: "/page", method: "GET", access: "open", handler: (_req, res) => void res.type("html").send("<p>page</p>") },
   ],
   onRefused: (refusal) => void refused.push(refusal),
   maxBodyBytes: 2_000,
@@ -135,6 +138,14 @@ await server.start(port, TOKEN);
   eq(unlisted.status, 404, "AN UNLISTED PATH IS 404, even with the right token");
   const root = await send(port, "/");
   eq(root.status, 404, "and so is the root");
+
+  const page = await send(port, "/page");
+  eq([page.status, page.text], [200, "<p>page</p>"], "a route that declares GET answers GET");
+  const posted = await send(port, "/page", { method: "POST", headers: json, body: "{}" });
+  eq(posted.status, 405, "AND REFUSES ANY OTHER METHOD WITH 405");
+  eq(posted.headers["allow"], "GET", "saying which method it takes");
+  const anyMethod = await send(port, "/open", { method: "POST", headers: json, body: "{}" });
+  eq(anyMethod.status, 200, "a route that declares no method answers any");
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +192,7 @@ await server.start(port, TOKEN);
   ok(reasons.some((r) => /too large/.test(r)), "an oversized body is reported");
   ok(reasons.some((r) => /not JSON/.test(r)), "a non-JSON body is reported");
   ok(reasons.some((r) => /nothing at that path/.test(r)), "an unlisted path is reported");
+  ok(reasons.some((r) => /takes GET only/.test(r)), "a wrong method is reported");
   ok(refused.every((r) => r.path.startsWith("/")), "each with its path");
   const everything = JSON.stringify(refused);
   ok(!everything.includes(WRONG) && !everything.includes("short") && !everything.includes(TOKEN), "AND NO REPORT CONTAINS A PRESENTED TOKEN");

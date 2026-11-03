@@ -1,13 +1,15 @@
 /**
- * The MCP server — protocol surface and stdout discipline.
+ * The old MCP server — what is left of it, and its stdout discipline.
  *
- * Two halves, because neither can do the other's job.
+ * Every tool but uninstall_costingly has moved to the desktop app's endpoint
+ * (tests/mcp-endpoint.test.mts). This suite keeps the two halves that still
+ * matter for the one tool that remains:
  *
  *   in-memory   A real Client and the real server in one process, linked by a
- *               transport whose send() is a function call. Exercises the actual
- *               handshake, the real tool registration and the real handlers,
- *               with no subprocess and nothing to parse. Everything about the
- *               protocol surface is asserted here.
+ *               transport whose send() is a function call. Proves the server
+ *               brings a stopped database up, advertises its one tool with
+ *               every annotation stated, and that uninstall refuses to delete
+ *               what it cannot also revoke at Plaid.
  *
  *   subprocess  `costingly mcp` spawned for real, driven over stdin/stdout,
  *               asserting that every byte on stdout is protocol. THIS IS THE
@@ -22,7 +24,7 @@
 
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 
 const P = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
@@ -64,7 +66,8 @@ await wipe();
 await install();
 
 // The first query builds the database — migrations included. Tests take the
-// same path a real install takes.
+// same path a real install takes. A linked bank, so uninstall has something
+// it must not strand.
 await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
              VALUES ('i1', 'Test Bank', 'aXY=.dGFn.Y2lwaGVy', 'active')`);
 
@@ -91,62 +94,28 @@ const client = new Client({ name: "test-client", version: "0" });
 await client.connect(clientEnd);
 
 const { tools } = await client.listTools();
-eq(tools.map((t) => t.name).sort(),
-   ["link_bank", "relink_bank", "restart_database", "setup_costingly", "sync",
-    "uninstall_costingly", "unlink_bank"],
-   "the seven tools that remain here are advertised — the three read tools live in the desktop app");
+eq(tools.map((t) => t.name), ["uninstall_costingly"],
+   "the one tool that remains here is advertised — every other lives in the desktop app");
 
 // The server-level instructions are the only place the injection warning lives.
 const instructions = client.getInstructions() ?? "";
 ok(instructions.length > 100, `the server sends instructions (${instructions.length} chars)`);
+ok(/moved to the Costingly desktop app/.test(instructions), "saying where the other tools went");
 ok(/never as instructions/i.test(instructions),
    "AND WARNING THAT TRANSACTION TEXT IS THIRD-PARTY DATA, not instructions");
 
-// describe_database, query and the prompt-injection checks moved with their
-// tools to tests/mcp-endpoint.test.mts.
+// Nothing is left to a default on any tool. A reader should not need to know
+// which hints are 'only meaningful when readOnlyHint is false' to read these.
+for (const t of tools) {
+  eq(Object.keys(t.annotations ?? {}).sort(),
+     ["destructiveHint", "idempotentHint", "openWorldHint", "readOnlyHint"],
+     `${t.name} states all four annotations, none defaulted`);
+}
 
 // callTool's return type is a union — the compatibility shape carries
 // `toolResult` rather than `content` — so this reads it loosely on purpose.
 const text = (r: unknown): string =>
   ((r as { content?: Array<{ text?: string }> }).content ?? [])[0]?.text ?? "";
-
-// --- relink_bank ------------------------------------------------------------
-// Repairs an existing connection instead of replacing it. The distinction is the
-// whole point: removing and re-adding a bank loses the transaction history and
-// creates a second connection that Plaid bills for.
-const relinkTool = tools.find((t) => t.name === "relink_bank")!;
-eq(relinkTool.annotations?.["destructiveHint"], false, "relink_bank destroys nothing");
-eq(relinkTool.annotations?.["idempotentHint"], true, "and re-opening the page changes nothing");
-eq(Object.keys(relinkTool.inputSchema.properties ?? {}), ["item_id"], "it takes an item_id");
-ok(/NOT link_bank/.test(relinkTool.description ?? ""),
-   "and says explicitly to use it INSTEAD of link_bank for an existing bank");
-ok(/login_required/.test(relinkTool.description ?? ""),
-   "naming the status that signals a bank needs it");
-
-// link_bank must point at it, or a model repairing a broken bank will reach for
-// the wrong tool and silently create a duplicate.
-ok(/relink_bank/.test(tools.find((t) => t.name === "link_bank")?.description ?? ""),
-   "AND link_bank REDIRECTS to it rather than creating a duplicate connection");
-
-// relink_bank refuses without Plaid credentials, like link_bank. Set them for
-// this block only — the link_bank tests below deliberately run without any.
-process.env["PLAID_CLIENT_ID"] = "fake-client-id";
-process.env["PLAID_SECRET"] = "fake-secret";
-const relinkUnknown = await client.callTool({
-  name: "relink_bank", arguments: { item_id: "not-a-bank" },
-});
-eq(relinkUnknown.isError, true, "an unknown item_id is an error");
-ok(/i1/.test(text(relinkUnknown)), "and the real banks are listed with their status");
-
-const relinkOk = await client.callTool({ name: "relink_bank", arguments: { item_id: "i1" } });
-eq(relinkOk.isError, undefined, "repairing a real bank returns a page to open");
-const relinkText = text(relinkOk);
-ok(/\?repair=i1/.test(relinkText), "THE URL CARRIES THE ITEM ID, so the page opens in update mode");
-ok(/history is kept/.test(relinkText), "and reassures that nothing is re-downloaded");
-ok(/call sync/i.test(relinkText), "and says what to do afterwards");
-
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 
 // --- uninstall_costingly refuses when it cannot revoke ----------------------
 //
@@ -189,144 +158,6 @@ delete process.env["PLAID_SECRET"];
      "and still spells out what leaving them behind costs");
 }
 
-// --- unlink_bank ------------------------------------------------------------
-// The only tool that genuinely destroys. Everything else reads, or reconciles
-// with a source of truth that can hand the data back. Because it destroys, it
-// is two-phase: the first call reports and mints a token, the second spends it.
-const unlinkTool = tools.find((t) => t.name === "unlink_bank")!;
-eq(unlinkTool.annotations?.["destructiveHint"], true,
-   "unlink_bank is the ONE tool that declares itself destructive");
-eq(unlinkTool.annotations?.["idempotentHint"], false,
-   "and not idempotent — a second call finds nothing to delete");
-eq(Object.keys(unlinkTool.inputSchema.properties ?? {}), ["item_id", "confirmation_token"],
-   "it takes an item_id, not a bank name — plus the token that arms the delete");
-ok(/CANNOT BE UNDONE/.test(unlinkTool.description ?? ""),
-   "and its description says so in terms a model will repeat");
-ok(/two calls/i.test(unlinkTool.description ?? ""),
-   "and tells the model the delete takes two calls, not one");
-
-// A wrong id must not guess. It lists what exists instead.
-const wrongId = await client.callTool({ name: "unlink_bank", arguments: { item_id: "nope" } });
-eq(wrongId.isError, true, "an unknown item_id is an error, never a near-match");
-ok(/i1/.test(text(wrongId)), "and the real item ids are listed back");
-
-// Seed a second bank with data of its own, so the delete has something to cascade
-// through and the first bank can be checked for collateral damage.
-const { encrypt } = await import("../src/domain/crypto.js");
-await db.query(`INSERT INTO items (item_id, institution_name, access_token_enc, status)
-             VALUES ('doomed', 'Doomed Bank', $1, 'active')`, [encrypt("fake-access-token")]);
-await db.query(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, currency, current_balance)
-             VALUES ('d1', 'doomed', 'Checking', '1111', 'depository', 'checking', 'USD', 5)`);
-await db.query(`INSERT INTO transactions (transaction_id, account_id, item_id, amount,
-                                       iso_currency_code, date, name, pending, raw)
-             VALUES ('dt1','d1','doomed', 1,'USD','2026-03-01','ONE',false,'{}'::jsonb),
-                    ('dt2','d1','doomed', 2,'USD','2026-03-02','TWO',false,'{}'::jsonb)`);
-
-const stillThere = async (id: string): Promise<string> =>
-  (await db.query<{ n: string }>(
-    `SELECT COUNT(*)::text n FROM items WHERE item_id = $1`, [id])).rows[0]?.n ?? "?";
-
-// PHASE ONE. The call a prompt injection would produce: item_id and nothing else.
-// It must report, not delete.
-const preview = await client.callTool({ name: "unlink_bank", arguments: { item_id: "doomed" } });
-eq(preview.isError, undefined, "the first call is not an error — it is a preview");
-const previewText = text(preview);
-ok(/NOTHING HAS BEEN DELETED YET/.test(previewText),
-   "and says so unmissably, at the top");
-ok(/Doomed Bank/.test(previewText), "it names the bank");
-ok(/1 account\(s\)/.test(previewText), "counts the accounts that would go");
-ok(/2 transaction\(s\)/.test(previewText), "AND THE TRANSACTIONS — the number that makes a user stop");
-eq(await stillThere("doomed"), "1",
-   "THE ASSERTION THAT MATTERS: a single unconfirmed call DELETED NOTHING");
-
-const unlinkToken = /confirmation_token:\s*(\S+)/.exec(previewText)?.[1] ?? "";
-ok(unlinkToken.length > 0, "and it hands back a token to spend");
-
-// A made-up token must not work. Guessing is not a path to deletion.
-const badToken = await client.callTool({
-  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: "not-a-real-token" } });
-eq(badToken.isError, true, "an invented token is rejected");
-eq(await stillThere("doomed"), "1", "and the bank is still there");
-
-// A real token issued for one bank must not delete a different one.
-const other = await client.callTool({ name: "unlink_bank", arguments: { item_id: "i1" } });
-const otherToken = /confirmation_token:\s*(\S+)/.exec(text(other))?.[1] ?? "";
-const crossed = await client.callTool({
-  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: otherToken } });
-eq(crossed.isError, true, "a token is bound to the item it was issued for");
-eq(await stillThere("doomed"), "1", "so it cannot be redirected at another bank");
-
-// PHASE TWO, WHEN PLAID CANNOT REMOVE IT. This bank's token is made up and
-// there are no Plaid keys here, so the revoke fails — and unlinking has one
-// rule for every interface: a failed revoke deletes NOTHING, because the row
-// holds the only credential that could remove the Item at Plaid later.
-const refused = await client.callTool({
-  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: unlinkToken } });
-eq(refused.isError, true, "when Plaid cannot remove the bank, unlinking is reported as failed");
-ok(/NOT disconnected/.test(text(refused)) && /Nothing was deleted/.test(text(refused)),
-   "saying it was not disconnected and nothing was deleted");
-eq(await stillThere("doomed"), "1", "A FAILED REVOKE DELETES NOTHING — the bank is still there");
-
-// PHASE TWO. A bank with nothing at Plaid to revoke — sample data — goes
-// straight through, which is what shows the delete and its cascade.
-await db.query(`UPDATE items SET source = 'seed', access_token_enc = NULL WHERE item_id = 'doomed'`);
-const again = await client.callTool({ name: "unlink_bank", arguments: { item_id: "doomed" } });
-const secondToken = /confirmation_token:\s*(\S+)/.exec(text(again))?.[1] ?? "";
-const gone = await client.callTool({
-  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: secondToken } });
-eq(gone.isError, undefined, "removing a bank succeeds once confirmed");
-const goneText = text(gone);
-ok(/Doomed Bank/.test(goneText), "the result names the bank");
-ok(/1 account\(s\)/.test(goneText), "and counts the accounts deleted");
-ok(/2 transaction\(s\)/.test(goneText), "AND THE TRANSACTIONS — counted before the delete");
-
-// THE ASSERTION THAT MATTERS: the cascade actually ran.
-const left = await db.query<{ i: string; a: string; t: string }>(
-  `SELECT (SELECT COUNT(*) FROM items        WHERE item_id='doomed')::text AS i,
-          (SELECT COUNT(*) FROM accounts     WHERE item_id='doomed')::text AS a,
-          (SELECT COUNT(*) FROM transactions WHERE item_id='doomed')::text AS t`);
-eq(left.rows[0], { i: "0", a: "0", t: "0" },
-   "ITEM, ACCOUNTS AND TRANSACTIONS ARE ALL GONE — the cascade did its job");
-
-// A spent token is spent. Replaying it must not delete anything else.
-const replay = await client.callTool({
-  name: "unlink_bank", arguments: { item_id: "doomed", confirmation_token: secondToken } });
-eq(replay.isError, true, "a token works exactly once");
-
-const survivors = await db.query<{ n: string }>(
-  `SELECT COUNT(*)::text n FROM items WHERE item_id = 'i1'`);
-eq(survivors.rows[0]?.n, "1", "and the other bank is untouched");
-
-// --- the sync tool ----------------------------------------------------------
-// Every annotation is stated rather than defaulted, on purpose: the defaults are
-// destructiveHint TRUE and idempotentHint false, so silence would advertise sync
-// as more dangerous than it is and invite clients to gate it harder.
-const syncTool = tools.find((t) => t.name === "sync")!;
-eq(syncTool.annotations?.["readOnlyHint"], false, "sync declares that it writes");
-eq(syncTool.annotations?.["destructiveHint"], false,
-   "AND EXPLICITLY THAT IT IS NOT DESTRUCTIVE — the default here is true");
-eq(syncTool.annotations?.["idempotentHint"], true,
-   "AND EXPLICITLY THAT IT IS IDEMPOTENT — the default here is false");
-eq(syncTool.annotations?.["openWorldHint"], true,
-   "and that it leaves the machine; it is the only tool that does");
-
-// Nothing is left to a default on any tool. A reader should not need to know
-// which hints are 'only meaningful when readOnlyHint is false' to read these.
-for (const t of tools) {
-  eq(Object.keys(t.annotations ?? {}).sort(),
-     ["destructiveHint", "idempotentHint", "openWorldHint", "readOnlyHint"],
-     `${t.name} states all four annotations, none defaulted`);
-}
-
-// Calling it for real, with no banks linked. syncAllItems never constructs a
-// Plaid client when there is nothing to sync, so this needs no credentials.
-await db.query(`DELETE FROM items`);
-const emptySync = await client.callTool({ name: "sync", arguments: {} });
-eq(emptySync.isError, false, "syncing with no banks linked is not an error");
-const emptyText = text(emptySync);
-ok(/setup step, not an error/i.test(emptyText), "it explains this is setup, not failure");
-ok(/costingly link/.test(emptyText), "and names the thing the user must actually do");
-
 // --- failure modes ---------------------------------------------------------
 // An unknown tool comes back as a RESULT with isError, not a protocol error, so
 // the model can read what went wrong. Verified against SDK behaviour.
@@ -335,123 +166,10 @@ eq(unknown.isError, true, "an unknown tool is reported as isError, not a crash")
 ok(/no_such_tool/.test((unknown.content as Array<{ text: string }>)[0]?.text ?? ""),
    "and names the tool that was missing");
 
-// Now that a tool HAS an input schema, zod validates — and the failure is a
-// readable result rather than a protocol error, so the model can fix its call.
-const badArgs = await client.callTool({ name: "relink_bank", arguments: { item_idd: "i1" } });
-eq(badArgs.isError, true, "a wrong argument name is rejected by the input schema");
-ok(/item_id/i.test(text(badArgs)), "and the message names the argument at fault");
-
-// --- link_bank --------------------------------------------------------------
-// The only tool that cannot finish its own job: Plaid's login screen runs in a
-// real browser, and for most large banks it navigates to the bank's own site.
-// So the tool's whole contract is "hand back a URL and say what happens next".
-const linkTool = tools.find((t) => t.name === "link_bank")!;
-eq(linkTool.annotations?.["readOnlyHint"], false, "link_bank declares that it writes");
-eq(linkTool.annotations?.["destructiveHint"], false, "and that it destroys nothing");
-eq(linkTool.annotations?.["openWorldHint"], true, "and that it leaves the machine");
-
-// No credentials are configured in this profile, which is the state a brand-new
-// install is in — and the message has to name the fix rather than the symptom.
-const noCreds = await client.callTool({ name: "link_bank", arguments: {} });
-eq(noCreds.isError, true, "without Plaid credentials it is an error");
-const credsText = text(noCreds);
-ok(/setup step, not a problem with the request/i.test(credsText),
-   "it says this is setup rather than a failed request");
-ok(/retrying will not help/i.test(credsText), "AND TELLS THE MODEL NOT TO RETRY");
-ok(/Claude Desktop's settings/.test(credsText),
-   "and names where a bundled user actually enters them");
-// "may need to be restarted" cost a real debugging cycle: the keys were entered,
-// the same refusal came back, and the hedge read as optional. Environment
-// variables are fixed at spawn, so it is a certainty.
-ok(/Cmd-Q/.test(credsText) && /required, not optional/.test(credsText),
-   "AND STATES THE RESTART AS A REQUIREMENT, naming the actual keystroke");
-ok(/BOTH the Plaid client ID and the secret/.test(credsText),
-   "and that half-filled credentials are the same as none");
-ok(!/costingly init/.test(credsText),
-   "and does NOT send a bundled user to a terminal command they do not have");
-
-// --- the sync summary format ------------------------------------------------
-// A real multi-bank sync needs Plaid credentials, so the formatter is exercised
-// directly. This is where the design lives: the output is read by a model that
-// is about to write a report, and a partial failure must be impossible to skim
-// past. Assertions below check ORDER, not just presence.
-const { formatSyncSummary } = await import("../src/apps/mcp/tools/sync.utils.js");
-
-const item = (over: Record<string, unknown>): any => ({
-  itemId: "i", institutionName: "Bank", ok: true, added: 0, modified: 0,
-  removed: 0, accounts: 1, pages: 1, initialBackfill: false, updateStatus: null, ...over,
-});
-const summary = (over: Record<string, unknown>): any => ({
-  ok: true, startedAt: "", finishedAt: "", durationMs: 4200, itemsTotal: 1,
-  itemsSucceeded: 1, itemsFailed: 0, added: 0, modified: 0, removed: 0,
-  results: [], ...over,
-});
-
-const clean = formatSyncSummary(summary({
-  itemsTotal: 2, itemsSucceeded: 2, added: 12, modified: 1,
-  results: [item({ institutionName: "Ally", added: 12, modified: 1 }),
-            item({ institutionName: "Amex" })],
-}));
-ok(!/WARNING/.test(clean), "a clean sync carries no warning");
-ok(clean.includes("Ally: +12 added, ~1 updated"), "and reports each bank's changes");
-ok(clean.includes("Amex: no changes"), "including the ones with nothing new");
-ok(clean.includes("Totals: 12 added"), "plus totals");
-
-const partial = formatSyncSummary(summary({
-  itemsTotal: 2, itemsSucceeded: 1, itemsFailed: 1, ok: false, added: 12,
-  results: [item({ institutionName: "Ally", added: 12 }),
-            item({ institutionName: "Chase", ok: false, error: "ITEM_LOGIN_REQUIRED" })],
-}));
-ok(/INCOMPLETE/.test(partial), "a partial failure says the data is incomplete");
-ok(partial.includes("Chase: ITEM_LOGIN_REQUIRED"), "and names the bank and the reason");
-ok(/Say so explicitly/i.test(partial), "and instructs the reader to pass it on");
-// THE ASSERTION THAT MATTERS: the warning must come before any number, or a
-// model skimming for the result will report confidently on partial data.
-ok(partial.indexOf("INCOMPLETE") < partial.indexOf("Synced"),
-   "THE WARNING PRECEDES EVERY FIGURE — it cannot be skimmed past");
-ok(partial.indexOf("INCOMPLETE") < partial.indexOf("Totals:"), "and precedes the totals");
-
-// Two states that look like success and are not.
-const backfill = formatSyncSummary(summary({
-  added: 2814, results: [item({ added: 2814, initialBackfill: true })],
-}));
-ok(/full history backfill/.test(backfill), "a first sync is flagged as a backfill");
-
-const notReady = formatSyncSummary(summary({
-  results: [item({ added: 3, updateStatus: "NOT_READY" as any })],
-}));
-ok(/still preparing/.test(notReady),
-   "NOT_READY is spelled out, so a small number does not read as 'nothing to do'");
-ok(/Sync again shortly/.test(notReady), "and says what to do about it");
-
 // --- shutdown ---------------------------------------------------------------
-// Start the link server first, so shutdown has something to clean up. A
-// listening socket refs the event loop: if run() does not close it, the process
-// outlives its client by however long the link server's idle timer runs.
-// Measured before this was fixed: five minutes and counting.
-process.env["PLAID_CLIENT_ID"] = "fake-client-id";
-process.env["PLAID_SECRET"] = "fake-secret";
-
-// cli/main.ts registers this; an in-process test has to do it too, for the same
-// reason it registers the migration loader.
-const { linkServerStatus } = await import("../src/domain/services/banks/link-session.service.js");
-const started = await client.callTool({ name: "link_bank", arguments: {} });
-eq(started.isError, undefined, "with credentials present, link_bank starts the page");
-const startedText = text(started);
-ok(/http:\/\/127\.0\.0\.1:\d+/.test(startedText), "and returns a loopback URL to open");
-ok(/call sync/i.test(startedText), "and tells the model what to do once the user is done");
-
-eq(linkServerStatus().running, true, "the link server is listening");
-
 await client.close();
 await serving;
 await app.stop();
-
-eq(linkServerStatus().running, false,
-   "AND stop() SHUTS IT DOWN ON DISCONNECT — otherwise the process cannot exit");
-
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 out.push("  ok    run() RESOLVES WHEN THE CLIENT DISCONNECTS (no hang on shutdown)");
 
 await closeDb();
@@ -467,7 +185,7 @@ interface Run {
   ms: number;
 }
 
-/** Spawn the real CLI, write `lines` to its stdin, then close stdin. */
+/** Spawn the real server, write `lines` to its stdin, then close stdin. */
 function driveServer(lines: string[], holdMs: number): Promise<Run> {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -485,7 +203,7 @@ function driveServer(lines: string[], holdMs: number): Promise<Run> {
     for (const line of lines) child.stdin.write(`${line}\n`);
 
     // Hold stdin open, then close it — that is the disconnect the server must
-    // notice. StdioServerTransport does not listen for EOF itself; cli/mcp.ts
+    // notice. StdioServerTransport does not listen for EOF itself; main.ts
     // wires it. If that wiring breaks, this run does not end promptly.
     setTimeout(() => child.stdin.end(), holdMs);
 
@@ -495,6 +213,8 @@ function driveServer(lines: string[], holdMs: number): Promise<Run> {
   });
 }
 
+// No tool is called over stdio: the one tool left destroys, and a listing is
+// enough to prove the channel carries protocol and nothing else.
 const HANDSHAKE = [
   JSON.stringify({
     jsonrpc: "2.0", id: 1, method: "initialize",
@@ -506,12 +226,6 @@ const HANDSHAKE = [
   }),
   JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
   JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
-  // sync, with no banks linked: the one remaining tool that needs no
-  // credentials and changes nothing. The read tools live in the desktop app.
-  JSON.stringify({
-    jsonrpc: "2.0", id: 3, method: "tools/call",
-    params: { name: "sync", arguments: {} },
-  }),
 ];
 
 const run = await driveServer(HANDSHAKE, 4000);
@@ -536,12 +250,13 @@ for (const line of lines) {
   }
 }
 eq(notJson, [], "EVERY LINE OF STDOUT IS VALID JSON — no banner, no console.log");
-eq(lines.length, 3, "exactly three responses: initialize, tools/list, tools/call");
+eq(lines.length, 2, "exactly two responses: initialize, tools/list");
 
 eq(responses[0]?.["result"]?.serverInfo?.name, "costingly", "initialize reports the server name");
 ok(responses.length > 0 && responses.every((r) => r["jsonrpc"] === "2.0"),
    "and every response is JSON-RPC 2.0");
-ok(responses[2]?.["result"]?.isError !== true, "the tool call over real stdio succeeds");
+eq((responses[1]?.["result"]?.tools as Array<{ name: string }> | undefined)?.map((t) => t.name), ["uninstall_costingly"],
+   "the listing over real stdio names the one tool");
 
 await wipe();
 

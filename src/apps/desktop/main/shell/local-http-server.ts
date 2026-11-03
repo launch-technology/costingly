@@ -2,16 +2,17 @@
  * The app's one local web server.
  *
  * The second way a request reaches the app, beside ipc-router.ts: the window
- * calls over IPC, and programs on this machine call over HTTP. Today it serves
- * one route, the MCP endpoint; the bank-link page joins it in a later story.
- * It knows nothing about either: it is handed routes and serves them.
+ * calls over IPC, and programs on this machine call over HTTP. It serves the
+ * routes it is handed (routes/index.ts is the table) and knows nothing about
+ * what any of them does.
  *
  * REFUSE BY DEFAULT. A route is reachable only because it was listed, and it
- * says whether it needs the token. Everything else — an unlisted path, a
- * request naming some other host, a token route asked for by a web page, a
- * body too large — is turned away before any route's code runs, and each
- * refusal is reported to the caller with the reason and the path. Never with
- * the token that was presented: that would put a guessed token in the log.
+ * says which method it takes and whether it needs the token. Everything else
+ * — an unlisted path, another method, a request naming some other host, a
+ * token route asked for by a web page, a body too large — is turned away
+ * before any route's code runs, and each refusal is reported to the caller
+ * with the reason and the path. Never with the token that was presented: that
+ * would put a guessed token in the log.
  *
  * THIS MACHINE ONLY. It binds 127.0.0.1, and it also checks the Host header,
  * which is what stops a web page reaching a local server through a name it
@@ -25,17 +26,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
-import express, { type NextFunction, type Request, type RequestHandler, type Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 
-/** Whether a route needs the token, or is open to any program on this machine. */
-export type RouteAccess = "token" | "open";
-
-export interface Route {
-  /** The path, exactly: "/mcp". */
-  path: string;
-  access: RouteAccess;
-  handler: RequestHandler;
-}
+import type { Route } from "../routes/route.js";
 
 /** A request that was turned away, and why. Never the presented token. */
 export interface Refusal {
@@ -100,6 +93,14 @@ export class LocalHttpServer {
 
     const body = express.json({ limit: this.options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES });
     for (const route of this.options.routes) {
+      const method = (req: Request, res: Response, next: NextFunction): void => {
+        if (route.method !== undefined && req.method !== route.method) {
+          res.set("Allow", route.method);
+          refuse(req, res, 405, `that path takes ${route.method} only`);
+          return;
+        }
+        next();
+      };
       const access = (req: Request, res: Response, next: NextFunction): void => {
         if (route.access === "open") {
           next();
@@ -116,7 +117,7 @@ export class LocalHttpServer {
         }
         next();
       };
-      app.all(route.path, access, body, route.handler);
+      app.all(route.path, method, access, body, route.handler);
     }
 
     // Nothing below the listed routes.

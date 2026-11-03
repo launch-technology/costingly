@@ -41,6 +41,7 @@ const ORDER = [
   "desktop-settings-presenter",
   "desktop-report-presenter",
   "desktop-connect-presenter",
+  "desktop-sync-report-presenter",
   "desktop-services",
   "picker",
   "confirm",
@@ -67,6 +68,7 @@ const ORDER = [
   "desktop-settings",
   "desktop-logs",
   "desktop-connect",
+  "desktop-mcp-actions",
 ];
 
 interface Outcome {

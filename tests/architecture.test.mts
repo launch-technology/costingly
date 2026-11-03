@@ -297,14 +297,16 @@ none(
 //                  words a domain report for a screen, and x.adapter.ts fits
 //                  the real domain to what the service asks for.
 //   mcp/           the model's front door, a peer of features/: the tools a
-//                  local MCP client may call, their presenters, and the route;
-//                  mcp.adapter.ts is its one adapter
+//                  local MCP client may call, their presenters, and the handler
+//                  that speaks MCP over HTTP; mcp.adapter.ts is its one adapter
+//   routes/        every URL the app serves, one file per URL with the path
+//                  mirrored on disk; link.adapter.ts is its one adapter
 //   shared/        what more than one feature uses; same suffixes
 //   shell/         the edges: window, tray, the IPC router, the local web server
 //
-// Four properties keep that layout meaning something.
+// Five properties keep that layout meaning something.
 const DESKTOP_MAIN = "apps/desktop/main/";
-const BEHIND_THE_SHELL = ["features/", "mcp/", "shared/"].map((folder) => `${DESKTOP_MAIN}${folder}`);
+const BEHIND_THE_SHELL = ["features/", "mcp/", "routes/", "shared/"].map((folder) => `${DESKTOP_MAIN}${folder}`);
 const behindTheShell = files.filter((f) => BEHIND_THE_SHELL.some((p) => f.path.startsWith(p)));
 
 // Electron stays at the edges: the shell and the composition root. Everything
@@ -345,6 +347,21 @@ none(
     .filter((f) => f.imports.some((i) => (targetOf(f, i) ?? "").startsWith(`${DESKTOP_MAIN}shell/`)))
     .map((f) => f.path),
   "features and shared code never import the shell; the composition root hands them what they need",
+);
+
+// A route file's place spells its URL: routes/api/link/token.route.ts is
+// /api/link/token. So reading a URL says which file answers it, and the table
+// in routes/index.ts cannot quietly disagree with the files.
+const ROUTES = `${DESKTOP_MAIN}routes/`;
+none(
+  files
+    .filter((f) => f.path.startsWith(ROUTES) && f.path.endsWith(".route.ts"))
+    .filter((f) => {
+      const url = `/${f.path.slice(ROUTES.length, -".route.ts".length)}`;
+      return !new RegExp(`path:\\s*"${url}"`).test(f.text);
+    })
+    .map((f) => f.path),
+  "every route file declares the URL its path spells",
 );
 
 // The placeholder icon's drawing is read by the installer build as well as by
@@ -522,10 +539,12 @@ none(
 // src/index.ts declares what costingly exposes if it is ever imported as a
 // library, and the suites use it as a convenient façade. Nothing inside src/
 // should reach for it: a module that imports the barrel imports every layer.
+// An index.js elsewhere — a folder's own table, like routes/index.ts — is not
+// the barrel, so each import is resolved rather than matched by name.
 none(
   files
     .filter((f) => f.layer !== "barrel")
-    .filter((f) => f.imports.some((i) => /(^|\/)index\.js$/.test(i)))
+    .filter((f) => f.imports.some((i) => posix.normalize(posix.join(posix.dirname(f.path), i)) === "index.js"))
     .map((f) => f.path),
   "nothing under src/ imports the barrel",
 );
