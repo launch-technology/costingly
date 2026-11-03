@@ -250,10 +250,28 @@ try {
       const { tools } = await client.listTools();
       eq(
         tools.map((t) => t.name).sort(),
-        ["check_costingly", "describe_database", "query"],
-        "A LOCAL MCP CLIENT CONNECTS TO THE PACKAGED APP and is offered the three read tools",
+        [
+          "check_costingly",
+          "describe_database",
+          "link_bank",
+          "query",
+          "relink_bank",
+          "restart_database",
+          "setup_costingly",
+          "sync",
+          "sync_status",
+          "unlink_bank",
+        ],
+        "A LOCAL MCP CLIENT CONNECTS TO THE PACKAGED APP and is offered all ten tools",
       );
+      const status = await client.callTool({ name: "sync_status", arguments: {} });
+      ok(/No sync has run/.test(((status.content as Array<{ text?: string }>)[0]?.text) ?? ""), "sync_status answers: nothing has run yet");
       await client.close();
+
+      // The bank-link page is served by the packaged app itself now, not by a
+      // server started on demand.
+      const page = await fetch(`http://127.0.0.1:${connection.port}/pages/link`);
+      ok(page.ok && /Plaid/.test(await page.text()), "THE LINK PAGE IS SERVED BY THE PACKAGED APP at /pages/link");
     }
 
     // =======================================================================

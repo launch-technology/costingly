@@ -38,15 +38,15 @@ export class CheckCostinglyTool implements Tool {
           "Call this when any other costingly tool fails, or when the user says " +
           "costingly is broken, not working, or not set up. It is built to answer " +
           "when everything else is down — that is the case it exists for.\n\n" +
-          "It distinguishes states that need different responses, and EVERY ONE OF " +
-          "THEM IS FIXED BY THE USER IN THE COSTINGLY APP, not by a tool. NOT SET UP " +
-          "means nothing has been created yet: the user finishes setup in Costingly. " +
-          "NOT RUNNING means the database exists but its server is down: the user " +
-          "presses Start in the Database section of Costingly's Status screen. NO " +
-          "PLAID CREDENTIALS means no keys have been entered: the user enters both the " +
-          "client ID and the secret on Costingly's Settings screen, where they take " +
-          "effect at once with nothing to restart. Tell the user which it is and what " +
-          "to do; retrying before they have will produce this same answer.\n\n" +
+          "It distinguishes states that need different responses. NOT SET UP means " +
+          "nothing has been created yet: setup_costingly creates the database, or the " +
+          "user finishes setup in Costingly. NOT RUNNING means the database exists but " +
+          "its server is down: restart_database brings it back, or the user presses " +
+          "Start in the Database section of Costingly's Status screen. NO PLAID " +
+          "CREDENTIALS is the one no tool can fix: the user enters both the client ID " +
+          "and the secret on Costingly's Settings screen, where they take effect at " +
+          "once with nothing to restart. Tell the user which it is; retrying before it " +
+          "is fixed will produce this same answer.\n\n" +
           "It reports on costingly, not on the user's money. It returns no " +
           "transactions, balances or totals: for those use query, and for the views " +
           "and columns needed to write one use describe_database.\n\n" +

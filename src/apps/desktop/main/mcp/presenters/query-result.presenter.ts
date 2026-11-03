@@ -117,12 +117,13 @@ export const DATABASE_STOPPED =
   "costingly's database is not running, so there is nothing to answer from. This is " +
   "not a problem with the request: retrying will not help until the database is " +
   "started. Tell the user to open Costingly and press Start in the Database section " +
-  "of its Status screen.";
+  "of its Status screen — or, if they ask you to, call restart_database, which starts it.";
 
 export const DATABASE_NOT_CREATED =
   "costingly has not been set up on this machine yet, so there is no database to " +
   "answer from. This is a setup step, not a problem with the request — retrying will " +
-  "not help. Tell the user to open Costingly and finish its setup.";
+  "not help. Tell the user to open Costingly and finish its setup — or, if they ask " +
+  "you to, call setup_costingly, which creates the database.";
 
 export const NO_TABLES =
   "costingly's database exists but has no tables yet, so there is nothing to query. " +

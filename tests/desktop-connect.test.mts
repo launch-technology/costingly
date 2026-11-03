@@ -174,7 +174,11 @@ try {
 
   const client = await connect(address, token);
   const { tools } = await client.listTools();
-  eq(tools.map((t) => t.name).sort(), ["check_costingly", "describe_database", "query"], "A CLIENT WITH THE SHOWN ADDRESS AND TOKEN IS OFFERED EXACTLY THREE TOOLS");
+  eq(
+    tools.map((t) => t.name).sort(),
+    ["check_costingly", "describe_database", "link_bank", "query", "relink_bank", "restart_database", "setup_costingly", "sync", "sync_status", "unlink_bank"],
+    "A CLIENT WITH THE SHOWN ADDRESS AND TOKEN IS OFFERED THE TEN TOOLS",
+  );
   ok(/^costingly: /.test(text(await client.callTool({ name: "check_costingly", arguments: {} }))), "check_costingly answers");
   ok(text(await client.callTool({ name: "describe_database", arguments: {} })).includes("v_transactions"), "describe_database answers");
   const one = await client.callTool({ name: "query", arguments: { sql: "SELECT 1 AS one_marker_column" } });

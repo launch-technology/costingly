@@ -25,6 +25,7 @@
 
 import type { ItemSyncResult, SyncSummary } from "../../../../../domain/services/banks/sync.types.js";
 import type { BankSyncResult, Problem, SyncView } from "../../../bridge/contract.js";
+import { loginExpired, stillPreparing } from "./sync-outcomes.js";
 import type { SyncState } from "./sync.service.js";
 
 export function presentSync(state: SyncState): SyncView {
@@ -102,7 +103,7 @@ function presentResult(result: ItemSyncResult): BankSyncResult {
   }
 
   const counted = changes(result);
-  if (historyNotReady(result)) {
+  if (stillPreparing(result)) {
     return {
       bankId,
       tone: "warn",
@@ -126,20 +127,6 @@ function changes(result: ItemSyncResult): string {
 
 function count(value: number): string {
   return new Intl.NumberFormat().format(value);
-}
-
-/** Plaid's status for a history it has not finished collecting. */
-function historyNotReady(result: ItemSyncResult): boolean {
-  return String(result.updateStatus ?? "").toUpperCase().includes("NOT_READY");
-}
-
-/**
- * Plaid's code for a login the user must renew. The domain describes a Plaid
- * error as `TYPE/CODE: message`, and the code is Plaid's own fixed identifier
- * — this matches that, not the wording after it.
- */
-function loginExpired(result: ItemSyncResult): boolean {
-  return /\bITEM_LOGIN_REQUIRED\b/.test(result.error ?? "");
 }
 
 /**

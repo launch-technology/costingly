@@ -2,16 +2,21 @@
  * The link session: a browser round trip that connects or repairs a bank.
  *
  * A SERVICE, not an interface, even though it serves HTML. Both the CLI and the
- * MCP server need this exact page and this exact post-back handler, so filing it
- * under one of them would mean writing it twice — and a rule that forces
- * anything presentational into `apps/` produces exactly that duplication. The
- * distinction that matters is *whose* experience: `commander` and `clack` render
- * one interface's UX and belong to it; this page is the shared middle of a use
- * case both interfaces invoke.
+ * desktop app need this exact page and these exact post-back handlers, so
+ * filing them under one of them would mean writing them twice — and a rule
+ * that forces anything presentational into `apps/` produces exactly that
+ * duplication. The distinction that matters is *whose* experience: `commander`
+ * and `clack` render one interface's UX and belong to it; this page is the
+ * shared middle of a use case both interfaces invoke.
  *
- * What differs between the two callers is only how they WAIT. The CLI blocks
- * until the browser posts back; a tool call cannot, so it returns a URL and
- * reports the outcome on a later call through `takeRecentLinks`.
+ * TWO HOSTS, ONE SET OF HANDLERS. The desktop app serves the page and its four
+ * calls from its own always-on web server (`linkPageHandler`, `linkHandlers`,
+ * at the paths in `LINK_API`). The command line, until it is retired, starts
+ * the on-demand server below, which mounts the same handlers at the same API
+ * paths and the page at its root. What differs between the callers is how
+ * they WAIT: the CLI blocks until the browser posts back; a tool call cannot,
+ * so it returns an address and reports the outcome on a later call through
+ * `takeRecentLinks`.
  *
  * Plaid Link cannot run anywhere but a real browser. It renders in an iframe
  * from Plaid's CDN, needs storage, and for OAuth institutions it navigates the
@@ -41,8 +46,9 @@
  */
 
 import express from "express";
-import type { Request, Response } from "express";
+import type { Request, RequestHandler, Response } from "express";
 import type { Server } from "node:http";
+import { join } from "node:path";
 
 import { publicDir } from "../../../platform/package.js";
 import { log } from "../../../platform/runtime/log.js";
@@ -107,6 +113,111 @@ function failure(message: string): void {
   log.warn(`[link] ${message}`);
 }
 
+/** The page's four calls, at the paths the page itself uses. Whichever host serves it mounts these. */
+export const LINK_API = {
+  createToken: "/api/link/token",
+  exchange: "/api/link/exchange",
+  repairToken: "/api/link/repair-token",
+  repairComplete: "/api/link/repair-complete",
+} as const;
+
+/** The handlers behind the page's four calls. */
+export interface LinkHandlers {
+  createToken: RequestHandler;
+  exchange: RequestHandler;
+  repairToken: RequestHandler;
+  repairComplete: RequestHandler;
+}
+
+/** Sends the page. The static directory is the package's `public/` unless a caller says otherwise. */
+export function linkPageHandler(staticDir = publicDir): RequestHandler {
+  return (_req, res) => {
+    res.sendFile(join(staticDir, "index.html"));
+  };
+}
+
+/**
+ * The four handlers, bound to one Plaid client. They expect a parsed JSON
+ * body; the host provides the parsing.
+ */
+export function linkHandlers(plaid: PlaidClient): LinkHandlers {
+  return {
+    // Repairing an existing connection, not adding a new one. Takes an item id —
+    // never a token. Plaid access tokens are decrypted only inside this process.
+    repairToken: async (req: Request, res: Response) => {
+      try {
+        const body = req.body as { item_id?: unknown } | undefined;
+        if (typeof body?.item_id !== "string" || body.item_id === "") {
+          res.status(400).json({ error: "item_id is required" });
+          return;
+        }
+        res.json({ link_token: await createRepairLinkToken(plaid, body.item_id) });
+      } catch (error) {
+        const message = describeError(error);
+        failure(`repair_link_token failed: ${message}`);
+        res.status(500).json({ error: message });
+      }
+    },
+
+    // Update mode finishes here, NOT at exchange. Exchanging would create a
+    // second Item for the same bank, which is what this flow avoids.
+    repairComplete: async (req: Request, res: Response) => {
+      try {
+        const body = req.body as { item_id?: unknown } | undefined;
+        if (typeof body?.item_id !== "string" || body.item_id === "") {
+          res.status(400).json({ error: "item_id is required" });
+          return;
+        }
+        const { institutionName } = await markItemRepaired(body.item_id);
+        recentRepairs.push({ itemId: body.item_id, institutionName });
+        event(`repaired ${institutionName ?? "(unknown institution)"} — item ${body.item_id}`);
+        res.json({ itemId: body.item_id, institutionName });
+      } catch (error) {
+        const message = describeError(error);
+        failure(`repair_complete failed: ${message}`);
+        res.status(500).json({ error: message });
+      }
+    },
+
+    createToken: async (_req: Request, res: Response) => {
+      try {
+        const linkToken = await createLinkToken(plaid);
+        res.json({ link_token: linkToken });
+      } catch (error) {
+        const message = describeError(error);
+        failure(`create_link_token failed: ${message}`);
+        res.status(500).json({ error: message });
+      }
+    },
+
+    exchange: async (req: Request, res: Response) => {
+      try {
+        const body = req.body as { public_token?: unknown } | undefined;
+        const publicToken = body?.public_token;
+
+        if (typeof publicToken !== "string" || publicToken === "") {
+          res.status(400).json({ error: "public_token is required" });
+          return;
+        }
+
+        const item = await exchangePublicToken(plaid, publicToken);
+        recentLinks.push(item);
+        event(
+          `linked ${item.institutionName ?? "(unknown institution)"} — ` +
+            `item ${item.itemId}, ${item.accountCount} account(s)`,
+        );
+
+        res.json(item);
+      } catch (error) {
+        const message = describeError(error);
+        failure(`exchange_public_token failed: ${message}`);
+        res.status(500).json({ error: message });
+      }
+    },
+  };
+}
+
+/** The command line's on-demand host: the page at the root, the four calls at their paths. */
 function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): express.Express {
   const app = express();
   app.use(express.json());
@@ -120,78 +231,11 @@ function buildApp(plaid: PlaidClient, publicDir: string, touch: () => void): exp
 
   app.use(express.static(publicDir));
 
-  // Repairing an existing connection, not adding a new one. Takes an item id —
-  // never a token. Plaid access tokens are decrypted only inside this process.
-  app.post("/api/repair_link_token", async (req: Request, res: Response) => {
-    try {
-      const body = req.body as { item_id?: unknown } | undefined;
-      if (typeof body?.item_id !== "string" || body.item_id === "") {
-        res.status(400).json({ error: "item_id is required" });
-        return;
-      }
-      res.json({ link_token: await createRepairLinkToken(plaid, body.item_id) });
-    } catch (error) {
-      const message = describeError(error);
-      failure(`repair_link_token failed: ${message}`);
-      res.status(500).json({ error: message });
-    }
-  });
-
-  // Update mode finishes here, NOT at exchange_public_token. Exchanging would
-  // create a second Item for the same bank, which is what this flow avoids.
-  app.post("/api/repair_complete", async (req: Request, res: Response) => {
-    try {
-      const body = req.body as { item_id?: unknown } | undefined;
-      if (typeof body?.item_id !== "string" || body.item_id === "") {
-        res.status(400).json({ error: "item_id is required" });
-        return;
-      }
-      const { institutionName } = await markItemRepaired(body.item_id);
-      recentRepairs.push({ itemId: body.item_id, institutionName });
-      event(`repaired ${institutionName ?? "(unknown institution)"} — item ${body.item_id}`);
-      res.json({ itemId: body.item_id, institutionName });
-    } catch (error) {
-      const message = describeError(error);
-      failure(`repair_complete failed: ${message}`);
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.post("/api/create_link_token", async (_req: Request, res: Response) => {
-    try {
-      const linkToken = await createLinkToken(plaid);
-      res.json({ link_token: linkToken });
-    } catch (error) {
-      const message = describeError(error);
-      failure(`create_link_token failed: ${message}`);
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.post("/api/exchange_public_token", async (req: Request, res: Response) => {
-    try {
-      const body = req.body as { public_token?: unknown } | undefined;
-      const publicToken = body?.public_token;
-
-      if (typeof publicToken !== "string" || publicToken === "") {
-        res.status(400).json({ error: "public_token is required" });
-        return;
-      }
-
-      const item = await exchangePublicToken(plaid, publicToken);
-      recentLinks.push(item);
-      event(
-        `linked ${item.institutionName ?? "(unknown institution)"} — ` +
-          `item ${item.itemId}, ${item.accountCount} account(s)`,
-      );
-
-      res.json(item);
-    } catch (error) {
-      const message = describeError(error);
-      failure(`exchange_public_token failed: ${message}`);
-      res.status(500).json({ error: message });
-    }
-  });
+  const handlers = linkHandlers(plaid);
+  app.post(LINK_API.repairToken, handlers.repairToken);
+  app.post(LINK_API.repairComplete, handlers.repairComplete);
+  app.post(LINK_API.createToken, handlers.createToken);
+  app.post(LINK_API.exchange, handlers.exchange);
 
   return app;
 }

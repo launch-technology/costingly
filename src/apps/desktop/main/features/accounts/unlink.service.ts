@@ -11,6 +11,10 @@
  *   takes exclusive use from the sync service for as long as it runs, and is
  *   told "busy" if a sync already has the floor.
  *
+ *   ONE AT A TIME. The window shows one dialog at a time, but the endpoint
+ *   can be asked twice at once, so unlinks queue behind each other: the second
+ *   runs after the first and finds what the first left.
+ *
  *   NEVER THROW. Whatever goes wrong comes back as something to show.
  *
  * No Electron and no domain imports beyond types.
@@ -44,6 +48,9 @@ export type UnlinkPreviewed = { outcome: "found"; bank: BankToUnlink } | { outco
 export type UnlinkAttempt = UnlinkOutcome | UnlinkBlocked;
 
 export class UnlinkService {
+  /** Unlinks run one after another, whoever asks. */
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly deps: UnlinkDependencies) {}
 
   /** What unlinking this bank would delete. Reads only. */
@@ -57,7 +64,14 @@ export class UnlinkService {
     }
   }
 
-  async unlink(bankId: string, options: { revokeAtPlaid: boolean }): Promise<UnlinkAttempt> {
+  /** Unlink a bank, after whatever unlink is already under way. Never rejects. */
+  unlink(bankId: string, options: { revokeAtPlaid: boolean }): Promise<UnlinkAttempt> {
+    const run = this.queue.then(() => this.perform(bankId, options));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async perform(bankId: string, options: { revokeAtPlaid: boolean }): Promise<UnlinkAttempt> {
     let result: UnlinkAttempt;
     try {
       if ((await this.deps.state()) !== "running") {

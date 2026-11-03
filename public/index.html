@@ -159,8 +159,8 @@
 
         try {
           const { link_token } = repairItemId
-            ? await postJson("/api/repair_link_token", { item_id: repairItemId })
-            : await postJson("/api/create_link_token");
+            ? await postJson("/api/link/repair-token", { item_id: repairItemId })
+            : await postJson("/api/link/token");
 
           const handler = Plaid.create({
             token: link_token,
@@ -176,7 +176,7 @@
                */
               if (repairItemId) {
                 try {
-                  const repaired = await postJson("/api/repair_complete", {
+                  const repaired = await postJson("/api/link/repair-complete", {
                     item_id: repairItemId,
                   });
                   message(
@@ -195,7 +195,7 @@
               }
 
               try {
-                const item = await postJson("/api/exchange_public_token", {
+                const item = await postJson("/api/link/exchange", {
                   public_token: publicToken,
                 });
 

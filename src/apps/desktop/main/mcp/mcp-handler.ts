@@ -1,5 +1,5 @@
 /**
- * The route that speaks MCP over HTTP.
+ * The handler that speaks MCP over HTTP. routes/mcp.route.ts puts it at /mcp.
  *
  * MCP's standard HTTP transport, in its stateless form: each POST is answered
  * by a server built for that request and discarded afterwards, so there are no
@@ -29,14 +29,14 @@ import type { Tool, ToolHost } from "./tools/tool.js";
 /** How a tool call ended: answered, answered with an error result, or threw. */
 export type ToolOutcome = "ok" | "error" | "threw";
 
-export interface McpRouteOptions {
+export interface McpHandlerOptions {
   info: ServerInfo;
   tools: readonly Tool[];
   /** Told each tool call's name and outcome. Nothing else. */
   observe(tool: string, outcome: ToolOutcome): void;
 }
 
-export function mcpRoute(options: McpRouteOptions): RequestHandler {
+export function mcpHandler(options: McpHandlerOptions): RequestHandler {
   return async (req, res) => {
     // The stateless form has no stream to open with GET and no session to end
     // with DELETE. Saying so is kinder than a protocol error.
@@ -67,7 +67,7 @@ export function mcpRoute(options: McpRouteOptions): RequestHandler {
 }
 
 /** The server as a host whose every registered handler reports to `observe` first. */
-function observing(server: McpServer, observe: McpRouteOptions["observe"]): ToolHost {
+function observing(server: McpServer, observe: McpHandlerOptions["observe"]): ToolHost {
   const registerTool: McpServer["registerTool"] = (name, config, cb) => {
     // The callback's own type depends on the tool's input schema; the wrapper
     // forwards whatever it is given unchanged, so it is typed loosely here and
