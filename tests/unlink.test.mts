@@ -22,8 +22,6 @@ import { CARD, CHECKING, FACTS, MAPLE, OAK, SAVINGS, saveFixture } from "./trans
 
 const HOME = "/tmp/costingly-unlink";
 process.env["COSTINGLY_HOME"] = HOME;
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 
 const { db, closeDb, server, generateEncryptionKey, writeConfig } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");

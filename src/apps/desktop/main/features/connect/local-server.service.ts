@@ -22,7 +22,7 @@
  */
 
 import { log } from "../../../../../platform/runtime/log.js";
-import type { Connection } from "../../shared/connection-file.js";
+import type { Connection } from "../../../../../platform/connection-file.js";
 
 export interface LocalServerDependencies {
   connection: {

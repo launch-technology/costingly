@@ -21,10 +21,8 @@ process.env["COSTINGLY_HOME"] = HOME;
 // A recognisable secret, so "is it in the output?" is a substring search rather
 // than a judgement call.
 const SECRET = "plaid-secret-must-never-be-printed";
-process.env["PLAID_SECRET"] = SECRET;
-process.env["PLAID_CLIENT_ID"] = "client-id-abc123";
 
-const { db, closeDb, server } = await import("../src/index.js");
+const { configStore, db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");
 const { checkDatabase, restartDatabase, resumeDatabase } = await import("../src/domain/services/database/database-health.service.js");
 const { blockersIn, costinglyStatus } = await import("../src/domain/services/status.service.js");
@@ -109,6 +107,8 @@ eq(existsSync(HOME), false, "AND CHECKING CREATED NOTHING");
 
 // Now build it for real. Explicit, because reading no longer creates one.
 await install();
+// Keys saved the only way they can be now: in the config file.
+configStore.update({ plaidClientId: "client-id-abc123", plaidSecret: SECRET });
 
 const fresh = await checkDatabase();
 ok(fresh.connection.ok, "once the database exists, the check connects");

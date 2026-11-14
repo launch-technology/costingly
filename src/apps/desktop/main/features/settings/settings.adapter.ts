@@ -15,9 +15,8 @@ import type { SettingsDependencies } from "./settings.service.js";
  * What the Settings screen shows, except the sign-in registration, which is
  * Electron's and the app supplies.
  *
- * The client ID is read from the config FILE, not through the resolver that
- * also looks at environment variables: the screen shows what is saved, which
- * is what the keys form changes.
+ * The client ID is read from the config file as saved, which is what the keys
+ * form changes.
  *
  * The version is costingly's own, from package.json, the same one the CLI
  * prints. Electron's `app.getVersion()` is Electron's own version when the

@@ -1,38 +1,39 @@
 /**
- * Build the installable MCP bundle:  npm run build:bundle
+ * Build the Claude Desktop extension:  npm run build:bundle
  *
- * Produces `build/costingly-<version>.mcpb` — a zip Claude Desktop installs on a
- * double-click, containing the built code, the migrations, and a production-only
- * node_modules including this platform's embedded PostgreSQL.
+ * Produces `build/costingly-<version>.mcpb` — a zip Claude Desktop installs on
+ * a double-click. It holds ONE program file: src/apps/mcpb bundled by esbuild
+ * into mcpb.mjs with everything it imports inside it, plus the manifest and
+ * the licence files. No node_modules, no database engine, no migrations: the
+ * extension only connects Claude Desktop to the Costingly app, which has all
+ * of those.
  *
- * THE STAGING DIRECTORY
- *
- * The one part that is not obvious. npm hoists dependencies flat, so the repo's
- * node_modules is production and development packages mixed together with no
- * reliable way to tell them apart — `esbuild` is in there because `tsx` needs
- * it, and there is a tail of others that no hand-maintained exclusion list would
- * survive. The only dependable way to get production-only dependencies is to let
- * npm resolve them into a directory that has none, which is what staging is.
- *
- * WHY IT IS THIS BIG
- *
- * `@embedded-postgres/*` is ~144 MB, and `mcpb pack` dereferences symlinks — the
- * seventeen dylib symlinks in PostgreSQL's lib directory become real copies, so
- * the archive is roughly twice the package. That is a genuine cost of shipping a
- * database inside an extension, not a bug in the build.
+ * The checks at the end are the point of the script as much as the packing.
+ * A bundle that quietly grew a database engine, or whose single file cannot
+ * start, would install fine and fail on the user's machine; here it fails the
+ * build instead.
  */
 
+import { spawn } from "node:child_process";
 import { execFile } from "node:child_process";
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { build } from "esbuild";
+
 const run = promisify(execFile);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BUILD = join(ROOT, "build");
 const STAGING = join(BUILD, "staging");
+const ENTRY = join(ROOT, "src", "apps", "mcpb", "main.ts");
+const BUNDLED = "mcpb.mjs";
+
+/** The whole extension may not be larger than this. Today it is well under. */
+const MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
+
 /**
  * The mcpb CLI as a JS file, not the .bin shim.
  *
@@ -44,63 +45,36 @@ const STAGING = join(BUILD, "staging");
 const MCPB_CLI = join(ROOT, "node_modules", "@anthropic-ai", "mcpb", "dist", "cli", "cli.js");
 
 /**
- * Copied into the bundle verbatim. Everything else is either built or installed.
+ * Copied into the bundle verbatim beside the program file.
  *
- * LICENSE and NOTICE are on this list for a reason, not for tidiness: handing
- * someone a .mcpb is distributing a copy, and MIT requires the notice to travel
- * with the copy. Leave them off and every install is a copy with no license in
- * it.
- *
- * NOTICE carries PostgreSQL's copyright specifically because the
- * @embedded-postgres packages ship the binaries without it — their own
- * LICENSE.md covers only the wrapper. Nothing else in the bundle needs listing
- * here: npm installs each dependency's LICENSE beside it.
+ * LICENSE is on this list for a reason, not for tidiness: handing someone a
+ * .mcpb is distributing a copy, and MIT requires the notice to travel with the
+ * copy. NOTICE is written rather than copied: the repository's one describes
+ * the PostgreSQL binaries the desktop app ships, which this bundle does not.
  */
-const SHIPPED = ["dist", "migrations", "public", "manifest.json", "LICENSE", "NOTICE"];
+const COPIED = ["manifest.json", "LICENSE"];
+const SHIPPED = [...COPIED, "NOTICE"];
 
 function say(step: string, detail = ""): void {
   console.log(`  ${step.padEnd(22)}${detail}`);
 }
 
-async function sh(command: string, args: string[], cwd = ROOT): Promise<string> {
-  const { stdout } = await run(command, args, { cwd, maxBuffer: 32 * 1024 * 1024 });
-  return stdout;
-}
-
 /** Run a Node script with the interpreter already running this one. */
 async function node(script: string, args: string[], cwd = ROOT): Promise<string> {
-  return sh(process.execPath, [script, ...args], cwd);
-}
-
-/**
- * Run npm.
- *
- * On Windows npm is npm.cmd — a batch file, which execFile cannot launch and
- * which Node refuses to spawn without a shell since the CVE-2024-27980
- * mitigation. On unix npm is a real executable and gets no shell at all, so
- * behaviour there is unchanged. Every argument passed here is a bare token, so
- * nothing needs quoting for cmd.exe.
- */
-async function npm(args: string[], cwd = ROOT): Promise<string> {
-  const { stdout } = await run("npm", args, {
-    cwd,
-    maxBuffer: 32 * 1024 * 1024,
-    shell: process.platform === "win32",
-  });
+  const { stdout } = await run(process.execPath, [script, ...args], { cwd, maxBuffer: 32 * 1024 * 1024 });
   return stdout;
 }
 
-async function sizeOf(path: string): Promise<string> {
-  const bytes = (await stat(path)).size;
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
+async function sizeOf(path: string): Promise<number> {
+  return (await stat(path)).size;
 }
 
-const { version } = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")) as {
-  version: string;
-};
+const mb = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+
+const { version } = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")) as { version: string };
 const output = join(BUILD, `costingly-${version}.mcpb`);
 
-console.log(`\nBuilding costingly ${version}\n`);
+console.log(`\nBuilding the costingly extension ${version}\n`);
 
 // --- 1. clean -------------------------------------------------------------
 // Only what this script makes. build/ is shared with the desktop app's
@@ -112,64 +86,72 @@ for (const name of await readdir(BUILD)) {
 }
 say("clean", "build/staging, build/*.mcpb");
 
-// --- 2. compile -----------------------------------------------------------
-// Claude Desktop runs dist/, never the TypeScript. A stale dist here ships an
-// old server that looks correct until it misbehaves.
-await npm(["run", "build"]);
-say("compile", "dist/");
+// --- 2. bundle ------------------------------------------------------------
+// One ES module with every import inside it, so the extension needs nothing
+// beside it. The version is defined in rather than read from a package.json
+// that will not be there. The banner gives bundled CommonJS dependencies the
+// `require` they expect under an ES module.
+await build({
+  entryPoints: [ENTRY],
+  outfile: join(STAGING, BUNDLED),
+  bundle: true,
+  platform: "node",
+  target: "node20",
+  format: "esm",
+  define: { __MCPB_VERSION__: JSON.stringify(version) },
+  banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
+  // The dependencies' licence comments stay inside the file: the file is the
+  // copy of them that is being distributed.
+  legalComments: "inline",
+  logLevel: "warning",
+});
+say("bundle", `${BUNDLED}, ${mb(await sizeOf(join(STAGING, BUNDLED)))}`);
 
-// --- 3. production dependencies ------------------------------------------
-// npm ci, not install: it installs exactly the lockfile, so the bundle contains
-// the same versions that were tested rather than whatever resolved today.
-await cp(join(ROOT, "package-lock.json"), join(STAGING, "package-lock.json"));
-
-const manifestPkg = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")) as Record<
-  string,
-  unknown
->;
-
-// `scripts` must go BEFORE the install, not after. npm ci runs `prepare`, and
-// this project's prepare compiles TypeScript — which fails in a directory that
-// contains no source. Dependencies' own install scripts are unaffected, and they
-// matter: @embedded-postgres rehydrates PostgreSQL's dylib symlinks in one.
-delete manifestPkg["scripts"];
-
-// devDependencies stay for now even though --omit=dev skips installing them:
-// npm ci verifies package.json against the lockfile first, and removing them
-// here would fail that check before a single package was fetched.
-await writeFile(join(STAGING, "package.json"), `${JSON.stringify(manifestPkg, null, 2)}\n`);
-
-await npm(["ci", "--omit=dev"], STAGING);
-say("dependencies", `production only, ${await du(join(STAGING, "node_modules"))}`);
-
-// --- 4. the payload -------------------------------------------------------
-for (const entry of SHIPPED) {
+// --- 3. the payload -------------------------------------------------------
+for (const entry of COPIED) {
   await cp(join(ROOT, entry), join(STAGING, entry), { recursive: true });
 }
+// The extension's own NOTICE: costingly's copyright line from the repository's,
+// then what this file actually bundles.
+const notice = (await readFile(join(ROOT, "NOTICE"), "utf8")).split(/\n-{10,}/)[0]?.replace(/\n+This distribution bundles[^\n]*\n*$/, "").trimEnd() ?? "costingly";
+await writeFile(
+  join(STAGING, "NOTICE"),
+  `${notice}\n\nThis extension bundles @modelcontextprotocol/sdk and its dependencies into ${BUNDLED};\n` +
+    "their licence notices are preserved inside that file. It bundles no database engine\n" +
+    "and no Plaid client: those belong to the Costingly desktop app.\n",
+);
 say("payload", SHIPPED.join(", "));
 
-// One version, one place. `npm version` bumps package.json and knows nothing
-// about manifest.json — and it is the manifest that Claude Desktop displays. Let
-// them drift once and you get a bundle called 1.1.0 that reports itself as 1.0.0,
-// which is worse than no version at all because it is confidently wrong.
-const manifest = JSON.parse(await readFile(join(STAGING, "manifest.json"), "utf8")) as Record<
-  string,
-  unknown
->;
+// One version, one place. `npm run set-version` keeps package.json and
+// manifest.json together; this is the check that they stayed so.
+const manifest = JSON.parse(await readFile(join(STAGING, "manifest.json"), "utf8")) as Record<string, unknown>;
 if (manifest["version"] !== version) {
   say("version", `manifest ${String(manifest["version"])} -> ${version}`);
   manifest["version"] = version;
 }
 await writeFile(join(STAGING, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
-// Now that npm has finished with it, drop the development dependencies and the
-// lockfile. They describe how this was built; the bundle only needs to describe
-// what it is.
-delete manifestPkg["devDependencies"];
-await writeFile(join(STAGING, "package.json"), `${JSON.stringify(manifestPkg, null, 2)}\n`);
-await rm(join(STAGING, "package-lock.json"), { force: true });
+// --- 4. prove the bundled file starts and speaks the protocol --------------
+// Run it the way Claude Desktop will: as a process on its own, with no
+// node_modules, given an initialize request and a closed stdin. It has to
+// answer with JSON-RPC and exit. Nothing of Costingly need be installed: an
+// extension that cannot find the app still answers.
+await selfCheck(join(STAGING, BUNDLED));
+say("self-check", "answers initialize and exits");
 
-// --- 5. validate then pack ------------------------------------------------
+// --- 5. the bundle holds what it should and nothing else -----------------
+const staged = (await readdir(STAGING)).sort();
+const expected = [BUNDLED, ...SHIPPED].sort();
+if (JSON.stringify(staged) !== JSON.stringify(expected)) {
+  throw new Error(`the staging folder holds ${staged.join(", ")}; expected exactly ${expected.join(", ")}`);
+}
+for (const name of staged) {
+  const text = await readFile(join(STAGING, name), "utf8");
+  if (/embedded-postgres|pg_ctl|initdb/.test(text)) throw new Error(`${name} names a database engine; the extension must not carry one`);
+}
+say("contents", "exactly the program file, the manifest and the licences; no database engine");
+
+// --- 6. validate then pack ------------------------------------------------
 // Validation first: a manifest error caught here is a build failure, and the
 // same error caught by Claude Desktop is a silent install that does nothing.
 await node(MCPB_CLI, ["validate", join(STAGING, "manifest.json")]);
@@ -178,39 +160,66 @@ say("validate", "manifest.json ok");
 const packOutput = await node(MCPB_CLI, ["pack", STAGING, output]);
 const files = /total files:\s*(\d+)/.exec(packOutput)?.[1] ?? "?";
 const sha = /shasum:\s*(\S+)/.exec(packOutput)?.[1] ?? "?";
-
 say("pack", `${files} files`);
+
+const bytes = await sizeOf(output);
+if (bytes > MAX_BUNDLE_BYTES) {
+  throw new Error(`the extension is ${mb(bytes)}, over the ${mb(MAX_BUNDLE_BYTES)} limit; something that does not belong is inside it`);
+}
 console.log(`
   ${output}
-  ${await sizeOf(output)}   sha1 ${sha}
+  ${mb(bytes)}   sha1 ${sha}
 
   Install by opening the file with Claude Desktop.
 `);
 
 /**
- * Human-readable directory size.
- *
- * Walked in Node rather than shelling out to `du`, which does not exist on
- * Windows. It runs once, over a tree that was just written and is therefore
- * warm in the page cache — not a cost worth a platform dependency for.
+ * Start the bundled file on its own, send an initialize request, close stdin,
+ * and require a JSON-RPC answer on stdout, nothing else there, and a prompt
+ * exit. Pointed at an empty profile so no real install is touched.
  */
-async function du(path: string): Promise<string> {
-  const mb = (await bytesIn(path)) / 1024 / 1024;
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)}G` : `${Math.round(mb)}M`;
-}
-
-async function bytesIn(path: string): Promise<number> {
-  const entries = await readdir(path, { withFileTypes: true });
-  let total = 0;
-
-  for (const entry of entries) {
-    const full = join(path, entry.name);
-    // A symlinked directory is counted as the link, not its target. `mcpb pack`
-    // dereferences them, but following them here would double-count and, in a
-    // node_modules tree, risk cycles.
-    if (entry.isDirectory() && !entry.isSymbolicLink()) total += await bytesIn(full);
-    else total += (await stat(full).catch(() => ({ size: 0 }))).size;
+async function selfCheck(file: string): Promise<void> {
+  const home = join(BUILD, "self-check-profile");
+  await rm(home, { recursive: true, force: true });
+  const child = spawn(process.execPath, [file], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, COSTINGLY_HOME: home, COSTINGLY_ADDRESS: "", COSTINGLY_TOKEN: "" },
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+  child.stdin.write(
+    `${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "build-bundle", version: "0" } },
+    })}\n`,
+  );
+  const code = await new Promise<number | null>((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, 20_000);
+    child.on("close", (exitCode) => {
+      clearTimeout(timer);
+      resolve(exitCode);
+    });
+    setTimeout(() => child.stdin.end(), 1_500);
+  });
+  const lines = stdout.split("\n").filter((line) => line.trim() !== "");
+  const answered = lines.some((line) => {
+    try {
+      const parsed = JSON.parse(line) as { id?: unknown; result?: { serverInfo?: { name?: string } } };
+      return parsed.id === 1 && parsed.result?.serverInfo?.name === "costingly";
+    } catch {
+      return false;
+    }
+  });
+  if (!answered || lines.length !== 1 || code !== 0) {
+    throw new Error(
+      `the bundled extension did not behave: exit ${String(code)}, ${lines.length} stdout line(s), answered=${String(answered)}\n--- stderr ---\n${stderr}`,
+    );
   }
-
-  return total;
 }

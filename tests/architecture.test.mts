@@ -198,6 +198,33 @@ for (const file of files) {
 }
 none(crossApp, "no interface imports another interface");
 
+// --- the Claude Desktop extension is a relay, and carries nothing else -------
+//
+// It connects Claude Desktop to the app's endpoint and holds no database, no
+// Plaid client and no tool of the app's. The epic's decision is that it imports
+// nothing from the desktop app (covered above) and nothing from the domain:
+// everything it shares with the app — the folder beside the profile, the
+// connection file — is the platform's. A domain import here would drag the
+// database and Plaid into a bundle that is meant to be a few hundred kilobytes.
+const EXTENSION = "apps/mcpb/";
+none(
+  files
+    .filter((f) => f.path.startsWith(EXTENSION))
+    .filter((f) => f.imports.some((specifier) => {
+      const target = targetOf(f, specifier);
+      return target !== null && layerOf(target) === "domain";
+    }))
+    .map((f) => f.path),
+  "the extension imports no domain code",
+);
+none(
+  files
+    .filter((f) => f.path.startsWith(EXTENSION))
+    .filter((f) => f.imports.some((specifier) => /^(express|pg|plaid|electron)(\/|$)/.test(specifier)))
+    .map((f) => f.path),
+  "the extension carries no web server, database, Plaid or Electron package",
+);
+
 // --- one interface's UX stays in that interface -----------------------------
 //
 // The question is not "does this present something" but "to WHOSE interface".
@@ -243,7 +270,7 @@ none(
 // channel. The CLI is the one interface whose screen IS the console, and it
 // is being retired; it keeps its own.
 const LOG_MODULE = "platform/runtime/log.ts";
-const CONSOLE_FREE = ["domain/", "platform/", "apps/mcp/", "apps/desktop/main/", "apps/desktop/bridge/"];
+const CONSOLE_FREE = ["domain/", "platform/", "apps/mcpb/", "apps/desktop/main/", "apps/desktop/bridge/"];
 none(
   files
     .filter((f) => f.path !== LOG_MODULE && CONSOLE_FREE.some((prefix) => f.path.startsWith(prefix)))

@@ -21,8 +21,6 @@ import { CARD, CHECKING, FACTS, SAVINGS, saveFixture } from "./transaction-fixtu
 
 const HOME = "/tmp/costingly-txn-search";
 process.env["COSTINGLY_HOME"] = HOME;
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 
 const { db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");

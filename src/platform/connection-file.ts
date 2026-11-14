@@ -3,10 +3,10 @@
  * port the endpoint last listened on, and the token every connection must
  * present.
  *
- * In the app's own folder (see ../desktop-paths.ts), not in costingly's
- * config.json: the endpoint is up before setup has run, and opening the app
- * must create nothing of costingly's. The relay extension (a later story)
- * reads this same file to find the endpoint.
+ * In the application's own folder (see app-dir.ts), not in the profile's
+ * config file: the endpoint is up before setup has run, and opening the app
+ * must create nothing of the profile's. The Claude Desktop extension reads
+ * this same file to find the endpoint, and only ever reads it.
  *
  * Reading is forgiving. A missing, unreadable or malformed file means nothing
  * is remembered: the endpoint then takes the next free port from its default
@@ -22,7 +22,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { PortStore } from "../../../../platform/port-allocator.js";
+import type { PortStore } from "./port-allocator.js";
 
 export interface Connection {
   port?: number;

@@ -22,8 +22,6 @@ process.env["COSTINGLY_HOME"] = HOME;
 
 // Explicitly absent, so the Plaid section reports "not configured" rather than
 // picking up whatever the developer's shell happens to have set.
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 
 const { db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");
@@ -117,7 +115,6 @@ eq(Object.keys(shape).sort(), ["banks", "database", "plaid", "profile", "version
    "--json exposes the three artifacts plus a version");
 
 // A secret must never reach the report, in any section.
-delete process.env["PLAID_CLIENT_ID"];
 ok(!JSON.stringify(stopped).includes("password"), "the report carries no password field");
 
 await closeDb();

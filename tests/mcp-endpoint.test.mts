@@ -39,11 +39,9 @@ import { join } from "node:path";
 
 const HOME = join(tmpdir(), "costingly-mcp-endpoint");
 process.env["COSTINGLY_HOME"] = HOME;
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 delete process.env["PLAID_ENV"];
 
-const { db, closeDb, server } = await import("../src/index.js");
+const { configStore, db, closeDb, server } = await import("../src/index.js");
 const { encrypt } = await import("../src/domain/crypto.js");
 const { LocalHttpServer } = await import("../src/apps/desktop/main/shell/local-http-server.js");
 const { routes } = await import("../src/apps/desktop/main/routes/index.js");
@@ -164,7 +162,7 @@ const port = await freePort();
 const address = `http://127.0.0.1:${port}/mcp`;
 const pageAddress = `http://127.0.0.1:${port}/pages/link`;
 const now = (): Date => new Date();
-const observed: Array<[string, ToolOutcome]> = [];
+const observed: Array<[string, ToolOutcome, string | undefined]> = [];
 const refused: string[] = [];
 const tools = [
   new CheckCostinglyTool(checkCostinglyDependencies()),
@@ -187,7 +185,7 @@ const tools = [
 ];
 const http = new LocalHttpServer({
   routes: routes({
-    mcp: { info: serverInfo("9.9.9-test"), tools, observe: (tool, outcome) => void observed.push([tool, outcome]) },
+    mcp: { info: serverInfo("9.9.9-test"), tools, observe: (tool, outcome, client) => void observed.push([tool, outcome, client]) },
     link: linkRouteDependencies(),
   }),
   onRefused: ({ reason }) => void refused.push(reason),
@@ -320,7 +318,19 @@ try {
   const both = await Promise.all([call("query", { sql: "SELECT 1 AS one" }), other.callTool({ name: "query", arguments: { sql: "SELECT 2 AS two" } })]);
   ok(text(both[0]).includes("one") && text(both[1]).includes("two"), "TWO CLIENTS AT ONCE ARE BOTH ANSWERED");
   await other.close();
-  ok(observed.every(([name, outcome]) => typeof name === "string" && ["ok", "error", "threw"].includes(outcome)), "the observer is told a name and an outcome, nothing else");
+  ok(
+    observed.every(([name, outcome, client]) => typeof name === "string" && ["ok", "error", "threw"].includes(outcome) && client === undefined),
+    "the observer is told a name and an outcome, and no client: none of these said who it was",
+  );
+  const identified = new Client({ name: "endpoint-test", version: "0" });
+  await identified.connect(
+    new StreamableHTTPClientTransport(new URL(address), {
+      requestInit: { headers: { Authorization: `Bearer ${TOKEN}`, "X-Costingly-Client": "costingly-mcpb/9.9.9" } },
+    }),
+  );
+  await identified.callTool({ name: "query", arguments: { sql: "SELECT 3 AS three" } });
+  await identified.close();
+  eq(observed.at(-1)?.[2], "costingly-mcpb/9.9.9", "A CLIENT THAT SAYS WHO IT IS IS REPORTED TO THE OBSERVER under that name");
 
   // =========================================================================
   // 6. sync and sync_status
@@ -368,8 +378,7 @@ try {
   ok(/Settings screen/.test(text(noKeys)) && /retrying will not help/i.test(text(noKeys)), "POINTING AT THE SETTINGS SCREEN, and telling the model not to retry");
   ok(!FORBIDDEN.test(text(noKeys)), "and never at Claude Desktop or a command");
 
-  process.env["PLAID_CLIENT_ID"] = "fake-client-id";
-  process.env["PLAID_SECRET"] = "fake-secret";
+  configStore.update({ plaidClientId: "fake-client-id", plaidSecret: "fake-secret" });
   const link = await call("link_bank");
   eq(link.isError, undefined, "with keys, link_bank answers");
   ok(text(link).includes(pageAddress), "WITH THE PAGE'S ADDRESS ON THIS SERVER");
@@ -386,8 +395,7 @@ try {
   const api = await fetch(`http://127.0.0.1:${port}/api/link/repair-token`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   eq(api.status, 400, "and its calls answer under /api/link — a bad request is refused as the page expects");
   eq((await fetch(`http://127.0.0.1:${port}/pages/link`, { method: "POST" })).status, 405, "the page takes GET only");
-  delete process.env["PLAID_CLIENT_ID"];
-  delete process.env["PLAID_SECRET"];
+  configStore.update({ plaidClientId: "", plaidSecret: "" });
 
   // =========================================================================
   // 8. unlink_bank
@@ -476,14 +484,10 @@ try {
 
   for (const name of ["describe_database", "query", "sync", "link_bank", "relink_bank", "unlink_bank"]) {
     const args = name === "query" ? { sql: "SELECT 1" } : name === "relink_bank" || name === "unlink_bank" ? { item_id: "i1" } : {};
-    if (name === "link_bank" || name === "relink_bank") {
-      process.env["PLAID_CLIENT_ID"] = "fake-client-id";
-      process.env["PLAID_SECRET"] = "fake-secret";
-    }
+    if (name === "link_bank" || name === "relink_bank") configStore.update({ plaidClientId: "fake-client-id", plaidSecret: "fake-secret" });
     const answer = await call(name, args);
     ok(answer.isError === true && /not running/.test(text(answer)) && /restart_database/.test(text(answer)), `${name} with the database stopped: explained, naming restart_database`);
-    delete process.env["PLAID_CLIENT_ID"];
-    delete process.env["PLAID_SECRET"];
+    configStore.update({ plaidClientId: "", plaidSecret: "" });
   }
   eq(await server.status(), "stopped", "AND THE DATABASE IS STILL STOPPED — none of them started it");
   ok(/NOT READY/.test(text(await call("check_costingly"))) && /not running/.test(text(await call("check_costingly"))), "check_costingly still answers, and says the server is not running");

@@ -58,7 +58,8 @@ import { app, clipboard, shell } from "electron";
 import type { Application } from "../../../platform/runtime/application.js";
 import { configureLog, log } from "../../../platform/runtime/log.js";
 import { ResourceScope } from "../../../platform/runtime/resource-scope.js";
-import { desktopDir, desktopLogPath, desktopStatePath } from "./desktop-paths.js";
+import { appDir } from "../../../platform/app-dir.js";
+import { desktopLogPath, desktopStatePath } from "./desktop-paths.js";
 import { accountsDependencies, isLinkedBank, unlinkDependencies } from "./features/accounts/accounts.adapter.js";
 import { AccountsController } from "./features/accounts/accounts.controller.js";
 import { AccountsService } from "./features/accounts/accounts.service.js";
@@ -149,7 +150,7 @@ export class DesktopApplication implements Application {
     // Before anything else, and before `ready`: Electron decides where its
     // cache and session live from this, and the default is %APPDATA%\costingly
     // — a second place on the machine for the uninstaller to know about.
-    app.setPath("userData", desktopDir(profile));
+    app.setPath("userData", appDir(profile));
 
     // The log, before anything that could fail: a start that goes wrong is
     // the first thing anyone will want to read about. In the app's own folder,
@@ -287,8 +288,10 @@ export class DesktopApplication implements Application {
         mcp: {
           info: serverInfo(appVersion()),
           tools,
-          observe: (tool, outcome) =>
-            log.info(`mcp: ${tool} ${outcome === "ok" ? "answered" : outcome === "error" ? "answered with an error" : "threw"}`),
+          observe: (tool, outcome, client) =>
+            log.info(
+              `mcp: ${tool} ${outcome === "ok" ? "answered" : outcome === "error" ? "answered with an error" : "threw"}${client === undefined ? "" : ` (${client})`}`,
+            ),
         },
         link: linkRouteDependencies(),
       }),

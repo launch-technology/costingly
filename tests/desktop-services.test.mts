@@ -54,8 +54,6 @@ import { fileURLToPath } from "node:url";
 
 const HOME = join(tmpdir(), "costingly-desktop-services");
 process.env["COSTINGLY_HOME"] = HOME;
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 delete process.env["PLAID_ENV"];
 
 const { configStore } = await import("../src/index.js");
@@ -963,13 +961,11 @@ eq(nothing.databaseCreated, false, "real profile, nothing installed: no database
 ok(nothing.dataFolder.includes("costingly-desktop-services"), "the data folder is named");
 eq(existsSync(HOME), false, "ASKING CREATED NOTHING");
 
-// Claude Desktop's unfilled placeholder is not a key. The config layer already
-// knows this; setup must inherit it rather than count the literal as present.
-process.env["PLAID_CLIENT_ID"] = "${user_config.plaid_client_id}";
-process.env["PLAID_SECRET"] = "${user_config.plaid_secret}";
-eq((await real.state()).keysPresent, false, "an unfilled ${user_config…} placeholder is not keys");
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
+// Keys exist only in the config file. A value in the environment — which the
+// old extension's install form used to supply — is not keys.
+process.env["PLAID_CLIENT_ID"] = "from-the-environment";
+process.env["PLAID_SECRET"] = "from-the-environment";
+eq((await real.state()).keysPresent, false, "KEYS IN THE ENVIRONMENT ARE IGNORED");
 
 await mkdir(HOME, { recursive: true });
 configStore.update({ plaidClientId: "client-id-only" });
@@ -1652,7 +1648,7 @@ await rm(HOME, { recursive: true, force: true });
 // ===========================================================================
 {
   const { LocalServerService } = await import("../src/apps/desktop/main/features/connect/local-server.service.js");
-  type Connection = import("../src/apps/desktop/main/shared/connection-file.js").Connection;
+  type Connection = import("../src/platform/connection-file.js").Connection;
 
   /** A connection file in memory, an allocator with a list of free ports, and a server that listens or will not. */
   function world(options: { recorded?: Connection; free?: number[]; listenFails?: boolean; saveFails?: boolean } = {}) {
@@ -1750,7 +1746,7 @@ await rm(HOME, { recursive: true, force: true });
 // 16. ConnectionFile — forgiving on read; port and token kept apart
 // ===========================================================================
 {
-  const { ConnectionFile } = await import("../src/apps/desktop/main/shared/connection-file.js");
+  const { ConnectionFile } = await import("../src/platform/connection-file.js");
   const dir = join(HOME, "connection");
   const path = join(dir, "nested", "mcp.json");
   const file = new ConnectionFile(path);

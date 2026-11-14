@@ -43,8 +43,6 @@ const DESKTOP = `${HOME}-desktop`;
 process.env["COSTINGLY_HOME"] = HOME;
 
 // Explicitly absent, so the only keys in play are the placeholders below.
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 delete process.env["PLAID_ENV"];
 
 const { closeDb, generateEncryptionKey, server, writeConfig } = await import("../src/index.js");
