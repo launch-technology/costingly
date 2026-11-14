@@ -23,11 +23,6 @@ import { basename, dirname, join } from "node:path";
 const HOME = "/tmp/costingly-uninstall";
 process.env["COSTINGLY_HOME"] = HOME;
 
-// Present so nothing falls back to a real profile's credentials. Never used:
-// every path exercised below is --local-only.
-process.env["PLAID_CLIENT_ID"] = "client-id-for-uninstall-suite";
-process.env["PLAID_SECRET"] = "secret-for-uninstall-suite";
-
 const { db, closeDb, server } = await import("../src/index.js");
 const { install } = await import("../src/domain/services/install.service.js");
 const { removeProfile, projectParentOf } = await import("../src/platform/profile.js");

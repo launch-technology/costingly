@@ -1,6 +1,6 @@
 {
   "name": "costingly",
-  "version": "1.6.4",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Daily sync of bank and credit-card transactions from Plaid into Postgres.",
@@ -54,6 +54,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

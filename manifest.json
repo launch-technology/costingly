@@ -2,9 +2,9 @@
   "manifest_version": "0.4",
   "name": "costingly",
   "display_name": "Costingly",
-  "version": "1.6.4",
-  "description": "Query your own bank and credit-card transactions, synced from Plaid into a local database.",
-  "long_description": "Costingly keeps a private copy of your bank and credit-card transactions in a PostgreSQL database on this machine, synced from your banks through Plaid. Nothing is sent anywhere: the database listens only on this machine's loopback interface, unreachable from the network, and Claude reads it through views that cannot reach your stored bank credentials.\n\nAsk about spending, income, balances or accounts in plain language. Claude writes the SQL.",
+  "version": "2.0.0",
+  "description": "Connects Claude Desktop to the Costingly app on this machine: ask about your own bank and credit-card transactions in plain language.",
+  "long_description": "Costingly keeps a private copy of your bank and credit-card transactions in a database on this machine, synced from your banks through Plaid by the Costingly desktop app. This extension only connects Claude Desktop to that app; it holds no data, no keys and no database of its own.\n\nInstall and open the Costingly app first. With the app running, Claude can ask about spending, income, balances and accounts, and can start a sync, link or unlink a bank, and check or repair the app's database — all through the app, under its rules. Nothing is sent anywhere: the app answers only on this machine, and only with its own token, which the extension finds by itself.\n\nLeave the two settings blank unless the extension says it cannot find the app; both values are shown on the app's Connect screen.",
   "author": {
     "name": "Launch Technology LLC"
   },
@@ -18,29 +18,29 @@
   ],
   "server": {
     "type": "node",
-    "entry_point": "dist/apps/mcp/main.js",
+    "entry_point": "mcpb.mjs",
     "mcp_config": {
       "command": "node",
       "args": [
-        "${__dirname}/dist/apps/mcp/main.js"
+        "${__dirname}/mcpb.mjs"
       ],
       "env": {
-        "PLAID_CLIENT_ID": "${user_config.plaid_client_id}",
-        "PLAID_SECRET": "${user_config.plaid_secret}"
+        "COSTINGLY_ADDRESS": "${user_config.address}",
+        "COSTINGLY_TOKEN": "${user_config.token}"
       }
     }
   },
   "user_config": {
-    "plaid_client_id": {
+    "address": {
       "type": "string",
-      "title": "Plaid client ID",
-      "description": "From your Plaid dashboard. Leave blank to browse an empty database.",
+      "title": "Address (leave blank)",
+      "description": "Only if the extension says it cannot find the Costingly app: the address from the app's Connect screen, such as http://127.0.0.1:54400/mcp.",
       "required": false
     },
-    "plaid_secret": {
+    "token": {
       "type": "string",
-      "title": "Plaid secret",
-      "description": "Your Plaid production secret. Stored in the OS keychain, never sent to the model.",
+      "title": "Token (leave blank)",
+      "description": "Only if the extension says it cannot find the Costingly app: the token from the app's Connect screen. Stored in the OS keychain, never sent to the model.",
       "required": false,
       "sensitive": true
     }

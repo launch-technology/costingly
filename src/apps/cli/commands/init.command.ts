@@ -90,9 +90,7 @@ export async function runInit(
   // A test supplying its own streams does not need a TTY.
   if (io.input === undefined && stdin.isTTY !== true) {
     throw new CliError(
-      "costingly init is interactive and there is no terminal to prompt on.\n" +
-        "Run it in a terminal, or set PLAID_CLIENT_ID, PLAID_SECRET and\n" +
-        "ENCRYPTION_KEY in the environment instead.",
+      "costingly init is interactive and there is no terminal to prompt on.\nRun it in a terminal.",
     );
   }
 

@@ -21,8 +21,9 @@ import { describeConfig, getSecretIfSet } from "../../../../domain/config.js";
 import { describeError as describeDomainError } from "../../../../domain/data/plaid.client.js";
 import { configStore, platform, server } from "../../../../domain/project.js";
 import { packageVersion } from "../../../../platform/package.js";
-import { desktopConnectionPath, desktopLogPath } from "../desktop-paths.js";
-import { ConnectionFile } from "./connection-file.js";
+import { connectionPath } from "../../../../platform/app-dir.js";
+import { ConnectionFile } from "../../../../platform/connection-file.js";
+import { desktopLogPath } from "../desktop-paths.js";
 import { LogFile, createRedactor } from "./log-file.js";
 
 /** This profile: where it is, and how its paths are shown. */
@@ -40,7 +41,7 @@ export const APP_LOG_MAX_BYTES = 5 * 1024 * 1024;
 export const DATABASE_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Where a local MCP client reaches the app: the endpoint's port and token, remembered between runs. */
-export const connectionFile = new ConnectionFile(desktopConnectionPath(platform));
+export const connectionFile = new ConnectionFile(connectionPath(platform));
 
 /**
  * Remove this profile's secrets from text about to be shown.
@@ -81,7 +82,7 @@ export const appLog = new LogFile({
   redact,
 });
 
-/** Are both Plaid keys in place — from the environment or the config file? */
+/** Are both Plaid keys saved? */
 export function keysPresent(): boolean {
   const sources = new Map(describeConfig().map((value) => [value.key, value.source]));
   return sources.get("plaidClientId") !== "missing" && sources.get("plaidSecret") !== "missing";

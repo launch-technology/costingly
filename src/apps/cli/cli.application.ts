@@ -21,18 +21,6 @@ export class CliApplication implements Application {
   private program: Command | undefined;
 
   async start(): Promise<void> {
-    // A .env in the current directory is an optional convenience for CI and for
-    // development — a way to set environment variables, nothing more. It is
-    // never written by costingly and never holds application state; real
-    // configuration lives in config.json inside the profile. Absent is the
-    // normal case, and loadEnvFile throws when the file is missing, so the
-    // throw is swallowed.
-    try {
-      process.loadEnvFile();
-    } catch {
-      // No .env here. Expected.
-    }
-
     // Registered before anything can acquire them, so a failure part-way through
     // a command still releases whatever came up. `link` used to leave its
     // listener behind on the failure path for exactly this reason.

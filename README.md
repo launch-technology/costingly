@@ -70,12 +70,13 @@ spend for a period (refunds cancel charges); flip the sign at read time with
 Two ways. On macOS and Linux they share one profile; on Windows they do not —
 see [Where the data lives](#where-the-data-lives).
 
-**The Claude Desktop extension.** Download `costingly-<version>.mcpb` from the
-[releases page](../../releases) and double-click it. Claude Desktop asks for your
-Plaid keys during install. This gives you the MCP server — ask Claude about your
-spending in plain language — and nothing else: no terminal command, and no way
-to uninstall from inside the app yet, so read
-[Uninstalling](#uninstalling) before you commit to it.
+**The Claude Desktop extension.** Install and open the Costingly desktop app
+first (see [Installing the desktop app](#installing-the-desktop-app-windows)).
+Then build `costingly-<version>.mcpb` with `npm run build:bundle` and
+double-click it. The extension asks for nothing: it finds the running app by
+itself and connects Claude Desktop to it, so you can ask Claude about your
+spending in plain language. It needs the app running; with the app closed,
+Claude is told to open it.
 
 **From source**, which additionally gives you the `costingly` command. See below.
 

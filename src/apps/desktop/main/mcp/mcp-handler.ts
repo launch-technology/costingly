@@ -29,11 +29,17 @@ import type { Tool, ToolHost } from "./tools/tool.js";
 /** How a tool call ended: answered, answered with an error result, or threw. */
 export type ToolOutcome = "ok" | "error" | "threw";
 
+/** The header a client may send to say who it is, e.g. `costingly-mcpb/2.0.0`. */
+export const CLIENT_HEADER = "x-costingly-client";
+
 export interface McpHandlerOptions {
   info: ServerInfo;
   tools: readonly Tool[];
-  /** Told each tool call's name and outcome. Nothing else. */
-  observe(tool: string, outcome: ToolOutcome): void;
+  /**
+   * Told each tool call's name and outcome, and the client's self-description
+   * when it sent one (the Claude Desktop extension does). Nothing else.
+   */
+  observe(tool: string, outcome: ToolOutcome, client: string | undefined): void;
 }
 
 export function mcpHandler(options: McpHandlerOptions): RequestHandler {
@@ -50,7 +56,8 @@ export function mcpHandler(options: McpHandlerOptions): RequestHandler {
 
     const { name, version, description, instructions } = options.info;
     const server = new McpServer({ name, version, description }, { instructions });
-    const host = observing(server, options.observe);
+    const client = clientOf(req.get(CLIENT_HEADER));
+    const host = observing(server, (tool, outcome) => options.observe(tool, outcome, client));
     for (const tool of options.tools) tool.register(host);
 
     const transport = new StreamableHTTPServerTransport({
@@ -66,8 +73,15 @@ export function mcpHandler(options: McpHandlerOptions): RequestHandler {
   };
 }
 
+/** A client's self-description, kept short and printable: it goes into the log. */
+function clientOf(header: string | undefined): string | undefined {
+  if (header === undefined) return undefined;
+  const clean = header.replace(/[^\x20-\x7e]/g, "").trim().slice(0, 80);
+  return clean === "" ? undefined : clean;
+}
+
 /** The server as a host whose every registered handler reports to `observe` first. */
-function observing(server: McpServer, observe: McpHandlerOptions["observe"]): ToolHost {
+function observing(server: McpServer, observe: (tool: string, outcome: ToolOutcome) => void): ToolHost {
   const registerTool: McpServer["registerTool"] = (name, config, cb) => {
     // The callback's own type depends on the tool's input schema; the wrapper
     // forwards whatever it is given unchanged, so it is typed loosely here and

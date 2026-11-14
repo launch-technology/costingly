@@ -5,7 +5,15 @@
  *  - config validation behaves
  * No database or Plaid credentials required.
  */
-process.env.ENCRYPTION_KEY ??= "";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Its own profile. The encryption key lives only in config.json now, so the
+// crypto checks have to write one — never into a real profile. Nothing else is
+// created there: no database, no credentials.
+const HOME = mkdtempSync(join(tmpdir(), "costingly-smoke-"));
+process.env["COSTINGLY_HOME"] = HOME;
 
 const results: string[] = [];
 let failures = 0;
@@ -87,7 +95,7 @@ check("generateEncryptionKey produces a 32-byte base64 key", () => {
   assert(Buffer.from(key, "base64").length === 32, `expected 32 bytes, got ${Buffer.from(key, "base64").length}`);
 });
 
-process.env.ENCRYPTION_KEY = key;
+index.configStore.update({ encryptionKey: key });
 
 check("encrypt -> decrypt round-trips", () => {
   const secret = "access-sandbox-11111111-2222-3333-4444-555555555555";
@@ -117,9 +125,9 @@ check("tampered ciphertext is rejected (GCM auth)", () => {
 
 check("wrong key is rejected", () => {
   const enc = crypto.encrypt("secret");
-  process.env.ENCRYPTION_KEY = crypto.generateEncryptionKey();
+  index.configStore.update({ encryptionKey: crypto.generateEncryptionKey() });
   throws(() => crypto.decrypt(enc), "authentication failed");
-  process.env.ENCRYPTION_KEY = key;
+  index.configStore.update({ encryptionKey: key });
 });
 
 check("malformed payload is rejected", () => {
@@ -127,9 +135,9 @@ check("malformed payload is rejected", () => {
 });
 
 check("bad key length is rejected", () => {
-  process.env.ENCRYPTION_KEY = Buffer.alloc(16).toString("base64");
+  index.configStore.update({ encryptionKey: Buffer.alloc(16).toString("base64") });
   throws(() => crypto.encrypt("x"), "32 bytes");
-  process.env.ENCRYPTION_KEY = key;
+  index.configStore.update({ encryptionKey: key });
 });
 
 // --- the two version fields agree ----------------------------------------
@@ -165,6 +173,8 @@ check("bad key length is rejected", () => {
 // Config and profile resolution have their own suites (config.mts,
 // profile.mts). This file stays what its header claims: does everything load,
 // and does crypto behave.
+
+rmSync(HOME, { recursive: true, force: true });
 
 console.log(results.join("\n"));
 console.log(failures === 0 ? `\nAll ${results.length} checks passed.` : `\n${failures} check(s) FAILED.`);

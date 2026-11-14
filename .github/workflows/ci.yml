@@ -147,15 +147,14 @@ jobs:
       - run: npm ci
       - run: npm run build:bundle
 
-      # The bundle carries exactly ONE PostgreSQL build, chosen by the host it
-      # was built on. Assert it is the intended one: this is the check that will
-      # catch a mislabelled asset the day the macOS legs are added and
-      # macos-latest turns out to be arm64.
-      - name: bundle carries exactly the expected PostgreSQL build
+      # The extension is one bundled program file plus the manifest and the
+      # licences. build:bundle already fails if it grew a database engine or
+      # passed 2 MB; this is the same fact, printed where a reviewer sees it.
+      - name: bundle is small
         run: |
-          found=$(ls build/staging/node_modules/@embedded-postgres)
-          echo "embedded-postgres in bundle: ${found}"
-          test "${found}" = "windows-x64"
+          size=$(stat -c %s build/costingly-*.mcpb)
+          echo "extension size: ${size} bytes"
+          test "${size}" -lt 2097152
 
       # Name the download after what it is and where it came from.
       #

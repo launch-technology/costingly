@@ -39,8 +39,6 @@ const HOME = join(tmpdir(), "costingly-desktop-transactions-test");
 const DESKTOP = `${HOME}-desktop`;
 process.env["COSTINGLY_HOME"] = HOME;
 
-delete process.env["PLAID_CLIENT_ID"];
-delete process.env["PLAID_SECRET"];
 delete process.env["PLAID_ENV"];
 
 const { closeDb, db, generateEncryptionKey, server, writeConfig } = await import("../src/index.js");
