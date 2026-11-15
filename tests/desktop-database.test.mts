@@ -115,6 +115,8 @@ async function open(): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await launch(HOME);
   const page = await app.firstWindow();
   await page.getByRole("navigation", { name: "Screens" }).waitFor({ timeout: 30_000 });
+  // Every check here reads the Status screen; the app itself opens on Accounts.
+  await page.getByTestId("nav-status").click();
   return { app, page };
 }
 

@@ -25,7 +25,7 @@
 
 import { randomBytes } from "node:crypto";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
@@ -42,7 +42,7 @@ import {
   skipUnlessWindows,
   until,
 } from "../tests/desktop-harness.mjs";
-import { EXECUTABLE, installerConfig, UNPACKED, writeIcon } from "./installer-config.mjs";
+import { EXECUTABLE, EXTENSION_FILE, EXTENSION_RESOURCE_DIR, installerConfig, UNPACKED, writeIcon } from "./installer-config.mjs";
 
 skipUnlessWindows();
 
@@ -69,6 +69,15 @@ await build({
   publish: "never",
 });
 ok(existsSync(join(UNPACKED, EXECUTABLE)), "the app packaged");
+
+// The Claude Desktop extension travels with the app, at the app's version, and
+// is the only thing in its folder: anything else there would be shown to the
+// user as a file to install.
+{
+  const folder = join(UNPACKED, "resources", EXTENSION_RESOURCE_DIR);
+  const inside = existsSync(folder) ? readdirSync(folder) : [];
+  eq(inside, [EXTENSION_FILE], `THE EXTENSION IS IN THE PACKAGE, at the app's version, alone: resources/${EXTENSION_RESOURCE_DIR}/${EXTENSION_FILE}`);
+}
 
 // Node looks for a package in every folder above the file that asks for it. A
 // copy left inside the repository could find the repository's node_modules and
@@ -162,6 +171,15 @@ try {
     const section = (await page.getByTestId("section-database").textContent()) ?? "";
     ok(/Schema version: \S+/.test(section), "with its tables created");
     ok(await databaseRunning(), "and the database program running is the packaged one");
+
+    // The Claude Desktop screen of the PACKAGED app points at the file the
+    // installer placed, not at build/: the one place `isPackaged` matters.
+    await page.getByTestId("nav-claude-desktop").click();
+    await page.locator("[data-testid='claude-desktop-screen'][data-file='found']").waitFor({ timeout: 15_000 }).catch(() => {});
+    const shownFile = (await page.getByTestId("claude-desktop-file").textContent()) ?? "";
+    eq(shownFile, join(APP, "resources", EXTENSION_RESOURCE_DIR, EXTENSION_FILE), "THE CLAUDE DESKTOP SCREEN NAMES THE PACKAGED EXTENSION FILE");
+    eq(await page.getByTestId("claude-desktop-screen").getAttribute("data-state"), "never", "and says Claude Desktop has not connected");
+    await page.getByTestId("nav-status").click();
 
     // The app's own log, beside its settings file: the packaged app found its
     // folder and wrote to it.

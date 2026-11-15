@@ -42,7 +42,7 @@ import {
   introduction,
   relayFailed,
 } from "./messages.presenter.js";
-import { compatible } from "./version.js";
+import { compatible } from "../../platform/version.js";
 
 const CHECK_TOOL = "check_costingly";
 

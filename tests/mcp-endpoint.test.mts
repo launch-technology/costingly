@@ -163,6 +163,8 @@ const address = `http://127.0.0.1:${port}/mcp`;
 const pageAddress = `http://127.0.0.1:${port}/pages/link`;
 const now = (): Date => new Date();
 const observed: Array<[string, ToolOutcome, string | undefined]> = [];
+/** Every request that said who it sent it, tool call or not. */
+const seen: string[] = [];
 const refused: string[] = [];
 const tools = [
   new CheckCostinglyTool(checkCostinglyDependencies()),
@@ -185,7 +187,12 @@ const tools = [
 ];
 const http = new LocalHttpServer({
   routes: routes({
-    mcp: { info: serverInfo("9.9.9-test"), tools, observe: (tool, outcome, client) => void observed.push([tool, outcome, client]) },
+    mcp: {
+      info: serverInfo("9.9.9-test"),
+      tools,
+      observe: (tool, outcome, client) => void observed.push([tool, outcome, client]),
+      seen: (client) => void seen.push(client),
+    },
     link: linkRouteDependencies(),
   }),
   onRefused: ({ reason }) => void refused.push(reason),
@@ -322,15 +329,23 @@ try {
     observed.every(([name, outcome, client]) => typeof name === "string" && ["ok", "error", "threw"].includes(outcome) && client === undefined),
     "the observer is told a name and an outcome, and no client: none of these said who it was",
   );
+  eq(seen, [], "NOBODY HAS BEEN SEEN: no request so far said who sent it");
   const identified = new Client({ name: "endpoint-test", version: "0" });
   await identified.connect(
     new StreamableHTTPClientTransport(new URL(address), {
       requestInit: { headers: { Authorization: `Bearer ${TOKEN}`, "X-Costingly-Client": "costingly-mcpb/9.9.9" } },
     }),
   );
+  // Connecting is the handshake: two requests (initialize and the initialized
+  // notice), each of which carries the header, before any tool is called.
+  ok(seen.length >= 1 && seen.every((client) => client === "costingly-mcpb/9.9.9"), `CONNECTING ALONE IS BEING SEEN: ${seen.length} request(s), all under that name`);
+  const beforeList = seen.length;
+  await identified.listTools();
+  eq(seen.length, beforeList + 1, "and listing the tools is one more, with no tool called");
   await identified.callTool({ name: "query", arguments: { sql: "SELECT 3 AS three" } });
   await identified.close();
   eq(observed.at(-1)?.[2], "costingly-mcpb/9.9.9", "A CLIENT THAT SAYS WHO IT IS IS REPORTED TO THE OBSERVER under that name");
+  eq(seen.at(-1), "costingly-mcpb/9.9.9", "and seen once more for the call");
 
   // =========================================================================
   // 6. sync and sync_status

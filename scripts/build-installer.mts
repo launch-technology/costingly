@@ -5,7 +5,8 @@
  * desktop app for the current user, with no administrator prompt and no
  * questions, adds it to the Start menu, and opens it.
  *
- * `npm run build:installer` compiles and bundles the app first (build:desktop)
+ * `npm run build:installer` builds the Claude Desktop extension (build:bundle,
+ * which the installer carries), compiles and bundles the app (build:desktop),
  * and then runs this. What gets packaged, and why it is packaged the way it
  * is, is installer-config.mts.
  *

@@ -105,9 +105,10 @@ try {
   let { app, page } = await open();
   eq(
     await page.getByRole("navigation", { name: "Screens" }).getByRole("button").allInnerTexts(),
-    ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
-    "the sidebar lists Logs last, below Settings",
+    ["Accounts", "Transactions", "Claude Desktop", "Other clients", "Status", "Settings", "Logs", "About"],
+    "the sidebar lists Logs below Settings",
   );
+  await page.getByTestId("nav-status").click();
   await expectHeadline(checks, page, "database", /^Running$/, "the database is Running");
 
   await goToLogs(page, "app");
@@ -202,6 +203,7 @@ try {
   ok(grown > 5 * 1024 * 1024, `the database log was grown past its cap (${(grown / 1024 / 1024).toFixed(1)} MB)`);
 
   ({ app, page } = await open());
+  await page.getByTestId("nav-status").click();
   await expectHeadline(checks, page, "database", /^Running$/, "the app launches and the database is Running");
   const trimmed = statSync(dbLog).size;
   ok(trimmed <= 5 * 1024 * 1024, `AND THE DATABASE LOG IS UNDER ITS CAP (${(trimmed / 1024 / 1024).toFixed(1)} MB)`);

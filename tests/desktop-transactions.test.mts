@@ -127,8 +127,8 @@ await server.stop();
 let { app, page } = await open();
 eq(
   await page.getByRole("navigation", { name: "Screens" }).getByRole("button").allInnerTexts(),
-  ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
-  "the sidebar lists Transactions below Accounts",
+  ["Accounts", "Transactions", "Claude Desktop", "Other clients", "Status", "Settings", "Logs", "About"],
+  "the sidebar lists Transactions directly below Accounts",
 );
 
 await goToTransactions(page);

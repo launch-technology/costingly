@@ -193,7 +193,7 @@ export type UnlinkResult =
   | { outcome: "plaid-failed"; problem: Problem }
   | { outcome: "failed"; problem: Problem };
 
-/** The Settings screen: what can be changed, and two facts that have nowhere else to live. */
+/** The Settings screen: what can be changed. */
 export interface SettingsView {
   /** The Plaid client ID in use, or null when none is saved. The secret is never sent. */
   plaidClientId: string | null;
@@ -201,7 +201,19 @@ export interface SettingsView {
   plaidProblem?: Problem;
   /** Is Costingly registered to start when the user signs in to Windows? As Windows has it, right now. */
   startAtSignIn: boolean;
+}
+
+/**
+ * The About screen: what this program is. Every fact is read when asked, from
+ * the program's own package description, so a new release reads as itself
+ * with nothing to update here.
+ */
+export interface AboutView {
+  name: string;
   version: string;
+  description: string;
+  license: string;
+  author: string;
   /** The profile directory, shortened for display. */
   dataFolder: string;
 }
@@ -242,6 +254,36 @@ export type ShowTokenResult = { outcome: "shown"; token: string } | { outcome: "
 
 /** Something was, or was not, put on the clipboard. */
 export type CopyOutcome = { outcome: "copied" } | { outcome: "failed"; problem: Problem };
+
+/**
+ * The Claude Desktop screen: the extension file to install, and whether the
+ * extension has spoken to this app since it started.
+ *
+ * "Connected" is last-heard-from, not live: the app knows when the extension
+ * last made a request, and nothing about Claude Desktop since. The record is
+ * kept in memory only, so it starts over with the app.
+ */
+export interface ClaudeDesktopView {
+  /** This app's version, shown beside the extension's. */
+  appVersion: string;
+  file:
+    | { state: "found"; path: string; version: string }
+    /** Run from source without the extension built. `buildCommand` makes it. */
+    | { state: "missing"; folder: string; buildCommand: string };
+  connection:
+    | { state: "never" }
+    | {
+        state: "heard";
+        /** When, as an ISO timestamp; the screen words it. */
+        at: string;
+        version: string;
+        /** False when the extension's major version differs from the app's: it needs reinstalling. */
+        compatible: boolean;
+      };
+}
+
+/** The extension file's folder was, or was not, opened for the user. */
+export type OpenFolderOutcome = { outcome: "opened" } | { outcome: "failed"; problem: Problem };
 
 /** What the latest sync did for one bank, in one line. */
 export interface BankSyncResult {
@@ -438,6 +480,14 @@ export interface DesktopContract {
   "connect.copyAddress": { args: []; result: CopyOutcome };
   /** Put the token on the clipboard without it passing through the window. */
   "connect.copyToken": { args: []; result: CopyOutcome };
+
+  /** The About screen: the program's own description of itself, and where the data lives. */
+  "about.read": { args: []; result: AboutView };
+
+  /** The Claude Desktop screen: the file, and whether the extension has been heard from. */
+  "claudeDesktop.read": { args: []; result: ClaudeDesktopView };
+  /** Open the folder holding the extension file, with the file selected. */
+  "claudeDesktop.openFolder": { args: []; result: OpenFolderOutcome };
 }
 
 export type Call = keyof DesktopContract;

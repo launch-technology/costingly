@@ -6,8 +6,8 @@
  * hidden until Show is pressed; Copy works either way, because the copy
  * happens in the main process and never passes through this screen.
  *
- * A later story adds connecting Claude Desktop here. For now this is for any
- * MCP client on this computer, configured by hand.
+ * Claude Desktop has its own screen (claude-desktop.screen.tsx); this is for
+ * any other MCP client on this computer, configured by hand.
  */
 
 import type { ConnectView } from "../../../bridge/contract.js";
@@ -28,7 +28,7 @@ export function ConnectScreen() {
       data-state={connect.state.phase === "loaded" ? connect.state.view.state : connect.state.phase}
     >
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Connect</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Other clients</h1>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           Any MCP client on this computer can talk to Costingly through this address, with this token. Nothing is
           reachable from other computers.

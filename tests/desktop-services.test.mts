@@ -36,6 +36,11 @@
  *                             about, and a model's trigger is recorded
  *  18. Unlinks in single file one after another, whoever asks
  *  19. The action tools       each over fakes: what it says in every state
+ *  20. Claude Desktop         a request naming the extension, through the real
+ *                             endpoint, is what the screen reports; Open folder
+ *                             over a shell that works, refuses, or has no file
+ *  21. About                  the version is package.json's, read when asked,
+ *                             never a constant
  *
  * What the services LOG is checked alongside: the log module is pointed at a
  * capture here, and the cases that matter — a failure, a sync's banks, keys
@@ -1034,7 +1039,7 @@ await rm(HOME, { recursive: true, force: true });
   const base = `http://127.0.0.1:${port}`;
   const refusals: string[] = [];
   const http = new LocalHttpServer({
-    routes: routes({ mcp: { info: serverInfo("0-test"), tools: [], observe: () => {} }, link: linkRouteDependencies() }),
+    routes: routes({ mcp: { info: serverInfo("0-test"), tools: [], observe: () => {}, seen: () => {} }, link: linkRouteDependencies() }),
     onRefused: ({ reason }) => void refusals.push(reason),
   });
   await http.start(port, "a-token-the-page-never-sends");
@@ -1512,17 +1517,11 @@ await rm(HOME, { recursive: true, force: true });
   const settings = (overrides: Partial<ConstructorParameters<typeof SettingsService>[0]> = {}) =>
     new SettingsService({
       plaidClientId: () => "client-id-123",
-      version: () => "1.6.4",
-      dataFolder: () => "~/AppData/Local/costingly/Data",
       startAtSignIn: { isOn: () => true },
       describeError: (error) => (error instanceof Error ? error.message : String(error)),
       ...overrides,
     });
-  eq(
-    settings().read(),
-    { plaidClientId: "client-id-123", startAtSignIn: true, version: "1.6.4", dataFolder: "~/AppData/Local/costingly/Data" },
-    "settings: the four facts, on one plate",
-  );
+  eq(settings().read(), { plaidClientId: "client-id-123", startAtSignIn: true }, "settings: the two facts, on one plate");
   eq(settings({ plaidClientId: () => null }).read().plaidClientId, null, "settings: no keys saved is null, not a problem");
   {
     const reading = settings({
@@ -1532,7 +1531,7 @@ await rm(HOME, { recursive: true, force: true });
     }).read();
     eq(reading.plaidClientId, null, "settings: keys that cannot be read show as none");
     eq(reading.plaidKeysUnreadable, "config.json is not valid JSON", "settings: with the reason, for the presenter to word");
-    eq([reading.version, reading.startAtSignIn], ["1.6.4", true], "settings: AND THE REST OF THE PLATE IS STILL SERVED");
+    eq(reading.startAtSignIn, true, "settings: AND THE REST OF THE PLATE IS STILL SERVED");
   }
 }
 
@@ -2032,6 +2031,111 @@ await rm(HOME, { recursive: true, force: true });
     const restartBad = await invoke(new RestartDatabaseTool({ restart: async () => {}, section: async () => ({ tone: "bad", headline: "Could not start", details: [], problem: { cause: "Port in use.", nextStep: "Close that program." }, actions: ["start"] }) }));
     ok(restartBad.isError && /not usable\. Port in use\./.test(restartBad.text) && /Close that program\./.test(restartBad.text), "restart_database: a failure in the Status screen's words");
   }
+}
+
+// ===========================================================================
+// 20. Claude Desktop — heard through the real endpoint; Open folder over fakes
+// ===========================================================================
+// The wiring the composition root does, without Electron: the endpoint's
+// `seen` feeds the presence service, and the controller reads it back. A
+// client that only connects (no tool call) is enough to be heard.
+{
+  const { ExtensionPresenceService } = await import("../src/apps/desktop/main/features/claude-desktop/extension-presence.service.js");
+  const { ClaudeDesktopController } = await import("../src/apps/desktop/main/features/claude-desktop/claude-desktop.controller.js");
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+
+  const presence = new ExtensionPresenceService();
+  const T = new Date("2026-11-14T15:00:00.000Z");
+  const port = await freePort();
+  const http = new LocalHttpServer({
+    routes: routes({
+      mcp: { info: serverInfo("2.0.0"), tools: [], observe: () => {}, seen: (client) => presence.record(client, T) },
+      link: linkRouteDependencies(),
+    }),
+    onRefused: () => {},
+  });
+  await http.start(port, "token-20");
+
+  const found = { state: "found" as const, path: "C:\\apps\\resources\\extension\\costingly-2.0.0.mcpb", version: "2.0.0" };
+  const opened: string[] = [];
+  let shell: (path: string) => void = (path) => void opened.push(path);
+  let located: import("../src/apps/desktop/main/features/claude-desktop/claude-desktop.adapter.js").ExtensionFile = found;
+  const controller = new ClaudeDesktopController({
+    presence,
+    locate: () => located,
+    appVersion: () => "2.0.0",
+    showInFolder: (path) => shell(path),
+    describeError: String,
+  });
+  const h = controller.handlers();
+
+  eq((await h["claudeDesktop.read"]()).connection, { state: "never" }, "BEFORE ANY REQUEST: not connected");
+
+  const anonymous = new Client({ name: "somebody", version: "0" });
+  await anonymous.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { Authorization: "Bearer token-20" } } }));
+  await anonymous.close();
+  eq((await h["claudeDesktop.read"]()).connection, { state: "never" }, "a client that does not name itself is not the extension");
+
+  const extension = new Client({ name: "costingly-mcpb", version: "2.0.0" });
+  await extension.connect(
+    new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+      requestInit: { headers: { Authorization: "Bearer token-20", "X-Costingly-Client": "costingly-mcpb/2.0.0" } },
+    }),
+  );
+  await extension.close();
+  eq(
+    (await h["claudeDesktop.read"]()).connection,
+    { state: "heard", at: T.toISOString(), version: "2.0.0", compatible: true },
+    "THE EXTENSION CONNECTING, WITH NO TOOL CALLED, IS HEARD: when and which version, through the real endpoint",
+  );
+
+  const old = new Client({ name: "costingly-mcpb", version: "1.0.0" });
+  await old.connect(
+    new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+      requestInit: { headers: { Authorization: "Bearer token-20", "X-Costingly-Client": "costingly-mcpb/1.0.0" } },
+    }),
+  );
+  await old.close();
+  const mismatch = await h["claudeDesktop.read"]();
+  eq([mismatch.connection.state === "heard" && mismatch.connection.compatible, mismatch.appVersion], [false, "2.0.0"], "AN OLDER MAJOR VERSION IS FLAGGED, with the app's version beside it");
+  await http.stop();
+
+  eq(await h["claudeDesktop.openFolder"](), { outcome: "opened" }, "OPEN FOLDER asks the shell");
+  eq(opened, [found.path], "for the file's own path, so it is selected");
+
+  shell = () => {
+    throw new Error("Explorer is not available");
+  };
+  const refused = await h["claudeDesktop.openFolder"]();
+  ok(refused.outcome === "failed" && /Explorer is not available/.test(refused.problem.cause) && refused.problem.nextStep.includes(found.path), "a shell that refuses: failed, with the reason and the path to use by hand");
+
+  located = { state: "missing", folder: "C:\\repo\\build", buildCommand: "npm run build:bundle" };
+  const none = await h["claudeDesktop.openFolder"]();
+  ok(none.outcome === "failed" && /C:\\repo\\build/.test(none.problem.cause) && /npm run build:bundle/.test(none.problem.nextStep), "no file: failed, naming the folder and the build command");
+  eq((await h["claudeDesktop.read"]()).file.state, "missing", "and read says the file is missing");
+}
+
+// ===========================================================================
+// 21. About — the version is package.json's, read when asked, never a constant
+// ===========================================================================
+{
+  const { AboutController } = await import("../src/apps/desktop/main/features/about/about.controller.js");
+  const { aboutDependencies } = await import("../src/apps/desktop/main/features/about/about.adapter.js");
+  const { packageInfo } = await import("../src/platform/package.js");
+
+  const pkg = JSON.parse(readFileSync(join(fileURLToPath(new URL("..", import.meta.url)), "package.json"), "utf8")) as Record<string, string>;
+  const real = await new AboutController(aboutDependencies()).handlers()["about.read"]();
+  eq(real.version, pkg["version"], `ABOUT'S VERSION IS WHAT package.json SAYS RIGHT NOW (${pkg["version"]}), not a constant`);
+  eq([real.name, real.license, real.author, real.description], [pkg["name"], pkg["license"], pkg["author"], pkg["description"]], "and so are the name, licence, author and description");
+  ok(real.dataFolder.includes("costingly-desktop-services"), "with the data folder");
+  ok(/^\d+\.\d+\.\d+/.test(real.version), "the version reads as a release number");
+
+  const info = packageInfo();
+  eq(info.version, pkg["version"], "packageInfo() is the same source the CLI's --version and the extension's comparison use");
+
+  const faked = await new AboutController({ info: () => ({ ...info, version: "9.9.9" }), dataFolder: () => "~/x" }).handlers()["about.read"]();
+  eq([faked.version, faked.dataFolder], ["9.9.9", "~/x"], "the controller shows what it is handed, nothing of its own");
 }
 
 console.log(out.join("\n"));

@@ -6,9 +6,8 @@
  * alone and has no package.json beside it. Run from source under tsx, there
  * is no define and the repository's package.json is read instead.
  *
- * It is compared with the app's version on every connection: the two are
- * built from the same number, and a different major version means the two
- * no longer agree about what passes between them.
+ * It is compared with the app's version on every connection, by the rule in
+ * platform/version.ts, which the app applies too.
  */
 
 import { readFileSync } from "node:fs";
@@ -23,21 +22,4 @@ export function mcpbVersion(): string {
   } catch {
     return "0.0.0";
   }
-}
-
-/** The leading number of a version, or undefined when there is none to read. */
-export function majorOf(version: string): number | undefined {
-  const match = /^(\d+)\./.exec(version.trim());
-  return match === null ? undefined : Number(match[1]);
-}
-
-/**
- * Same major version, or a version that cannot be read. Only a major that is
- * clearly different is refused: an odd label is not a reason to stop working.
- */
-export function compatible(appVersion: string | undefined, ownVersion: string): boolean {
-  if (appVersion === undefined) return true;
-  const app = majorOf(appVersion);
-  const own = majorOf(ownVersion);
-  return app === undefined || own === undefined || app === own;
 }

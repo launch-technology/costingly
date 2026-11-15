@@ -30,8 +30,8 @@
     "build:bundle": "tsx scripts/build-bundle.mts",
     "build:desktop": "npm run build && tsx scripts/build-desktop.mts",
     "desktop": "npm run build:desktop && electron dist/apps/desktop/main/main.js",
-    "build:installer": "npm run build:desktop && tsx scripts/build-installer.mts",
-    "check:packaged": "npm run build:desktop && tsx scripts/check-packaged.mts"
+    "build:installer": "npm run build:bundle && npm run build:desktop && tsx scripts/build-installer.mts",
+    "check:packaged": "npm run build:bundle && npm run build:desktop && tsx scripts/check-packaged.mts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",

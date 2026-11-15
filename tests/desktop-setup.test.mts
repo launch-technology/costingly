@@ -216,6 +216,7 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Screens" }
   const againPage = await again.firstWindow();
   await expectVisible(checks, sidebar(againPage), "relaunching a set-up machine opens straight on the app");
   eq(await setupScreen(againPage).count(), 0, "with no setup");
+  await againPage.getByTestId("nav-status").click();
   await expectHeadline(checks, againPage, "database", /^Running$/, "and the database is Running — THE APP STARTED IT");
   eq(await quit(again), 0, "Quit ends the process, exit code 0");
   eq(await server.status(), "stopped", "and stops the database again");

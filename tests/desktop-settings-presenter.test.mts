@@ -19,7 +19,7 @@ function eq(a: unknown, b: unknown, what: string): void {
 }
 const ok = (c: boolean, what: string): void => eq(c, true, what);
 
-const reading = { plaidClientId: "client-id-123", startAtSignIn: false, version: "1.6.4", dataFolder: "~/costingly/Data" };
+const reading = { plaidClientId: "client-id-123", startAtSignIn: false };
 eq(presentSettings(reading), reading, "the facts pass through as they are");
 eq(presentSettings({ ...reading, plaidClientId: null }).plaidClientId, null, "no saved keys stays null for the screen to word");
 {
