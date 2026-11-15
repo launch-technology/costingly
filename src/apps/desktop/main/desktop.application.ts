@@ -60,11 +60,16 @@ import { configureLog, log } from "../../../platform/runtime/log.js";
 import { ResourceScope } from "../../../platform/runtime/resource-scope.js";
 import { appDir } from "../../../platform/app-dir.js";
 import { desktopLogPath, desktopStatePath } from "./desktop-paths.js";
+import { aboutDependencies } from "./features/about/about.adapter.js";
+import { AboutController } from "./features/about/about.controller.js";
 import { accountsDependencies, isLinkedBank, unlinkDependencies } from "./features/accounts/accounts.adapter.js";
 import { AccountsController } from "./features/accounts/accounts.controller.js";
 import { AccountsService } from "./features/accounts/accounts.service.js";
 import { LinkController } from "./features/accounts/link.controller.js";
 import { UnlinkService } from "./features/accounts/unlink.service.js";
+import { extensionFolder, locateExtension } from "./features/claude-desktop/claude-desktop.adapter.js";
+import { ClaudeDesktopController } from "./features/claude-desktop/claude-desktop.controller.js";
+import { ExtensionPresenceService } from "./features/claude-desktop/extension-presence.service.js";
 import { localServerDependencies } from "./features/connect/connect.adapter.js";
 import { ConnectController } from "./features/connect/connect.controller.js";
 import { pageAddressOf, presentMcpSection, reconnectAddressOf } from "./features/connect/connect.presenter.js";
@@ -283,6 +288,9 @@ export class DesktopApplication implements Application {
       new SetupCostinglyTool({ createDatabase, keysPresent }),
       new RestartDatabaseTool({ restart: () => database.restart(), section: databaseSection }),
     ];
+    // Whether the Claude Desktop extension has been heard from: every request
+    // that names it is recorded, so the Claude Desktop screen can say so.
+    const presence = new ExtensionPresenceService();
     const http = new LocalHttpServer({
       routes: routes({
         mcp: {
@@ -292,6 +300,7 @@ export class DesktopApplication implements Application {
             log.info(
               `mcp: ${tool} ${outcome === "ok" ? "answered" : outcome === "error" ? "answered with an error" : "threw"}${client === undefined ? "" : ` (${client})`}`,
             ),
+          seen: (client) => presence.record(client, now()),
         },
         link: linkRouteDependencies(),
       }),
@@ -348,6 +357,19 @@ export class DesktopApplication implements Application {
       // The Connect screen: the endpoint's address and token. The token is
       // copied here and shown only when asked for.
       ...new ConnectController(localServer, (text) => clipboard.writeText(text), describeError).handlers(),
+      // The Claude Desktop screen: the extension file the installer placed
+      // beside the app (or build/ when run from source), and whether the
+      // extension has spoken to this app. Opening the folder is the shell's.
+      ...new ClaudeDesktopController({
+        presence,
+        locate: () => locateExtension(extensionFolder(app.isPackaged, process.resourcesPath), appVersion()),
+        appVersion,
+        showInFolder: (path) => shell.showItemInFolder(path),
+        describeError,
+      }).handlers(),
+      // About: what the program says about itself, read from its own package
+      // description each time, so a release reads as itself.
+      ...new AboutController(aboutDependencies()).handlers(),
     };
     registerHandlers(handlers, {
       isAppWindow: (sender) => this.window?.owns(sender) ?? false,

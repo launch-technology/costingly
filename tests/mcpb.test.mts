@@ -173,7 +173,7 @@ const VERSION = mcpbVersion();
 async function serveApp(port: number, token: string, version = VERSION): Promise<LocalHttpServerType> {
   const http = new LocalHttpServer({
     routes: routes({
-      mcp: { info: serverInfo(version), tools, observe: (tool, outcome, client) => void observed.push([tool, outcome, client]) },
+      mcp: { info: serverInfo(version), tools, observe: (tool, outcome, client) => void observed.push([tool, outcome, client]), seen: () => {} },
       link: linkRouteDependencies(),
     }),
     onRefused: () => {},

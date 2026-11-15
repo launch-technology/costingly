@@ -41,6 +41,7 @@ const ORDER = [
   "desktop-settings-presenter",
   "desktop-report-presenter",
   "desktop-connect-presenter",
+  "desktop-claude-desktop-presenter",
   "desktop-sync-report-presenter",
   "desktop-services",
   "picker",
@@ -68,6 +69,7 @@ const ORDER = [
   "desktop-settings",
   "desktop-logs",
   "desktop-connect",
+  "desktop-claude-desktop",
   "desktop-mcp-actions",
 ];
 

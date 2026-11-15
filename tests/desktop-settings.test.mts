@@ -122,8 +122,8 @@ try {
   let { app, page } = await open();
   eq(
     await page.getByRole("navigation", { name: "Screens" }).getByRole("button").allInnerTexts(),
-    ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
-    "the sidebar lists Settings below Transactions",
+    ["Accounts", "Transactions", "Claude Desktop", "Other clients", "Status", "Settings", "Logs", "About"],
+    "the sidebar lists Settings in the last group, below Status",
   );
   await goToSettings(page);
 
@@ -131,8 +131,16 @@ try {
   const everything = (await page.getByTestId("settings-screen").textContent()) ?? "";
   ok(!everything.includes("placeholder-secret"), "AND THE SECRET IS NOWHERE ON THE SCREEN");
   eq(await page.getByTestId("keys-secret").inputValue(), "", "not even in the form's field");
-  eq(await page.getByTestId("settings-version").textContent(), VERSION, `the version is shown (${VERSION})`);
-  ok(((await page.getByTestId("settings-data-folder").textContent()) ?? "").includes("costingly-desktop-settings-test"), "and the data folder");
+  eq(await page.getByTestId("settings-version").count(), 0, "the version is not on Settings any more: it has the About screen");
+
+  // The About screen, which took the version and the data folder from here.
+  await page.getByTestId("nav-about").click();
+  await page.locator("[data-testid='about-screen'][data-state='loaded']").waitFor({ timeout: 15_000 });
+  eq(await page.getByTestId("about-version").textContent(), VERSION, `ABOUT SHOWS THE VERSION package.json HAS RIGHT NOW (${VERSION})`);
+  ok(((await page.getByTestId("about-data-folder").textContent()) ?? "").includes("costingly-desktop-settings-test"), "and the data folder");
+  eq(await page.getByTestId("about-author").textContent(), "Launch Technology LLC", "and who made it, from the same file");
+  eq(await page.getByTestId("about-license").textContent(), "MIT", "and the licence");
+  await goToSettings(page);
   ok(/different Plaid account/.test((await page.getByTestId("settings-keys-warning").textContent()) ?? ""), "the form warns about keys from a different Plaid account");
 
   // =========================================================================
@@ -195,7 +203,7 @@ try {
 
   await showWindow(app);
   ok(await until(() => windowVisible(app), 10_000), "the tray's Open reveals it");
-  await expectVisible(checks, page.getByTestId("status-screen"), "on the Status screen, as on any launch");
+  await expectVisible(checks, page.getByTestId("accounts-screen"), "on the Accounts screen, as on any launch");
   eq(await quit(app), 0, "Quit, exit code 0");
   eq(await server.status(), "stopped", "and the database is stopped");
 } finally {

@@ -128,10 +128,11 @@ try {
   let { app, page } = await open();
   eq(
     await page.getByRole("navigation", { name: "Screens" }).getByRole("button").allInnerTexts(),
-    ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
-    "the sidebar lists Connect last, below Logs",
+    ["Accounts", "Transactions", "Claude Desktop", "Other clients", "Status", "Settings", "Logs", "About"],
+    "the sidebar lists the Connect screen as Other clients, below Claude Desktop",
   );
 
+  await page.getByTestId("nav-status").click();
   await expectHeadline(checks, page, "mcp", /^Running$/, "THE STATUS SCREEN HAS A FOURTH SECTION, MCP endpoint, and it is Running");
 
   await goToConnect(page);

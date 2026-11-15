@@ -4,7 +4,7 @@
  *
  * Setup takes over the whole window. There is no sidebar and no way into the
  * rest of the app until it is finished, because nothing else works without
- * keys and a database — a Status screen that says "not set up" beside a
+ * keys and a database — an Accounts screen with nothing to show beside a
  * sidebar full of screens that cannot load is worse than one clear path.
  *
  * HOW THE RENDERER IS LAID OUT
@@ -25,7 +25,9 @@ import { useState } from "react";
 
 import { Sidebar, type ScreenId } from "./components/sidebar.js";
 import { useSetupGate } from "./hooks/use-setup.js";
+import { AboutScreen } from "./screens/about/about.screen.js";
 import { AccountsScreen } from "./screens/accounts/accounts.screen.js";
+import { ClaudeDesktopScreen } from "./screens/claude-desktop/claude-desktop.screen.js";
 import { ConnectScreen } from "./screens/connect/connect.screen.js";
 import { LogsScreen } from "./screens/logs/logs.screen.js";
 import { SettingsScreen } from "./screens/settings/settings.screen.js";
@@ -35,10 +37,12 @@ import { TransactionsScreen } from "./screens/transactions/transactions.screen.j
 
 export function App() {
   const { gate, finish } = useSetupGate();
-  const [screen, setScreen] = useState<ScreenId>("status");
+  // Accounts first: it is what the app is for. Status, Settings and the rest
+  // are the app's own business, kept further down the sidebar.
+  const [screen, setScreen] = useState<ScreenId>("accounts");
 
-  // Blank until the answer arrives, so the Status screen never flashes up on a
-  // machine that is about to be shown setup.
+  // Blank until the answer arrives, so the Accounts screen never flashes up on
+  // a machine that is about to be shown setup.
   if (gate.name === "loading") return <div data-testid="app-loading" className="h-full" />;
 
   if (gate.name === "setup") {
@@ -60,7 +64,9 @@ export function App() {
         {screen === "transactions" && <TransactionsScreen />}
         {screen === "settings" && <SettingsScreen />}
         {screen === "logs" && <LogsScreen />}
+        {screen === "claude-desktop" && <ClaudeDesktopScreen />}
         {screen === "connect" && <ConnectScreen />}
+        {screen === "about" && <AboutScreen />}
       </main>
     </div>
   );

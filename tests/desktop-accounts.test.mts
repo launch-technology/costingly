@@ -111,10 +111,10 @@ let { app, page } = await open();
 
 eq(
   await page.getByRole("navigation", { name: "Screens" }).getByRole("button").allInnerTexts(),
-  ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
-  "the sidebar lists Status, then Accounts, then Transactions",
+  ["Accounts", "Transactions", "Claude Desktop", "Other clients", "Status", "Settings", "Logs", "About"],
+  "the sidebar lists Accounts first, then Transactions",
 );
-await expectVisible(checks, page.getByTestId("status-screen"), "a set-up machine still opens on Status");
+await expectVisible(checks, page.getByTestId("accounts-screen"), "a set-up machine opens on Accounts");
 
 await goToAccounts(page);
 await expectState(page, "empty", "Accounts with no banks: the empty state");

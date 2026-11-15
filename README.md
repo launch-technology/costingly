@@ -72,11 +72,16 @@ see [Where the data lives](#where-the-data-lives).
 
 **The Claude Desktop extension.** Install and open the Costingly desktop app
 first (see [Installing the desktop app](#installing-the-desktop-app-windows)).
-Then build `costingly-<version>.mcpb` with `npm run build:bundle` and
-double-click it. The extension asks for nothing: it finds the running app by
-itself and connects Claude Desktop to it, so you can ask Claude about your
-spending in plain language. It needs the app running; with the app closed,
-Claude is told to open it.
+The extension comes with it: open the app's **Claude Desktop** screen, press
+*Open folder*, and drag `costingly-<version>.mcpb` into the Claude Desktop
+window, then restart Claude Desktop. If the drop does nothing, open Claude
+Desktop's settings and search them for "extension": the page listing installed
+extensions takes the file. (Its location moves between Claude Desktop
+versions, so no menu path is given here.) The extension asks for nothing: it
+finds the running app by itself and connects Claude Desktop to it, so you can
+ask Claude about your spending in plain language. The same screen then says
+whether Claude Desktop has connected. It needs the app running; with the app
+closed, Claude is told to open it.
 
 **From source**, which additionally gives you the `costingly` command. See below.
 
@@ -730,7 +735,7 @@ so a fresh clone runs everything else green.
 | `npm run build:bundle` | Pack `build/costingly-<version>.mcpb` for Claude Desktop |
 | `npm run build:desktop` | Compile, then bundle the desktop app's window into `dist/apps/desktop/` |
 | `npm run desktop` | Build and open the desktop app |
-| `npm run build:installer` | Build the desktop app's Windows installer into `build/installer/` |
+| `npm run build:installer` | Build the desktop app's Windows installer, with the extension inside it, into `build/installer/` |
 | `npm run check:packaged` | Package the desktop app as the installer does, and drive the packaged copy |
 
 The desktop app (`src/apps/desktop`) is in development. `npm run desktop`
@@ -749,7 +754,9 @@ connection once.
 
 - **Windows will warn about an unknown publisher.** The installer is not
   signed. Choose *More info*, then *Run anyway*.
-- **The program** goes in `%LOCALAPPDATA%\Programs\costingly`.
+- **The program** goes in `%LOCALAPPDATA%\Programs\costingly`. The Claude
+  Desktop extension is beside it, in `resources\extension\`; the app's Claude
+  Desktop screen opens that folder for you.
 - **Your data** — keys, database, log — is separate, in
   `%LOCALAPPDATA%\costingly`, and is created by the app's setup, not by the
   installer.

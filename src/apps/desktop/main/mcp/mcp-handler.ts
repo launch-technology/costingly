@@ -40,6 +40,13 @@ export interface McpHandlerOptions {
    * when it sent one (the Claude Desktop extension does). Nothing else.
    */
   observe(tool: string, outcome: ToolOutcome, client: string | undefined): void;
+  /**
+   * Told the client's self-description on EVERY request that carries one,
+   * tool call or not. The handshake and the tool listing a client makes as it
+   * starts are requests too, and they are how the app knows Claude Desktop
+   * has connected before anyone asks it anything.
+   */
+  seen(client: string): void;
 }
 
 export function mcpHandler(options: McpHandlerOptions): RequestHandler {
@@ -57,6 +64,7 @@ export function mcpHandler(options: McpHandlerOptions): RequestHandler {
     const { name, version, description, instructions } = options.info;
     const server = new McpServer({ name, version, description }, { instructions });
     const client = clientOf(req.get(CLIENT_HEADER));
+    if (client !== undefined) options.seen(client);
     const host = observing(server, (tool, outcome) => options.observe(tool, outcome, client));
     for (const tool of options.tools) tool.register(host);
 

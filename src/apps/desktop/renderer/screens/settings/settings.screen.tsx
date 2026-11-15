@@ -1,16 +1,17 @@
 /**
- * The Settings screen: the Plaid keys, starting at sign-in, and two facts.
+ * The Settings screen: the Plaid keys and starting at sign-in.
  *
  * Drawing only; the facts and the sign-in switch are hooks/use-settings.ts,
  * and the keys form is the same hook and the same component first-run setup
- * uses. Three sections:
+ * uses. Two sections:
  *
  *   Plaid keys          the saved client ID — never the secret — and the
  *                       form to replace both, with the one warning that
  *                       matters: keys from a different Plaid account orphan
  *                       every linked bank
  *   Start at sign-in    a switch that shows what Windows has
- *   About               the version, and where the data lives
+ *
+ * The version and the data folder have their own screen (about.screen.tsx).
  */
 
 import { useState } from "react";
@@ -54,7 +55,6 @@ export function SettingsScreen() {
         <div className="flex max-w-xl flex-col gap-8">
           <PlaidKeys clientId={view.plaidClientId} problem={view.plaidProblem} onSaved={settings.reload} />
           <StartAtSignIn on={view.startAtSignIn} control={settings.startAtSignIn} />
-          <About version={view.version} dataFolder={view.dataFolder} />
         </div>
       )}
     </section>
@@ -144,21 +144,6 @@ function StartAtSignIn({ on, control }: { on: boolean; control: ReturnType<typeo
           </Alert>
         </div>
       )}
-    </section>
-  );
-}
-
-function About({ version, dataFolder }: { version: string; dataFolder: string }) {
-  return (
-    <section data-testid="settings-about" className="text-sm">
-      <h2 className="mb-2 text-lg font-semibold">About</h2>
-      <p>
-        Costingly <span data-testid="settings-version">{version}</span>
-      </p>
-      <p className="mt-1 text-slate-600 dark:text-slate-300">Your data lives in:</p>
-      <p data-testid="settings-data-folder" className="break-all font-mono">
-        {dataFolder}
-      </p>
     </section>
   );
 }

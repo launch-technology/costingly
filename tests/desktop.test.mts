@@ -87,10 +87,12 @@ await nav.waitFor({ timeout: 30_000 });
 eq(await page.getByTestId("setup-screen").count(), 0, "a set-up machine is not shown setup");
 eq(
   await nav.getByRole("button").allTextContents(),
-  ["Status", "Accounts", "Transactions", "Settings", "Logs", "Connect"],
-  "the sidebar lists the screens that exist: Status, Accounts, Transactions, Settings, Logs, Connect",
+  ["Accounts", "Transactions", "Claude Desktop", "Other clients", "Status", "Settings", "Logs", "About"],
+  "the sidebar lists the screens that exist, in three groups: the money, connecting Claude, the app itself",
 );
-eq(await page.getByTestId("status-screen").count(), 1, "and opens on Status");
+eq(await page.getByTestId("accounts-screen").count(), 1, "and opens on Accounts");
+await page.getByTestId("nav-status").click();
+await page.getByTestId("status-screen").waitFor({ timeout: 15_000 });
 eq(await page.locator("article[data-testid^='section-']").count(), 4, "the status screen has four sections");
 
 await expectHeadline(checks, page, "profile", /^Set up$/, "profile: Set up");

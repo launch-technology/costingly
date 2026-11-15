@@ -44,12 +44,34 @@ export const packageRoot = findPackageRoot();
 export const migrationsDir = join(packageRoot, "migrations");
 export const publicDir = join(packageRoot, "public");
 
+/** What package.json says about this program: read at run time, never baked in, so a release reads as itself. */
+export interface PackageInfo {
+  name: string;
+  version: string;
+  description: string;
+  license: string;
+  author: string;
+}
+
+/** package.json's own description of the program. Never throws: a field that cannot be read is empty, the version 0.0.0. */
+export function packageInfo(): PackageInfo {
+  let json: Partial<Record<keyof PackageInfo, unknown>> = {};
+  try {
+    json = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as typeof json;
+  } catch {
+    // Fall through to the defaults: the program still has to say something about itself.
+  }
+  const text = (value: unknown): string => (typeof value === "string" ? value : "");
+  return {
+    name: text(json.name),
+    version: text(json.version) || "0.0.0",
+    description: text(json.description),
+    license: text(json.license),
+    author: text(json.author),
+  };
+}
+
 /** Version from package.json, for `--version`. Never throws. */
 export function packageVersion(): string {
-  try {
-    const raw = readFileSync(join(packageRoot, "package.json"), "utf8");
-    return (JSON.parse(raw) as { version?: string }).version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
+  return packageInfo().version;
 }

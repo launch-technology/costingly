@@ -37,7 +37,7 @@ export function presentMcpSection(state: LocalServerState): McpSectionView {
       return {
         tone: moved.length === 0 ? "good" : "warn",
         headline: "Running",
-        details: [`Listening at ${addressOf(state.port)}`, ...moved, "The token is on the Connect screen."],
+        details: [`Listening at ${addressOf(state.port)}`, ...moved, "The token is on the Other clients screen."],
         canRetry: false,
       };
     }

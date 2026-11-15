@@ -22,6 +22,13 @@
  *                        everything that ships is written. Not dist/, which is
  *                        what gets packaged and is wiped by every compile.
  *
+ *   extraResources       The Claude Desktop extension, build/costingly-
+ *                        <version>.mcpb, goes into resources/extension/ so
+ *                        the app can show the user where it is. The version
+ *                        is this package's: build:installer runs build:bundle
+ *                        first, and a missing file fails the packaging rather
+ *                        than shipping an installer without it.
+ *
  *   electronDist         Use the Electron already in node_modules rather than
  *                        downloading a second copy.
  *
@@ -39,6 +46,7 @@
  * scope for now and the README says so.
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,7 +63,17 @@ export const EXECUTABLE = "Costingly.exe";
 
 const ICON = join(OUT, "icon.ico");
 
+/** This package's version: the one the extension file is named after. */
+export const VERSION = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string }).version;
+/** The extension as build:bundle writes it, and where the packaged app finds it (resources/extension/). */
+export const EXTENSION_FILE = `costingly-${VERSION}.mcpb`;
+export const EXTENSION_SOURCE = join(ROOT, "build", EXTENSION_FILE);
+export const EXTENSION_RESOURCE_DIR = "extension";
+
 export function installerConfig(): Configuration {
+  if (!existsSync(EXTENSION_SOURCE)) {
+    throw new Error(`${EXTENSION_SOURCE} is not there. Run npm run build:bundle first: the installer ships the extension.`);
+  }
   return {
     appId: "technology.launch.costingly",
     productName: "Costingly",
@@ -67,6 +85,7 @@ export function installerConfig(): Configuration {
     // Production node_modules are added by electron-builder itself; these are
     // the repository's own files the app needs at runtime.
     files: ["dist/**/*", "migrations/**/*", "public/**/*", "package.json", "LICENSE", "NOTICE"],
+    extraResources: [{ from: EXTENSION_SOURCE, to: join(EXTENSION_RESOURCE_DIR, EXTENSION_FILE) }],
     asar: false,
     npmRebuild: false,
     electronDist: join(ROOT, "node_modules", "electron", "dist"),
