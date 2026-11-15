@@ -338,77 +338,41 @@ makes any surviving stored token undecryptable.
 
 ## Uninstalling
 
-```bash
-costingly uninstall               # remove the Items at Plaid, then delete the profile
-costingly uninstall --local-only  # delete the profile; never contact Plaid
-```
+Uninstall Costingly the way you uninstall any Windows program: **Settings →
+Apps → Installed apps → Costingly → Uninstall.**
 
-Four steps, each gated on the one before:
+Before it does anything, the uninstaller warns you that it will delete
+everything Costingly keeps on this computer and gives you the choice to stop:
 
-1. **Remove each bank at Plaid** (`/item/remove`), so nothing keeps billing
-2. **Stop the database server**
-3. **Prove it stopped** — if anything still answers on the profile's port, it
-   aborts here and deletes nothing
-4. **Delete the profile directory** — config, encryption key, cluster, log
+- **Continue**, and it removes the program, the Start menu entry, the
+  start-at-sign-in setting and the whole data folder
+  (`%LOCALAPPDATA%\costingly`): the database of transactions, the Plaid keys,
+  the encrypted bank tokens, the app's settings and logs. Nothing of
+  Costingly's is left on the machine.
+- **Cancel**, and nothing is touched.
 
-It cannot remove the program itself, and says so when it finishes.
+**Unlink your banks first if you want to stop Plaid billing.** The uninstaller
+cannot reach Plaid: once the keys and tokens are deleted, the bank connections
+can no longer be removed from this machine, and Plaid keeps charging for a
+connected bank until it is removed there or expires unused. Unlinking each bank
+in Costingly, with *Also remove this bank at Plaid* ticked, is the clean way;
+the warning reminds you. Otherwise remove them later at the
+[Plaid dashboard](https://dashboard.plaid.com/).
 
-**Revoking is the default here, unlike `reset`.** Uninstall destroys the access
-tokens *and* the key that decrypts them, and Plaid can neither reissue a token
-nor look one up from an `item_id`. An Item whose token is gone can never be used
-again — only paid for. `--local-only` leaves exactly that behind, which is
-sometimes what you want (re-installing shortly) and is never silent about it.
+Two things the uninstaller is careful about:
 
-### Doing it by hand
+- **If Costingly is running** it asks you to quit from the tray icon and
+  waits, rather than killing it. Quitting stops the database cleanly, so the
+  data folder is never deleted while the database could be using it.
+- **Installing a newer version over the current one is not an uninstall.** It
+  replaces the program and keeps your data and settings.
 
-**Ask Claude first.** The extension provides an `uninstall_costingly` tool that
-does all of this properly, and on Windows it is the only thing that can — a
-terminal resolves a different profile directory and would delete the wrong one,
-or nothing. Say "uninstall costingly"; it reports what would be lost and waits
-for you to agree before deleting anything.
+If anything is left in the data folder afterwards (a file another program was
+holding open), the uninstaller opens the folder so you can delete it by hand.
 
-What follows is for when that is not available — an extension too old to have
-the tool, or one that will not start. The sequence matters:
-
-1. **Quit Claude Desktop.**
-2. **Check the database is really stopped.** It will not be. `pg_ctl` starts the
-   postmaster detached so it survives whichever process launched it — quitting
-   the app does not stop it.
-
-   ```bash
-   # macOS / Linux
-   ps ax | grep '[p]ostgres.*costingly'
-   ```
-   ```powershell
-   # Windows
-   Get-Process postgres -ErrorAction SilentlyContinue
-   ```
-3. **Stop it** — the postmaster is the process with no `--forkchild` argument;
-   the others are its children and will follow it down.
-
-   ```bash
-   kill -INT <pid>                                  # macOS / Linux
-   ```
-   ```powershell
-   & "<extension>\node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe" kill INT <pid>
-   ```
-
-   Do not force-kill it (`kill -9`, `taskkill /F`): that skips the shutdown that
-   releases shared memory, and does not bring the child processes down with it.
-4. **Delete the profile directory** — the paths under
-   [Where the data lives](#where-the-data-lives). On Windows an extension
-   install is under `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Local\`,
-   **not** `%LOCALAPPDATA%\costingly`. Check both: if you also used the CLI,
-   there are two profiles and only one of them is the extension's.
-5. **Remove the Items at Plaid** yourself, at [my.plaid.com](https://my.plaid.com/)
-   or the [Plaid dashboard](https://dashboard.plaid.com/activity/usage). Nothing
-   revoked them, and they keep billing until you do.
-
-> **Do not skip to step 4.** Deleting the directory under a running server does
-> not fail — on Windows the files unlink while the postmaster holds them open,
-> so it keeps serving a database that no longer exists on disk, and
-> `postmaster.pid` goes with the rest, leaving nothing that can stop it. That is
-> the exact failure `costingly uninstall` refuses to perform.
+The Costingly extension inside Claude Desktop is not removed: Claude Desktop
+offers no way for another program to do that. Remove it from Claude Desktop's
+extensions settings.
 
 ---
 
@@ -763,8 +727,10 @@ connection once.
 - **Installing over an existing copy** replaces the program and leaves the
   data alone. Quit Costingly from its tray icon first; the installer asks you
   to if it is running, and waits.
-- **Uninstalling** (Settings → Apps → Installed apps → Costingly) removes the
-  program and the Start menu entry. It does not touch your data.
+- **Uninstalling** (Settings → Apps → Installed apps → Costingly) warns you,
+  then removes the program, the Start menu entry and your whole data folder.
+  See [Uninstalling](#uninstalling); unlink your banks first if Plaid billing
+  matters to you.
 
 `npm run check:packaged` is the check to run after changing how the app is
 packaged, its dependencies, or the Electron version: the window suites in

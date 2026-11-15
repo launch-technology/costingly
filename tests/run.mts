@@ -32,6 +32,7 @@ const ORDER = [
   "config",
   "log",
   "local-http-server",
+  "installer-script",
   "smoke",
   "desktop-status-presenter",
   "desktop-database-presenter",

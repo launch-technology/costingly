@@ -1,8 +1,15 @@
 ; Costingly's additions to the Windows installer and uninstaller.
 ;
-; THREE THINGS: what happens when Costingly is running, a copy of the
-; installer that would otherwise be left on the machine for good, and the
-; start-at-sign-in registration (both at the end of this file).
+; FOUR THINGS: what happens when Costingly is running, a copy of the
+; installer that would otherwise be left on the machine for good, the
+; start-at-sign-in registration, and the user's data folder on uninstall
+; (the last three at the end of this file).
+;
+; One flag is shared between the first and the last: whether the user, asked
+; by the uninstaller, agreed to have the data folder deleted. It is set only
+; on the OK of that dialog, so an upgrade and a silent run can never delete.
+; It is declared inside the uninstaller-only code: the installer is compiled
+; without that code, and NSIS treats a variable nothing references as an error.
 ;
 ; WHEN COSTINGLY IS RUNNING
 ;
@@ -24,6 +31,16 @@
 ;
 ; In a silent run (/S) there is nobody to ask, so the answer is Cancel and the
 ; installer exits without touching anything.
+;
+; THE DATA WARNING LIVES HERE TOO, for the uninstaller only. The one-click
+; uninstaller shows its own "Are you sure?" and then calls this check; right
+; after it, it switches itself to silent, and NSIS shows no dialog in silent
+; mode. So this is the last moment a question can be put to the user, and the
+; warning about the data folder is asked here, once the running check has
+; passed. It is skipped when the uninstaller runs as part of an install over
+; an existing copy (an upgrade keeps the data) and when it was started silent
+; (nobody to ask, so the data stays). OK sets the flag the uninstall step
+; reads; Cancel ends the uninstaller with nothing touched.
 
 !macro customCheckAppRunning
   costingly_check_running:
@@ -33,6 +50,18 @@
       MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${PRODUCT_NAME} is running.$\r$\n$\r$\nQuit it from its icon in the system tray (right-click the icon, then Quit), and click Retry.$\r$\n$\r$\nIf you cannot find the icon, open ${PRODUCT_NAME} from the Start menu first, then quit it." /SD IDCANCEL IDRETRY costingly_check_running
       Quit
     ${endIf}
+
+  !ifdef __UNINSTALL__
+    Var /GLOBAL costinglyDeleteData
+    StrCpy $costinglyDeleteData "0"
+    ${ifNot} ${isUpdated}
+    ${andIfNot} ${Silent}
+      MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "Uninstalling ${PRODUCT_NAME} deletes everything it keeps on this computer: your database of transactions, your Plaid keys, and its settings and logs. This cannot be undone.$\r$\n$\r$\nAny banks still linked stay connected at Plaid, which may keep charging for them. To avoid that, click Cancel, open ${PRODUCT_NAME} and unlink each bank first.$\r$\n$\r$\nClick OK to uninstall and delete the data, or Cancel to keep everything as it is." /SD IDCANCEL IDOK costingly_delete_data
+      Quit
+      costingly_delete_data:
+      StrCpy $costinglyDeleteData "1"
+    ${endIf}
+  !endif
 !macroend
 
 ; THE INSTALLER'S COPY OF ITSELF
@@ -68,5 +97,25 @@
 !macro customUnInstall
   ${ifNot} ${isUpdated}
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Costingly"
+  ${endIf}
+
+  ; THE DATA FOLDER
+  ;
+  ; Everything Costingly keeps for the user sits under one folder (see
+  ; src/platform/app-dir.ts): %LOCALAPPDATA%\costingly, with Data\ (config,
+  ; keys, database, log) and Desktop\ (the app's settings, the MCP token, the
+  ; app log, the window cache). Deleting that one folder is the whole cleanup.
+  ; Only when the user agreed to it above; the running check that precedes the
+  ; dialog is what makes the delete safe, since no database program from this
+  ; install is up to be using the folder.
+  ;
+  ; RMDir /r says nothing when it cannot finish. The uninstaller is silent by
+  ; now, so a message would not show either; if anything is left, the folder
+  ; is opened in Explorer so the user sees what remains and can remove it.
+  ${if} $costinglyDeleteData == "1"
+    RMDir /r "$LOCALAPPDATA\costingly"
+    ${if} ${FileExists} "$LOCALAPPDATA\costingly\*.*"
+      ExecShell "open" "$LOCALAPPDATA\costingly"
+    ${endIf}
   ${endIf}
 !macroend

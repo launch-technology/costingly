@@ -38,9 +38,11 @@
  *                        goes under the user's own profile, like their data.
  *
  *   deleteAppDataOnUninstall: false
- *                        Uninstalling removes the program and nothing else.
- *                        What to do with the user's data is a later story's
- *                        question, and it will ask.
+ *                        electron-builder's own data cleanup deletes folders
+ *                        under %APPDATA%, where Costingly keeps nothing. The
+ *                        user's data folder, %LOCALAPPDATA%\costingly, is
+ *                        deleted by Costingly's own uninstall step in
+ *                        installer/installer.nsh, after warning the user.
  *
  * Unsigned: Windows will warn about an unknown publisher. Signing is out of
  * scope for now and the README says so.
